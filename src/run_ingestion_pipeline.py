@@ -29,7 +29,7 @@ from .constants import (
     YOLO_MODEL_PATH,
     YOLO_CONFIDENCE_THRESHOLD,
     YOLO_IOU_THRESHOLD,
-    SMOLDOCLING_MODEL_DIR,
+    DOCLING_MODEL,
     PROCESSED_DIR,
     CHUNKS_DIR,
     EMBED_MODEL,
@@ -204,18 +204,18 @@ async def run_ingestion_pipeline_async(
         try:
             logger.info("Extracting text from images...")
             parse_image_with_text(
-                DETECTION_DIR,
-                SMOLDOCLING_MODEL_DIR,
-                "Find all 'text' elements on the page, retrieve all section headers.",
-                PROCESSED_DIR
+                image_dir=DETECTION_DIR,
+                model=DOCLING_MODEL,
+                prompt="Extract all text content from this document page.",
+                output_dir=PROCESSED_DIR,
             )
 
             logger.info("Extracting tables from images...")
             parse_image_with_table(
-                DETECTION_DIR,
-                SMOLDOCLING_MODEL_DIR,
-                "Detect the table elements on the page, use OCR when needed.",
-                PROCESSED_DIR
+                image_dir=DETECTION_DIR,
+                model=DOCLING_MODEL,
+                prompt="Extract the table from this document image.",
+                output_dir=PROCESSED_DIR,
             )
             logger.info("Content extraction completed")
         except Exception as e:

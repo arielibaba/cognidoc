@@ -46,10 +46,10 @@ IMAGE_PIXEL_THRESHOLD = 10000
 IMAGE_PIXEL_VARIANCE_THRESHOLD = 500
 
 # =============================================================================
-# SmolDocling Model Configuration
+# Docling Model Configuration (via Ollama)
 # =============================================================================
 
-SMOLDOCLING_MODEL_DIR = BASE_DIR / "../models/ds4sd_SmolDocling-256M-preview-mlx-bf16"
+DOCLING_MODEL = os.getenv("DOCLING_MODEL", "ibm/granite-docling:258m-bf16")
 
 # =============================================================================
 # LLM Provider Configuration
@@ -164,7 +164,6 @@ SYSTEM_PROMPT_IMAGE_DESC = str(SYSTEM_PROMPT_IMAGE_DESC.resolve())
 SYSTEM_PROMPT_TEXT_EXTRACT = str(SYSTEM_PROMPT_TEXT_EXTRACT.resolve())
 USER_PROMPT_IMAGE_DESC = str(USER_PROMPT_IMAGE_DESC.resolve())
 USER_PROMPT_TEXT_EXTRACT = str(USER_PROMPT_TEXT_EXTRACT.resolve())
-SMOLDOCLING_MODEL_DIR = str(SMOLDOCLING_MODEL_DIR.resolve())
 CHUNKS_DIR = str((BASE_DIR / "../data/chunks").resolve())
 EMBEDDINGS_DIR = str(EMBEDDINGS_DIR.resolve())
 VECTOR_STORE_DIR = str(VECTOR_STORE_DIR.resolve())

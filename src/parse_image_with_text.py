@@ -1,69 +1,181 @@
-from docling_core.types.doc.document import DocTagsDocument, DoclingDocument
+"""
+Parse images containing text using granite-docling via Ollama.
 
-from mlx_vlm import load, stream_generate
-from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import load_config
+Extracts text content from document images and exports as Markdown.
+Uses DocTags format for structured document parsing.
+"""
 
-from PIL import Image
+import re
 from pathlib import Path
+from typing import List, Tuple
+
+import ollama
+from PIL import Image
+
+from .utils.logger import logger, timer
+from .constants import DOCLING_MODEL
 
 
+def extract_text_from_doctags(doctags: str) -> List[Tuple[str, str]]:
+    """
+    Extract text content from DocTags format.
+
+    Args:
+        doctags: Raw DocTags string from granite-docling
+
+    Returns:
+        List of (tag_type, content) tuples
+    """
+    elements = []
+
+    # Pattern to match DocTags elements with content
+    # Matches: <tag><loc_...>...<loc_...>content</tag>
+    patterns = [
+        (r"<section_header_level_(\d+)>(?:<loc_\d+>)*([^<]+)</section_header_level_\d+>", "header"),
+        (r"<text>(?:<loc_\d+>)*([^<]+)</text>", "text"),
+        (r"<paragraph>(?:<loc_\d+>)*([^<]+)</paragraph>", "paragraph"),
+        (r"<caption>(?:<loc_\d+>)*([^<]+)</caption>", "caption"),
+        (r"<list_item>(?:<loc_\d+>)*([^<]+)</list_item>", "list_item"),
+        (r"<title>(?:<loc_\d+>)*([^<]+)</title>", "title"),
+    ]
+
+    for pattern, tag_type in patterns:
+        matches = re.findall(pattern, doctags)
+        for match in matches:
+            if isinstance(match, tuple):
+                # For headers with level
+                content = match[-1].strip()
+            else:
+                content = match.strip()
+            if content:
+                elements.append((tag_type, content))
+
+    return elements
 
 
-def parse_image_with_text_func(image_path, model, processor, config, prompt, output_dir):
+def doctags_to_markdown(doctags: str) -> str:
+    """
+    Convert DocTags to Markdown format.
 
-    print(f"\nParse image: {image_path.name}")
-    
-    ## Prepare input
-    image = str(image_path.resolve())
+    Args:
+        doctags: Raw DocTags string
 
-    # Load image resource
-    pil_image = Image.open(image)
+    Returns:
+        Markdown formatted string
+    """
+    elements = extract_text_from_doctags(doctags)
 
-    # Apply chat template
-    formatted_prompt = apply_chat_template(processor, config, prompt, num_images=1)
+    if not elements:
+        # Fallback: extract any text between tags
+        text_content = re.sub(r"<[^>]+>", " ", doctags)
+        text_content = re.sub(r"\s+", " ", text_content).strip()
+        return text_content
 
-    ## Generate output
-    output = ""
-    for token in stream_generate(
-        model, processor, formatted_prompt, [image], max_tokens=4096, verbose=False
-    ):
-        output += token.text
-        if "</doctag>" in token.text:
-            break
+    lines = []
+    for tag_type, content in elements:
+        if tag_type == "header":
+            lines.append(f"## {content}\n")
+        elif tag_type == "title":
+            lines.append(f"# {content}\n")
+        elif tag_type == "list_item":
+            lines.append(f"- {content}")
+        elif tag_type == "caption":
+            lines.append(f"*{content}*\n")
+        else:
+            lines.append(content)
 
-    # Populate document
-    doctags_doc = DocTagsDocument.from_doctags_and_image_pairs([output], [pil_image])
-    doc = DoclingDocument(name="SampleDocument")
-    doc.load_from_doctags(doctags_doc)
-
-    ## Export as Markdown
-    doc_path = Path(output_dir) / f"{image_path.stem}.md"
-    with open(doc_path, "w") as file:
-        file.write(doc.export_to_markdown())
-
-    print(f"Image content saved to: {doc_path.name}")
+    return "\n\n".join(lines)
 
 
-def parse_image_with_text(image_dir, model_dir, prompt, output_dir):
-    # Define the download directory for the model and config
-    # Or set the cache directory to where the model is already downloaded.
-    download_dir = Path(model_dir)                       # Path("models") / "ds4sd_SmolDocling-256M-preview-mlx-bf16"
-    download_dir.mkdir(parents=True, exist_ok=True)
+def parse_image_with_text_func(
+    image_path: Path,
+    client: ollama.Client,
+    model: str,
+    prompt: str,
+    output_dir: Path,
+) -> None:
+    """
+    Parse a single image containing text.
 
-    ## Load the model using the local cache directory
-    model_id = "ds4sd/SmolDocling-256M-preview-mlx-bf16"
-    model, processor = load(model_id, cache_dir=str(download_dir))
-    config = load_config(model_id, cache_dir=str(download_dir))
+    Args:
+        image_path: Path to the image file
+        client: Ollama client instance
+        model: Model name for Ollama
+        prompt: Extraction prompt
+        output_dir: Directory for output files
+    """
+    logger.info(f"Parsing text from: {image_path.name}")
 
-    # Process image files with text only in the directory
-    # Extract the texts
+    # Call Ollama with vision
+    with timer(f"extract text from {image_path.name}"):
+        response = client.chat(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [str(image_path)],
+                }
+            ],
+            options={"num_predict": 4096},
+        )
 
-    print(f"\nProcessing the images with text only in directory: {image_dir} ...\n")
+    output = response["message"]["content"]
 
-    for image_path in Path(image_dir).glob('*_Text.jpg'):
-        parse_image_with_text_func(image_path, model, processor, config, prompt, output_dir)
-    
-    print(f"\nAll the images were processed successfully!\nThe texts extracted were saved to: {output_dir}\n")
-    
+    # Convert DocTags to Markdown
+    markdown_content = doctags_to_markdown(output)
 
+    # Save as Markdown
+    doc_path = output_dir / f"{image_path.stem}.md"
+    with open(doc_path, "w", encoding="utf-8") as f:
+        f.write(markdown_content)
+
+    logger.info(f"Text content saved to: {doc_path.name} ({len(markdown_content)} chars)")
+
+
+def parse_image_with_text(
+    image_dir: str,
+    model: str = None,
+    prompt: str = "Extract all text from this document image.",
+    output_dir: str = None,
+) -> dict:
+    """
+    Process all text images in a directory.
+
+    Args:
+        image_dir: Directory containing images
+        model: Ollama model name (defaults to DOCLING_MODEL)
+        prompt: Extraction prompt
+        output_dir: Output directory for extracted text
+
+    Returns:
+        Statistics dictionary
+    """
+    image_dir = Path(image_dir)
+    output_dir = Path(output_dir) if output_dir else image_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    model = model or DOCLING_MODEL
+    client = ollama.Client()
+
+    stats = {"processed": 0, "errors": 0}
+
+    logger.info(f"Processing text images in: {image_dir}")
+    logger.info(f"Using model: {model}")
+
+    for image_path in image_dir.glob("*_Text.jpg"):
+        try:
+            parse_image_with_text_func(
+                image_path=image_path,
+                client=client,
+                model=model,
+                prompt=prompt,
+                output_dir=output_dir,
+            )
+            stats["processed"] += 1
+        except Exception as e:
+            logger.error(f"Failed to process {image_path.name}: {e}")
+            stats["errors"] += 1
+
+    logger.info(f"Text extraction complete: {stats['processed']} processed, {stats['errors']} errors")
+    return stats
