@@ -2,12 +2,12 @@
 Hybrid Retriever module combining Vector RAG and GraphRAG.
 
 Provides:
-- Query analysis and routing
+- Intelligent query orchestration with LLM classification
 - BM25 + Dense hybrid search (#7)
 - Cross-encoder reranking (#9)
 - Lost-in-the-middle reordering (#14)
 - Contextual compression (#13)
-- Result fusion from multiple sources
+- Smart result fusion with deduplication
 """
 
 import re
@@ -21,6 +21,14 @@ import ollama
 from .graph_config import get_graph_config, GraphConfig
 from .graph_retrieval import GraphRetriever, GraphRetrievalResult
 from .knowledge_graph import KnowledgeGraph
+from .query_orchestrator import (
+    QueryOrchestrator,
+    OrchestratorConfig,
+    RoutingDecision,
+    RetrievalMode,
+    QueryType,
+    route_query,
+)
 from .constants import (
     LLM,
     EMBED_MODEL,
@@ -58,19 +66,13 @@ from .utils.advanced_rag import (
 from .utils.logger import logger
 
 
-class QueryType(Enum):
-    """Types of queries for routing."""
-    FACTUAL = "factual"           # Simple fact lookup
-    RELATIONAL = "relational"      # About relationships
-    COMPARATIVE = "comparative"    # Comparing entities
-    EXPLORATORY = "exploratory"    # Broad/global questions
-    PROCEDURAL = "procedural"      # How-to questions
-    UNKNOWN = "unknown"
+# Re-export QueryType for backward compatibility
+__all__ = ["QueryType", "HybridRetriever", "HybridRetrievalResult"]
 
 
 @dataclass
 class QueryAnalysis:
-    """Result of query analysis."""
+    """Result of query analysis (legacy, now uses RoutingDecision internally)."""
     query: str
     query_type: QueryType
     entities_mentioned: List[str] = field(default_factory=list)
@@ -80,6 +82,21 @@ class QueryAnalysis:
     vector_weight: float = 0.5
     graph_weight: float = 0.5
     confidence: float = 0.5
+
+    @classmethod
+    def from_routing_decision(cls, decision: RoutingDecision) -> "QueryAnalysis":
+        """Convert RoutingDecision to QueryAnalysis for compatibility."""
+        return cls(
+            query=decision.query,
+            query_type=decision.query_type,
+            entities_mentioned=decision.entities_detected,
+            relationship_keywords=[],
+            use_vector=not decision.skip_vector,
+            use_graph=not decision.skip_graph,
+            vector_weight=decision.vector_weight,
+            graph_weight=decision.graph_weight,
+            confidence=decision.confidence,
+        )
 
 
 @dataclass
@@ -102,121 +119,13 @@ def analyze_query(
     """
     Analyze a query to determine its type and routing strategy.
 
-    Uses pattern matching and optionally LLM classification.
+    Now uses the intelligent QueryOrchestrator for classification.
     """
-    if config is None:
-        config = get_graph_config()
+    # Use the new orchestrator
+    decision = route_query(query, model)
 
-    analysis = QueryAnalysis(
-        query=query,
-        query_type=QueryType.UNKNOWN,
-        use_vector=True,
-        use_graph=True,
-    )
-
-    query_lower = query.lower()
-
-    # Check for relationship patterns
-    relationship_patterns = config.routing.graph_query_patterns or [
-        "relationship",
-        "related to",
-        "connected",
-        "depends on",
-        "affects",
-        "impacts",
-        "between .* and",
-    ]
-
-    for pattern in relationship_patterns:
-        if re.search(pattern, query_lower):
-            analysis.query_type = QueryType.RELATIONAL
-            analysis.relationship_keywords.append(pattern)
-            analysis.graph_weight = 0.7
-            analysis.vector_weight = 0.3
-            break
-
-    # Check for comparative patterns
-    comparative_patterns = [
-        r"compare",
-        r"difference between",
-        r"vs\.?",
-        r"versus",
-        r"better than",
-        r"similar to",
-    ]
-
-    for pattern in comparative_patterns:
-        if re.search(pattern, query_lower):
-            analysis.query_type = QueryType.COMPARATIVE
-            analysis.graph_weight = 0.6
-            analysis.vector_weight = 0.4
-            break
-
-    # Check for exploratory/global patterns
-    exploratory_patterns = [
-        r"what are all",
-        r"list all",
-        r"summarize",
-        r"overview",
-        r"main (?:topics|themes|concepts)",
-        r"how many",
-    ]
-
-    for pattern in exploratory_patterns:
-        if re.search(pattern, query_lower):
-            analysis.query_type = QueryType.EXPLORATORY
-            analysis.graph_weight = 0.8
-            analysis.vector_weight = 0.2
-            break
-
-    # Check for procedural patterns
-    procedural_patterns = [
-        r"how (?:do|does|to|can)",
-        r"steps to",
-        r"process (?:for|of)",
-        r"procedure",
-        r"guide",
-    ]
-
-    for pattern in procedural_patterns:
-        if re.search(pattern, query_lower):
-            analysis.query_type = QueryType.PROCEDURAL
-            analysis.graph_weight = 0.3
-            analysis.vector_weight = 0.7
-            break
-
-    # Default to factual if no patterns matched
-    if analysis.query_type == QueryType.UNKNOWN:
-        # Check for question words
-        if re.search(r"^(what|who|where|when|which)\b", query_lower):
-            analysis.query_type = QueryType.FACTUAL
-            analysis.graph_weight = 0.4
-            analysis.vector_weight = 0.6
-        else:
-            analysis.query_type = QueryType.FACTUAL
-            analysis.graph_weight = config.routing.graph_weight
-            analysis.vector_weight = config.routing.vector_weight
-
-    # Apply routing strategy from config
-    if config.routing.strategy == "hybrid":
-        analysis.use_vector = True
-        analysis.use_graph = True
-    elif config.routing.strategy == "classifier":
-        # Use graph only for relational/exploratory queries
-        analysis.use_graph = analysis.query_type in [
-            QueryType.RELATIONAL,
-            QueryType.COMPARATIVE,
-            QueryType.EXPLORATORY,
-        ]
-
-    analysis.confidence = 0.8 if analysis.query_type != QueryType.UNKNOWN else 0.5
-
-    logger.debug(
-        f"Query analysis: type={analysis.query_type.value}, "
-        f"vector={analysis.use_vector}, graph={analysis.use_graph}"
-    )
-
-    return analysis
+    # Convert to QueryAnalysis for backward compatibility
+    return QueryAnalysis.from_routing_decision(decision)
 
 
 def fuse_results(
@@ -273,10 +182,12 @@ class HybridRetriever:
     Hybrid retriever combining Vector RAG and GraphRAG.
 
     Advanced features:
+    - Intelligent query orchestration with LLM classification
     - BM25 + Dense hybrid search (#7)
     - Cross-encoder reranking (#9)
     - Lost-in-the-middle reordering (#14)
     - Contextual compression (#13)
+    - Smart skip logic and confidence-based fallback
 
     Usage:
         retriever = HybridRetriever()
@@ -291,12 +202,16 @@ class HybridRetriever:
         index_path: str = None,
         graph_path: str = None,
         bm25_index_path: str = None,
+        orchestrator_config: Optional[OrchestratorConfig] = None,
     ):
         self.config = config or get_graph_config()
         self.vector_store_path = vector_store_path or VECTOR_STORE_DIR
         self.index_path = index_path or INDEX_DIR
         self.graph_path = graph_path
         self.bm25_index_path = bm25_index_path or BM25_INDEX_PATH
+
+        # Query orchestrator for intelligent routing
+        self._orchestrator = QueryOrchestrator(orchestrator_config or OrchestratorConfig())
 
         # Components (lazy-loaded)
         self._vector_index: Optional[VectorIndex] = None
@@ -384,6 +299,7 @@ class HybridRetriever:
         use_lost_in_middle: bool = None,
         use_compression: bool = None,
         metadata_filters: List[MetadataFilter] = None,
+        use_smart_routing: bool = True,
     ) -> HybridRetrievalResult:
         """
         Perform hybrid retrieval with advanced RAG features.
@@ -398,6 +314,7 @@ class HybridRetriever:
             use_lost_in_middle: Apply lost-in-middle reordering (default from config)
             use_compression: Apply contextual compression (default from config)
             metadata_filters: List of MetadataFilter for filtering results (#16)
+            use_smart_routing: Use intelligent orchestrator for routing decisions
 
         Returns:
             HybridRetrievalResult with combined context
@@ -417,15 +334,32 @@ class HybridRetriever:
         if use_compression is None:
             use_compression = ENABLE_CONTEXTUAL_COMPRESSION
 
-        # Analyze query
-        analysis = analyze_query(query, self.config)
+        # Smart routing with orchestrator
+        if use_smart_routing:
+            routing = self._orchestrator.route(query, model)
+            analysis = QueryAnalysis.from_routing_decision(routing)
+
+            # Log routing decision
+            logger.info(
+                f"Smart routing: mode={routing.mode.value}, "
+                f"skip_vector={routing.skip_vector}, skip_graph={routing.skip_graph}, "
+                f"reasoning='{routing.reasoning}'"
+            )
+        else:
+            # Legacy: use old analyze_query
+            analysis = analyze_query(query, self.config)
+            routing = None
 
         # Initialize results
         vector_results = []
         graph_result = None
+        vector_confidence = 0.0
+        graph_confidence = 0.0
 
         # Vector retrieval (with optional BM25 hybrid)
-        if analysis.use_vector and self._vector_index:
+        # Skip if routing says so
+        skip_vector = routing.skip_vector if routing else False
+        if analysis.use_vector and self._vector_index and not skip_vector:
             try:
                 # Dense vector search
                 dense_results = self._vector_index.search(query, top_k=top_k)
@@ -532,16 +466,39 @@ class HybridRetriever:
             except Exception as e:
                 logger.error(f"Vector retrieval failed: {e}")
 
+        # Calculate vector confidence
+        if vector_results:
+            avg_score = sum(nws.score for nws in vector_results) / len(vector_results)
+            vector_confidence = min(1.0, avg_score)
+        else:
+            vector_confidence = 0.0
+
         # Graph retrieval
-        if analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded():
+        # Skip if routing says so
+        skip_graph = routing.skip_graph if routing else False
+        if analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph:
             try:
                 graph_result = self._graph_retriever.retrieve(query, model)
+                graph_confidence = graph_result.confidence
                 logger.debug(
                     f"Graph retrieval: {len(graph_result.entities)} entities, "
                     f"confidence={graph_result.confidence:.2f}"
                 )
             except Exception as e:
                 logger.error(f"Graph retrieval failed: {e}")
+                graph_confidence = 0.0
+        elif skip_graph:
+            logger.info("Graph retrieval skipped by smart routing")
+
+        # Confidence-based fallback adjustment
+        if routing and (vector_confidence > 0 or graph_confidence > 0):
+            adjusted_routing = self._orchestrator.should_fallback(
+                routing, vector_confidence, graph_confidence
+            )
+            if adjusted_routing.reasoning != routing.reasoning:
+                logger.info(f"Fallback adjustment: {adjusted_routing.reasoning}")
+                analysis.vector_weight = adjusted_routing.vector_weight
+                analysis.graph_weight = adjusted_routing.graph_weight
 
         # Fuse results
         fused_context, source_chunks = fuse_results(
@@ -586,6 +543,15 @@ class HybridRetriever:
                 "cross_encoder": use_cross_encoder,
                 "lost_in_middle": use_lost_in_middle,
                 "compression": use_compression,
+                # Smart routing info
+                "smart_routing": use_smart_routing,
+                "routing_mode": routing.mode.value if routing else "legacy",
+                "vector_skipped": skip_vector,
+                "graph_skipped": skip_graph,
+                "vector_confidence": vector_confidence,
+                "graph_confidence": graph_confidence,
+                "vector_weight": analysis.vector_weight,
+                "graph_weight": analysis.graph_weight,
             },
         )
 
