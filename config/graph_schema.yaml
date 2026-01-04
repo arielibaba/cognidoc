@@ -1,0 +1,286 @@
+# =============================================================================
+# Graph Schema Configuration
+# =============================================================================
+# This file defines how entities and relationships are extracted from documents
+# to build the knowledge graph for GraphRAG retrieval.
+#
+# Instructions:
+# 1. Fill in the domain section to describe your document corpus
+# 2. Define entity types relevant to your domain
+# 3. Define relationship types between entities
+# 4. Optionally customize extraction prompts
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Domain Description
+# -----------------------------------------------------------------------------
+# Provide context about your documents to guide entity/relationship extraction
+domain:
+  # Short name for the domain (used in prompts)
+  name: "General Knowledge Base"
+
+  # Detailed description of what the documents contain
+  # Be specific - this helps the LLM extract relevant entities
+  description: |
+    This is a general-purpose document collection that may contain various types
+    of content including technical documentation, procedures, reports, and
+    reference materials.
+
+  # Language of the documents (affects extraction prompts)
+  language: "en"  # en, fr, de, es, etc.
+
+  # Document types present in the corpus (helps calibrate extraction)
+  document_types:
+    - "technical_documentation"
+    - "procedures"
+    - "reports"
+    - "training_materials"
+
+# -----------------------------------------------------------------------------
+# Entity Types
+# -----------------------------------------------------------------------------
+# Define the types of entities to extract from documents.
+# Each entity type should have:
+#   - name: Identifier for the entity type
+#   - description: What this entity represents (used in extraction prompts)
+#   - examples: Example instances to guide extraction
+#   - attributes: Optional attributes to extract for each entity
+entities:
+  - name: "Concept"
+    description: "Key concepts, terms, or ideas defined or discussed in the documents"
+    examples:
+      - "Machine Learning"
+      - "Data Pipeline"
+      - "User Authentication"
+    attributes:
+      - "definition"
+      - "category"
+
+  - name: "Process"
+    description: "Procedures, workflows, or step-by-step processes described in the documents"
+    examples:
+      - "Data Ingestion Process"
+      - "Approval Workflow"
+      - "Deployment Pipeline"
+    attributes:
+      - "steps"
+      - "owner"
+
+  - name: "Tool"
+    description: "Software tools, systems, or technologies mentioned in the documents"
+    examples:
+      - "Python"
+      - "Docker"
+      - "Kubernetes"
+    attributes:
+      - "purpose"
+      - "version"
+
+  - name: "Person"
+    description: "People, roles, or stakeholders mentioned in the documents"
+    examples:
+      - "Project Manager"
+      - "Data Engineer"
+      - "End User"
+    attributes:
+      - "role"
+      - "department"
+
+  - name: "Organization"
+    description: "Companies, departments, teams, or organizational units"
+    examples:
+      - "Engineering Team"
+      - "HR Department"
+      - "Partner Company"
+    attributes:
+      - "type"
+
+  - name: "Document"
+    description: "References to other documents, standards, or specifications"
+    examples:
+      - "User Guide"
+      - "API Specification"
+      - "Compliance Policy"
+    attributes:
+      - "type"
+      - "version"
+
+  - name: "Metric"
+    description: "KPIs, measurements, or quantitative indicators"
+    examples:
+      - "Response Time"
+      - "Accuracy Rate"
+      - "Cost Savings"
+    attributes:
+      - "unit"
+      - "target_value"
+
+# -----------------------------------------------------------------------------
+# Relationship Types
+# -----------------------------------------------------------------------------
+# Define the types of relationships between entities.
+# Each relationship should have:
+#   - name: Identifier for the relationship type
+#   - description: What this relationship represents
+#   - source_types: Entity types that can be the source
+#   - target_types: Entity types that can be the target
+#   - examples: Example relationships to guide extraction
+relationships:
+  - name: "USES"
+    description: "An entity uses or utilizes another entity"
+    source_types: ["Process", "Person", "Organization"]
+    target_types: ["Tool", "Concept", "Document"]
+    examples:
+      - "Data Pipeline USES Python"
+      - "Engineering Team USES Kubernetes"
+
+  - name: "PRODUCES"
+    description: "An entity produces or creates another entity"
+    source_types: ["Process", "Tool", "Person"]
+    target_types: ["Document", "Metric", "Concept"]
+    examples:
+      - "Build Process PRODUCES Artifacts"
+      - "Report Generator PRODUCES Monthly Report"
+
+  - name: "REQUIRES"
+    description: "An entity requires or depends on another entity"
+    source_types: ["Process", "Tool", "Concept"]
+    target_types: ["Tool", "Concept", "Person", "Document"]
+    examples:
+      - "Deployment REQUIRES Approval"
+      - "API REQUIRES Authentication"
+
+  - name: "PART_OF"
+    description: "An entity is part of or belongs to another entity"
+    source_types: ["Person", "Process", "Concept", "Tool"]
+    target_types: ["Organization", "Process", "Concept"]
+    examples:
+      - "Data Engineer PART_OF Engineering Team"
+      - "Validation PART_OF Testing Process"
+
+  - name: "RELATED_TO"
+    description: "General relationship between entities (use when more specific relationships don't apply)"
+    source_types: ["*"]  # Any entity type
+    target_types: ["*"]  # Any entity type
+    examples:
+      - "Security RELATED_TO Compliance"
+      - "Performance RELATED_TO Optimization"
+
+  - name: "MEASURES"
+    description: "A metric measures or evaluates something"
+    source_types: ["Metric"]
+    target_types: ["Process", "Tool", "Concept"]
+    examples:
+      - "Response Time MEASURES API Performance"
+      - "Accuracy Rate MEASURES Model Quality"
+
+  - name: "DEFINED_IN"
+    description: "An entity is defined or documented in another entity"
+    source_types: ["Concept", "Process", "Metric"]
+    target_types: ["Document"]
+    examples:
+      - "API Specification DEFINED_IN Technical Guide"
+      - "Approval Process DEFINED_IN Policy Document"
+
+  - name: "RESPONSIBLE_FOR"
+    description: "A person or organization is responsible for something"
+    source_types: ["Person", "Organization"]
+    target_types: ["Process", "Tool", "Document"]
+    examples:
+      - "Project Manager RESPONSIBLE_FOR Delivery"
+      - "DevOps Team RESPONSIBLE_FOR Infrastructure"
+
+# -----------------------------------------------------------------------------
+# Extraction Settings
+# -----------------------------------------------------------------------------
+# Fine-tune how entities and relationships are extracted
+extraction:
+  # Maximum entities to extract per chunk
+  max_entities_per_chunk: 15
+
+  # Maximum relationships to extract per chunk
+  max_relationships_per_chunk: 20
+
+  # Minimum confidence score (0.0-1.0) for extracted entities/relationships
+  min_confidence: 0.7
+
+  # Whether to extract implicit relationships (inferred, not explicitly stated)
+  extract_implicit_relations: true
+
+  # Whether to resolve coreferences (e.g., "it" refers to "the system")
+  resolve_coreferences: true
+
+  # LLM temperature for extraction (lower = more consistent)
+  extraction_temperature: 0.1
+
+# -----------------------------------------------------------------------------
+# Graph Settings
+# -----------------------------------------------------------------------------
+# Configure the knowledge graph structure and behavior
+graph:
+  # Whether to merge similar entities (fuzzy matching)
+  merge_similar_entities: true
+
+  # Similarity threshold for entity merging (0.0-1.0)
+  entity_similarity_threshold: 0.85
+
+  # Whether to compute community detection (for global queries)
+  enable_communities: true
+
+  # Algorithm for community detection: "louvain" or "leiden"
+  community_algorithm: "louvain"
+
+  # Resolution parameter for community detection (higher = more communities)
+  community_resolution: 1.0
+
+  # Maximum depth for graph traversal queries
+  max_traversal_depth: 3
+
+  # Whether to generate community summaries
+  generate_community_summaries: true
+
+# -----------------------------------------------------------------------------
+# Query Routing Settings
+# -----------------------------------------------------------------------------
+# Configure how queries are routed between vector RAG and GraphRAG
+routing:
+  # Strategy: "classifier" (LLM-based) or "hybrid" (always use both)
+  strategy: "hybrid"
+
+  # For classifier strategy: patterns that indicate graph queries
+  graph_query_patterns:
+    - "relationship"
+    - "related to"
+    - "connected"
+    - "depends on"
+    - "affects"
+    - "impacts"
+    - "all .* that"
+    - "how many"
+    - "list all"
+    - "compare"
+    - "difference between"
+
+  # Weight for vector RAG results in fusion (0.0-1.0)
+  vector_weight: 0.5
+
+  # Weight for GraphRAG results in fusion (0.0-1.0)
+  graph_weight: 0.5
+
+  # Whether to always include vector results as fallback
+  always_include_vector: true
+
+# -----------------------------------------------------------------------------
+# Custom Prompts (Optional)
+# -----------------------------------------------------------------------------
+# Override default prompts for entity/relationship extraction
+# Leave empty to use default prompts
+custom_prompts:
+  # Custom prompt for entity extraction (use {text}, {entity_types}, {domain})
+  entity_extraction: ""
+
+  # Custom prompt for relationship extraction (use {text}, {entities}, {relationship_types})
+  relationship_extraction: ""
+
+  # Custom prompt for community summarization (use {entities}, {relationships})
+  community_summary: ""

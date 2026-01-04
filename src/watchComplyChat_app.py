@@ -1,10 +1,11 @@
 """
-WatchComplyChat - Gradio chat application for RAG-based document querying.
+WatchComplyChat - Gradio chat application for Hybrid RAG document querying.
 
 Features:
-- Multi-step RAG: query rewriting, retrieval, reranking, generation
+- Hybrid RAG: combines Vector RAG + GraphRAG
+- Multi-step retrieval: query rewriting, vector search, graph traversal, reranking
 - Streaming responses
-- Reranking toggle (UI checkbox + CLI argument)
+- Reranking and GraphRAG toggles
 - Performance profiling
 
 No LlamaIndex dependencies - uses direct Qdrant and Ollama calls.
@@ -49,6 +50,7 @@ from .utils.rag_utils import (
     NodeWithScore,
     rerank_documents,
 )
+from .hybrid_retriever import HybridRetriever, HybridRetrievalResult
 from .utils.logger import logger, retrieval_metrics
 
 # Suppress warnings and apply async patch
@@ -95,15 +97,27 @@ parent_index = KeywordIndex.load(
 
 logger.info("Indexes loaded successfully")
 
+# Load hybrid retriever (includes knowledge graph)
+logger.info("Loading hybrid retriever...")
+hybrid_retriever = HybridRetriever()
+hybrid_status = hybrid_retriever.load()
+logger.info(f"Hybrid retriever status: {hybrid_status}")
 
-def chat_conversation(user_message: str, history: list, enable_reranking: bool = True):
+
+def chat_conversation(
+    user_message: str,
+    history: list,
+    enable_reranking: bool = True,
+    enable_graph: bool = True,
+):
     """
-    Main chat conversation handler.
+    Main chat conversation handler with hybrid RAG.
 
     Args:
         user_message: User's input message
         history: Conversation history
         enable_reranking: Whether to use LLM reranking
+        enable_graph: Whether to use GraphRAG (knowledge graph)
 
     Yields:
         Updated conversation history
@@ -142,65 +156,105 @@ def chat_conversation(user_message: str, history: list, enable_reranking: bool =
     if not candidates:
         candidates = [user_message]
 
-    # Retrieval
+    # Retrieval (hybrid or vector-only)
     t3 = time.perf_counter()
-    retrieved = []
-    for q in candidates:
-        results = child_index.search(q, top_k=TOP_K_RETRIEVED_CHILDREN)
-        retrieved.extend(results)
+    graph_context = ""
+    graph_time = 0
 
-    # Get parent documents
-    parents = []
-    for nws in retrieved:
-        parent_name = nws.node.metadata.get("parent")
-        parent_docs = parent_index.search_by_metadata("name", parent_name)
-        if parent_docs:
-            parents.append(parent_docs[0])
+    if enable_graph and hybrid_retriever.is_loaded():
+        # Use hybrid retrieval (vector + graph)
+        logger.info("Using hybrid retrieval (Vector + Graph)")
+        combo_query = user_message + " | " + " | ".join(candidates)
 
-    # Deduplicate parents
-    seen = set()
-    unique = []
-    for p in parents:
-        name = p.metadata.get("name")
-        if name not in seen:
-            seen.add(name)
-            unique.append(p)
+        # Temporarily disable graph in config if not enabled
+        if not enable_graph:
+            hybrid_retriever.config.routing.strategy = "vector_only"
 
-    t4 = time.perf_counter()
-    retrieval_time = t4 - t3
-
-    # Reranking (optional)
-    rerank_time = 0
-    if enable_reranking and unique:
-        t_rerank_start = time.perf_counter()
-        nws_list = [NodeWithScore(node=p, score=0.0) for p in unique]
-        combo = user_message + " | " + " | ".join(candidates)
-        reranked = rerank_documents(
-            documents=nws_list,
-            query=combo,
+        hybrid_result = hybrid_retriever.retrieve(
+            query=combo_query,
+            top_k=TOP_K_RETRIEVED_CHILDREN,
+            use_reranking=enable_reranking,
             model=LLM,
-            top_n=TOP_K_RERANKED_PARENTS,
         )
-        t_rerank_end = time.perf_counter()
-        rerank_time = t_rerank_end - t_rerank_start
-        logger.info(f"Reranking: {len(unique)} -> {len(reranked)} parents in {rerank_time:.2f}s")
+
+        # Extract results from hybrid retrieval
+        reranked = hybrid_result.vector_results
+        graph_context = hybrid_result.graph_results.context if hybrid_result.graph_results else ""
+
+        t4 = time.perf_counter()
+        retrieval_time = t4 - t3
+        rerank_time = 0  # Already included in hybrid retrieval
+
+        logger.info(
+            f"Hybrid retrieval: {len(reranked)} documents, "
+            f"graph entities: {hybrid_result.metadata.get('graph_entities', 0)}, "
+            f"query type: {hybrid_result.metadata.get('query_type', 'unknown')}"
+        )
+
     else:
-        # No reranking: use top-k from unique
-        reranked = [NodeWithScore(node=p, score=0.0) for p in unique[:TOP_K_RERANKED_PARENTS]]
-        if not enable_reranking:
-            logger.info(f"Reranking disabled, using top-{len(reranked)} parents")
+        # Fallback to vector-only retrieval
+        logger.info("Using vector-only retrieval")
+        retrieved = []
+        for q in candidates:
+            results = child_index.search(q, top_k=TOP_K_RETRIEVED_CHILDREN)
+            retrieved.extend(results)
+
+        # Get parent documents
+        parents = []
+        for nws in retrieved:
+            parent_name = nws.node.metadata.get("parent")
+            parent_docs = parent_index.search_by_metadata("name", parent_name)
+            if parent_docs:
+                parents.append(parent_docs[0])
+
+        # Deduplicate parents
+        seen = set()
+        unique = []
+        for p in parents:
+            name = p.metadata.get("name")
+            if name not in seen:
+                seen.add(name)
+                unique.append(p)
+
+        t4 = time.perf_counter()
+        retrieval_time = t4 - t3
+
+        # Reranking (optional)
+        rerank_time = 0
+        if enable_reranking and unique:
+            t_rerank_start = time.perf_counter()
+            nws_list = [NodeWithScore(node=p, score=0.0) for p in unique]
+            combo = user_message + " | " + " | ".join(candidates)
+            reranked = rerank_documents(
+                documents=nws_list,
+                query=combo,
+                model=LLM,
+                top_n=TOP_K_RERANKED_PARENTS,
+            )
+            t_rerank_end = time.perf_counter()
+            rerank_time = t_rerank_end - t_rerank_start
+            logger.info(f"Reranking: {len(unique)} -> {len(reranked)} parents in {rerank_time:.2f}s")
+        else:
+            # No reranking: use top-k from unique
+            reranked = [NodeWithScore(node=p, score=0.0) for p in unique[:TOP_K_RERANKED_PARENTS]]
+            if not enable_reranking:
+                logger.info(f"Reranking disabled, using top-{len(reranked)} parents")
 
     # Log retrieval metrics
     retrieval_metrics.log_retrieval(
         query=user_message,
-        num_retrieved=len(retrieved),
+        num_retrieved=len(reranked),
         num_after_rerank=len(reranked),
         retrieval_time=retrieval_time,
         rerank_time=rerank_time,
     )
 
-    # Build context and references
-    context = "\n".join(n.node.text for n in reranked)
+    # Build context (combine graph context with document context)
+    doc_context = "\n".join(n.node.text for n in reranked)
+    if graph_context and enable_graph:
+        context = f"{graph_context}\n\n{doc_context}"
+    else:
+        context = doc_context
     refs = []
     seen_pages = set()
     for i, nws in enumerate(reranked, 1):
@@ -308,33 +362,38 @@ def create_gradio_app(default_reranking: bool = True):
                     value=default_reranking,
                     info="Improves quality but adds latency (~2-5s)"
                 )
+                graph_toggle = gr.Checkbox(
+                    label="Enable GraphRAG",
+                    value=True,
+                    info="Use knowledge graph for relational queries"
+                )
                 gr.Markdown("""
                 ---
-                ### About Reranking
+                ### About Retrieval Modes
 
-                When enabled, retrieved documents are re-scored
-                by the LLM for relevance. This improves answer
-                quality but adds processing time.
+                **LLM Reranking**: Re-scores retrieved documents
+                by relevance. Improves quality but adds latency.
 
-                Disable for faster responses when precision
-                is less critical.
+                **GraphRAG**: Uses a knowledge graph to answer
+                relational questions (e.g., "What is the relationship
+                between X and Y?"). Best for complex queries.
                 """)
 
         # Event handlers
-        def submit_handler(user_msg, history, rerank):
-            for result in chat_conversation(user_msg, history, rerank):
+        def submit_handler(user_msg, history, rerank, use_graph):
+            for result in chat_conversation(user_msg, history, rerank, use_graph):
                 yield result, ""
 
         submit_btn.click(
             submit_handler,
-            inputs=[user_input, chatbot, rerank_toggle],
+            inputs=[user_input, chatbot, rerank_toggle, graph_toggle],
             outputs=[chatbot, user_input],
             queue=True,
         )
 
         user_input.submit(
             submit_handler,
-            inputs=[user_input, chatbot, rerank_toggle],
+            inputs=[user_input, chatbot, rerank_toggle, graph_toggle],
             outputs=[chatbot, user_input],
             queue=True,
         )

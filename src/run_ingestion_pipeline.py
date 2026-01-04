@@ -9,12 +9,15 @@ This pipeline:
 5. Chunks text semantically
 6. Generates embeddings with caching
 7. Builds vector indexes
+8. Extracts entities and relationships (GraphRAG)
+9. Builds knowledge graph with community detection
 
 Features:
 - Multi-provider vision support (Gemini, Ollama, OpenAI, Anthropic)
 - Structured logging with timing metrics
 - Error handling with retries
 - Embedding caching
+- Hybrid RAG (Vector + Graph)
 """
 
 import os
@@ -58,6 +61,10 @@ from .create_image_description import create_image_descriptions_async
 from .chunk_text_data import chunk_text_data
 from .chunk_table_data import chunk_table_data
 from .create_embeddings import create_embeddings
+from .build_indexes import build_indexes
+from .extract_entities import extract_from_chunks_dir, save_extraction_results
+from .knowledge_graph import build_knowledge_graph
+from .graph_config import get_graph_config
 
 import ollama
 
@@ -114,6 +121,22 @@ def parse_args():
         action="store_true",
         help="Disable embedding cache"
     )
+    parser.add_argument(
+        "--skip-indexing",
+        action="store_true",
+        help="Skip vector index building"
+    )
+    parser.add_argument(
+        "--skip-graph",
+        action="store_true",
+        help="Skip knowledge graph building (GraphRAG)"
+    )
+    parser.add_argument(
+        "--graph-config",
+        type=str,
+        default=None,
+        help="Path to custom graph schema configuration"
+    )
     return parser.parse_args()
 
 
@@ -127,6 +150,9 @@ async def run_ingestion_pipeline_async(
     skip_embeddings: bool = False,
     force_reembed: bool = False,
     use_cache: bool = True,
+    skip_indexing: bool = False,
+    skip_graph: bool = False,
+    graph_config_path: str = None,
 ) -> dict:
     """
     Run the full ingestion pipeline.
@@ -141,6 +167,9 @@ async def run_ingestion_pipeline_async(
         skip_embeddings: Skip embeddings
         force_reembed: Force re-embedding
         use_cache: Use embedding cache
+        skip_indexing: Skip vector index building
+        skip_graph: Skip knowledge graph building
+        graph_config_path: Path to custom graph configuration
 
     Returns:
         Pipeline statistics
@@ -157,6 +186,9 @@ async def run_ingestion_pipeline_async(
         "text_chunking": {},
         "table_chunking": {},
         "embeddings": {},
+        "indexing": {},
+        "graph_extraction": {},
+        "graph_building": {},
     }
 
     # 1. Clear GPU memory
@@ -318,6 +350,79 @@ async def run_ingestion_pipeline_async(
     else:
         logger.info("Skipping embeddings")
 
+    # 9. Build vector indexes
+    if not skip_indexing:
+        pipeline_timer.stage("index_building")
+        try:
+            logger.info("Building vector indexes...")
+            build_indexes(recreate=True)
+            stats["indexing"] = {"status": "completed"}
+            logger.info("Index building completed")
+        except Exception as e:
+            logger.error(f"Index building failed: {e}")
+            raise
+    else:
+        logger.info("Skipping index building")
+
+    # 10. Build knowledge graph (GraphRAG)
+    if not skip_graph:
+        pipeline_timer.stage("graph_extraction")
+        try:
+            logger.info("Extracting entities and relationships...")
+
+            # Load graph config
+            if graph_config_path:
+                from .graph_config import reload_graph_config
+                graph_config = reload_graph_config(graph_config_path)
+            else:
+                graph_config = get_graph_config()
+
+            # Extract entities and relationships from chunks
+            extraction_results = extract_from_chunks_dir(
+                chunks_dir=CHUNKS_DIR,
+                config=graph_config,
+                model=LLM,
+                include_parent_chunks=False,
+            )
+
+            total_entities = sum(len(r.entities) for r in extraction_results)
+            total_relationships = sum(len(r.relationships) for r in extraction_results)
+            stats["graph_extraction"] = {
+                "chunks_processed": len(extraction_results),
+                "entities_extracted": total_entities,
+                "relationships_extracted": total_relationships,
+            }
+            logger.info(
+                f"Extraction completed: {total_entities} entities, "
+                f"{total_relationships} relationships from {len(extraction_results)} chunks"
+            )
+
+            # Build knowledge graph
+            pipeline_timer.stage("graph_building")
+            logger.info("Building knowledge graph...")
+            kg = build_knowledge_graph(
+                extraction_results=extraction_results,
+                config=graph_config,
+                detect_communities=True,
+                generate_summaries=True,
+                save_graph=True,
+            )
+
+            graph_stats = kg.get_statistics()
+            stats["graph_building"] = graph_stats
+            logger.info(
+                f"Knowledge graph built: {graph_stats['total_nodes']} nodes, "
+                f"{graph_stats['total_edges']} edges, "
+                f"{graph_stats['total_communities']} communities"
+            )
+
+        except Exception as e:
+            logger.error(f"Knowledge graph building failed: {e}")
+            logger.warning("Continuing without knowledge graph")
+            stats["graph_building"] = {"status": "failed", "error": str(e)}
+    else:
+        logger.info("Skipping knowledge graph building")
+
     # End pipeline
     pipeline_summary = pipeline_timer.end()
 
@@ -344,6 +449,9 @@ def main():
         skip_embeddings=args.skip_embeddings,
         force_reembed=args.force_reembed,
         use_cache=not args.no_cache,
+        skip_indexing=args.skip_indexing,
+        skip_graph=args.skip_graph,
+        graph_config_path=args.graph_config,
     ))
 
 

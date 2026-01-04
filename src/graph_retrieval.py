@@ -1,0 +1,488 @@
+"""
+Graph Retrieval module for GraphRAG.
+
+Provides retrieval capabilities from the knowledge graph including:
+- Entity-based retrieval
+- Relationship traversal
+- Community-based global queries
+- Path finding between entities
+"""
+
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+import ollama
+
+from .knowledge_graph import KnowledgeGraph, GraphNode, Community
+from .graph_config import get_graph_config, GraphConfig
+from .constants import LLM, EMBED_MODEL
+from .utils.logger import logger
+from .utils.rag_utils import get_embedding
+
+
+@dataclass
+class GraphRetrievalResult:
+    """Result from graph retrieval."""
+    query: str
+    retrieval_type: str  # "entity", "relationship", "community", "path"
+    entities: List[GraphNode] = field(default_factory=list)
+    relationships: List[Tuple[str, str, str]] = field(default_factory=list)  # (source, rel, target)
+    communities: List[Community] = field(default_factory=list)
+    paths: List[List[Tuple[str, str, str]]] = field(default_factory=list)
+    context: str = ""
+    confidence: float = 0.0
+
+    def get_context_text(self) -> str:
+        """Generate context text from retrieval results."""
+        parts = []
+
+        # Add entity information
+        if self.entities:
+            parts.append("RELEVANT ENTITIES:")
+            for entity in self.entities[:10]:
+                parts.append(f"- {entity.name} ({entity.type}): {entity.description}")
+
+        # Add relationship information
+        if self.relationships:
+            parts.append("\nRELATIONSHIPS:")
+            for src, rel, tgt in self.relationships[:15]:
+                parts.append(f"- {src} {rel} {tgt}")
+
+        # Add path information
+        if self.paths:
+            parts.append("\nCONNECTION PATHS:")
+            for i, path in enumerate(self.paths[:5], 1):
+                path_str = " → ".join([f"{s} [{r}]" for s, r, _ in path] + [path[-1][2]])
+                parts.append(f"{i}. {path_str}")
+
+        # Add community summaries
+        if self.communities:
+            parts.append("\nRELATED TOPICS:")
+            for comm in self.communities[:3]:
+                if comm.summary:
+                    parts.append(f"- {comm.summary}")
+
+        return "\n".join(parts) if parts else ""
+
+
+def extract_entities_from_query(
+    query: str,
+    kg: KnowledgeGraph,
+    model: str = None,
+    config: Optional[GraphConfig] = None,
+) -> List[GraphNode]:
+    """
+    Extract entity mentions from query and match to graph nodes.
+
+    Uses fuzzy matching and LLM extraction for better recall.
+    """
+    if config is None:
+        config = get_graph_config()
+    if model is None:
+        model = LLM
+
+    matched_entities = []
+
+    # First: try direct matching
+    query_lower = query.lower()
+    for node in kg.nodes.values():
+        if node.name.lower() in query_lower:
+            matched_entities.append(node)
+
+    # If we found direct matches, return them
+    if matched_entities:
+        return matched_entities
+
+    # Second: use LLM to extract entity mentions
+    entity_names = list(kg._name_to_id.keys())
+    if not entity_names:
+        return []
+
+    # Sample some entities to show in prompt
+    sample_entities = entity_names[:50]
+
+    prompt = f"""Given the following query and a list of known entities, identify which entities are mentioned or relevant.
+
+QUERY: {query}
+
+KNOWN ENTITIES:
+{', '.join(sample_entities)}
+
+Return ONLY a JSON list of entity names that are mentioned or directly relevant to the query.
+Example: ["Entity1", "Entity2"]
+
+If no entities match, return: []
+
+OUTPUT:"""
+
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.1},
+        )
+        result_text = response["message"]["content"].strip()
+
+        # Parse JSON list
+        import json
+        try:
+            # Try to extract JSON array
+            match = re.search(r'\[.*?\]', result_text, re.DOTALL)
+            if match:
+                entity_names = json.loads(match.group(0))
+                for name in entity_names:
+                    node = kg.get_node_by_name(name)
+                    if node and node not in matched_entities:
+                        matched_entities.append(node)
+        except json.JSONDecodeError:
+            pass
+
+    except Exception as e:
+        logger.error(f"Entity extraction from query failed: {e}")
+
+    return matched_entities
+
+
+def retrieve_by_entities(
+    query: str,
+    kg: KnowledgeGraph,
+    model: str = None,
+    max_depth: int = 2,
+    max_results: int = 20,
+) -> GraphRetrievalResult:
+    """
+    Retrieve graph context based on entity mentions in query.
+
+    Steps:
+    1. Extract entity mentions from query
+    2. Get neighbors of mentioned entities
+    3. Get relationships between entities
+    4. Build context from results
+    """
+    # Extract entities from query
+    mentioned_entities = extract_entities_from_query(query, kg, model)
+
+    if not mentioned_entities:
+        return GraphRetrievalResult(
+            query=query,
+            retrieval_type="entity",
+            context="No relevant entities found in query.",
+            confidence=0.0,
+        )
+
+    # Collect all related entities and relationships
+    all_entities = set(mentioned_entities)
+    all_relationships = []
+
+    for entity in mentioned_entities:
+        # Get neighbors
+        neighbors = kg.get_neighbors(entity.id, depth=max_depth)
+        for neighbor_node, rel_type, depth in neighbors:
+            all_entities.add(neighbor_node)
+            all_relationships.append((entity.name, rel_type, neighbor_node.name))
+
+    # Sort entities by relevance (mentioned first, then by connection count)
+    mentioned_ids = {e.id for e in mentioned_entities}
+    sorted_entities = sorted(
+        all_entities,
+        key=lambda e: (e.id not in mentioned_ids, -len(kg.get_neighbors(e.id, depth=1))),
+    )[:max_results]
+
+    result = GraphRetrievalResult(
+        query=query,
+        retrieval_type="entity",
+        entities=sorted_entities,
+        relationships=all_relationships[:30],
+        confidence=min(1.0, len(mentioned_entities) * 0.3),
+    )
+    result.context = result.get_context_text()
+
+    return result
+
+
+def retrieve_by_relationship(
+    query: str,
+    kg: KnowledgeGraph,
+    source_entity: str = None,
+    target_entity: str = None,
+    relationship_type: str = None,
+    max_results: int = 20,
+) -> GraphRetrievalResult:
+    """
+    Retrieve based on relationship patterns.
+
+    Can find:
+    - All relationships of a specific type
+    - All relationships from/to a specific entity
+    - Paths between two entities
+    """
+    entities = []
+    relationships = []
+    paths = []
+
+    # If both source and target specified, find paths
+    if source_entity and target_entity:
+        paths = kg.find_paths(source_entity, target_entity)
+
+        # Collect entities from paths
+        for path in paths:
+            for src, rel, tgt in path:
+                src_node = kg.get_node_by_name(src)
+                tgt_node = kg.get_node_by_name(tgt)
+                if src_node and src_node not in entities:
+                    entities.append(src_node)
+                if tgt_node and tgt_node not in entities:
+                    entities.append(tgt_node)
+                relationships.append((src, rel, tgt))
+
+    # If only source specified, get outgoing relationships
+    elif source_entity:
+        node = kg.get_node_by_name(source_entity)
+        if node:
+            entities.append(node)
+            neighbors = kg.get_neighbors(node.id, depth=1, direction="out")
+            for neighbor, rel_type, _ in neighbors:
+                if relationship_type is None or rel_type == relationship_type:
+                    entities.append(neighbor)
+                    relationships.append((node.name, rel_type, neighbor.name))
+
+    # If only target specified, get incoming relationships
+    elif target_entity:
+        node = kg.get_node_by_name(target_entity)
+        if node:
+            entities.append(node)
+            neighbors = kg.get_neighbors(node.id, depth=1, direction="in")
+            for neighbor, rel_type, _ in neighbors:
+                if relationship_type is None or rel_type == relationship_type:
+                    entities.append(neighbor)
+                    relationships.append((neighbor.name, rel_type, node.name))
+
+    # If only relationship type specified, find all of that type
+    elif relationship_type:
+        for src, tgt, data in kg.graph.edges(data=True):
+            if data.get("relationship_type") == relationship_type:
+                src_node = kg.nodes.get(src)
+                tgt_node = kg.nodes.get(tgt)
+                if src_node and tgt_node:
+                    if src_node not in entities:
+                        entities.append(src_node)
+                    if tgt_node not in entities:
+                        entities.append(tgt_node)
+                    relationships.append((src_node.name, relationship_type, tgt_node.name))
+
+    result = GraphRetrievalResult(
+        query=query,
+        retrieval_type="relationship",
+        entities=entities[:max_results],
+        relationships=relationships[:30],
+        paths=paths[:10],
+        confidence=0.8 if relationships or paths else 0.0,
+    )
+    result.context = result.get_context_text()
+
+    return result
+
+
+def retrieve_by_community(
+    query: str,
+    kg: KnowledgeGraph,
+    model: str = None,
+    top_k: int = 3,
+) -> GraphRetrievalResult:
+    """
+    Retrieve based on community summaries (global queries).
+
+    Good for broad questions about themes or topics.
+    """
+    if model is None:
+        model = LLM
+
+    if not kg.communities:
+        return GraphRetrievalResult(
+            query=query,
+            retrieval_type="community",
+            context="No communities available.",
+            confidence=0.0,
+        )
+
+    # Get query embedding
+    try:
+        query_embedding = get_embedding(query, EMBED_MODEL)
+    except Exception as e:
+        logger.error(f"Failed to get query embedding: {e}")
+        # Fallback to text matching
+        query_embedding = None
+
+    # Score communities by relevance
+    scored_communities = []
+    for comm_id, community in kg.communities.items():
+        if not community.summary:
+            continue
+
+        if query_embedding:
+            # Use embedding similarity
+            try:
+                summary_embedding = get_embedding(community.summary, EMBED_MODEL)
+                # Cosine similarity
+                import numpy as np
+                q = np.array(query_embedding)
+                s = np.array(summary_embedding)
+                similarity = float(np.dot(q, s) / (np.linalg.norm(q) * np.linalg.norm(s)))
+                scored_communities.append((similarity, community))
+            except Exception:
+                # Fallback to keyword matching
+                query_words = set(query.lower().split())
+                summary_words = set(community.summary.lower().split())
+                overlap = len(query_words & summary_words)
+                scored_communities.append((overlap / max(len(query_words), 1), community))
+        else:
+            # Keyword matching fallback
+            query_words = set(query.lower().split())
+            summary_words = set(community.summary.lower().split())
+            overlap = len(query_words & summary_words)
+            scored_communities.append((overlap / max(len(query_words), 1), community))
+
+    # Sort by score
+    scored_communities.sort(key=lambda x: x[0], reverse=True)
+    top_communities = [c for _, c in scored_communities[:top_k]]
+
+    # Get entities from top communities
+    entities = []
+    for comm in top_communities:
+        for node_id in comm.node_ids[:10]:
+            node = kg.nodes.get(node_id)
+            if node and node not in entities:
+                entities.append(node)
+
+    result = GraphRetrievalResult(
+        query=query,
+        retrieval_type="community",
+        entities=entities[:20],
+        communities=top_communities,
+        confidence=scored_communities[0][0] if scored_communities else 0.0,
+    )
+    result.context = result.get_context_text()
+
+    return result
+
+
+def retrieve_from_graph(
+    query: str,
+    kg: KnowledgeGraph,
+    model: str = None,
+    config: Optional[GraphConfig] = None,
+) -> GraphRetrievalResult:
+    """
+    Main retrieval function that combines multiple retrieval strategies.
+
+    Automatically determines the best retrieval strategy based on the query.
+    """
+    if config is None:
+        config = get_graph_config()
+    if model is None:
+        model = LLM
+
+    logger.info(f"Graph retrieval for query: {query[:100]}...")
+
+    # Check for relationship patterns in query
+    rel_patterns = [
+        r"relationship between (.+?) and (.+)",
+        r"how (?:does|is) (.+?) (?:related|connected) to (.+)",
+        r"what connects (.+?) (?:to|and) (.+)",
+        r"path from (.+?) to (.+)",
+    ]
+
+    for pattern in rel_patterns:
+        match = re.search(pattern, query.lower())
+        if match:
+            source = match.group(1).strip()
+            target = match.group(2).strip()
+            result = retrieve_by_relationship(query, kg, source, target)
+            if result.entities or result.paths:
+                return result
+
+    # Check for global/summary patterns
+    global_patterns = [
+        r"what are all",
+        r"list all",
+        r"summarize",
+        r"overview of",
+        r"main (?:topics|themes|concepts)",
+    ]
+
+    for pattern in global_patterns:
+        if re.search(pattern, query.lower()):
+            result = retrieve_by_community(query, kg, model)
+            if result.communities:
+                return result
+
+    # Default: entity-based retrieval
+    result = retrieve_by_entities(query, kg, model)
+
+    # If entity retrieval has low confidence, try community as supplement
+    if result.confidence < 0.3 and kg.communities:
+        community_result = retrieve_by_community(query, kg, model)
+        if community_result.confidence > result.confidence:
+            # Merge results
+            result.communities = community_result.communities
+            result.context = result.get_context_text()
+
+    return result
+
+
+class GraphRetriever:
+    """
+    Stateful graph retriever that maintains a loaded knowledge graph.
+
+    Usage:
+        retriever = GraphRetriever()
+        retriever.load()
+        result = retriever.retrieve("What is the relationship between X and Y?")
+    """
+
+    def __init__(
+        self,
+        graph_path: str = None,
+        config: Optional[GraphConfig] = None,
+    ):
+        self.graph_path = graph_path
+        self.config = config or get_graph_config()
+        self.kg: Optional[KnowledgeGraph] = None
+
+    def load(self) -> bool:
+        """Load the knowledge graph."""
+        try:
+            self.kg = KnowledgeGraph.load(self.graph_path, self.config)
+            return len(self.kg.nodes) > 0
+        except Exception as e:
+            logger.error(f"Failed to load knowledge graph: {e}")
+            return False
+
+    def is_loaded(self) -> bool:
+        """Check if graph is loaded."""
+        return self.kg is not None and len(self.kg.nodes) > 0
+
+    def retrieve(
+        self,
+        query: str,
+        model: str = None,
+    ) -> GraphRetrievalResult:
+        """Retrieve from the knowledge graph."""
+        if not self.is_loaded():
+            logger.warning("Knowledge graph not loaded, attempting to load...")
+            if not self.load():
+                return GraphRetrievalResult(
+                    query=query,
+                    retrieval_type="error",
+                    context="Knowledge graph not available.",
+                    confidence=0.0,
+                )
+
+        return retrieve_from_graph(query, self.kg, model, self.config)
+
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get graph statistics."""
+        if not self.is_loaded():
+            return {"status": "not_loaded"}
+        return self.kg.get_statistics()
