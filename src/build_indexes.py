@@ -1,34 +1,12 @@
-import os
-import logging
+"""
+Build vector and keyword indexes for RAG retrieval.
+
+Uses direct Qdrant operations instead of LlamaIndex.
+"""
+
+import json
 from pathlib import Path
 
-import ollama
-
-from llama_index.core import (
-    StorageContext,
-    Settings,
-    SimpleKeywordTableIndex
-)
-
-from llama_index.llms.ollama import Ollama
-from llama_index.embeddings.ollama import OllamaEmbedding
-
-from llama_index.vector_stores.qdrant import QdrantVectorStore
-
-
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
-from qdrant_client.http.exceptions import (
-    ResponseHandlingException,
-    UnexpectedResponse
-)
-
-from .helpers import (
-    load_embeddings_with_associated_documents,
-    create_documents,
-    create_index,
-    save_index
-)
 from .constants import (
     PROCESSED_DIR,
     CHUNKS_DIR,
@@ -37,179 +15,124 @@ from .constants import (
     INDEX_DIR,
     CHILD_DOCUMENTS_INDEX,
     PARENT_DOCUMENTS_INDEX,
-    LLM,
     EMBED_MODEL,
-    TEMPERATURE_GENERATION,
-    TOP_P_GENERATION,
-    OLLAMA_URL,
-    OLLAMA_REQUEST_TIMEOUT
 )
-from .create_embeddings import get_embeddings
-
-import warnings
-warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from .utils.rag_utils import Document, VectorIndex, KeywordIndex
+from .utils.logger import logger
 
 
-# Initialize Ollama client
-ollama_client = ollama.Client() 
+def load_embeddings_with_documents(
+    embeddings_dir: str,
+    chunks_dir: str,
+    docs_dir: str,
+):
+    """
+    Load embeddings and associated documents from disk.
 
-# Models Configuration
+    Returns:
+        Tuple of (embeddings, child_documents, parent_documents)
+    """
+    embeddings_path = Path(embeddings_dir)
+    chunks_path = Path(chunks_dir)
+    docs_path = Path(docs_dir)
 
-# Generation Model 
-# Ollama Thinking Model
-ollama_llm = Ollama(
-    model=LLM,
-    base_url=OLLAMA_URL,
-    temperature=TEMPERATURE_GENERATION,
-    additional_kwargs={"top_p": TOP_P_GENERATION},
-    request_timeout=OLLAMA_REQUEST_TIMEOUT,
-)
+    embeddings = []
+    child_docs = []
+    parent_docs = []
 
-# Embedding Model
-ollama_embed = OllamaEmbedding(
-    model_name=EMBED_MODEL,
-    base_url=OLLAMA_URL,
-    ollama_additional_kwargs={},   # e.g. {"mirostat": 0}
-    client_kwargs=None,            # optional httpx.Client params
-)
+    logger.info(f"Loading embeddings from {embeddings_path}")
 
-logger.info("initializing the global settings")
-Settings.llm = ollama_llm
-Settings.embed_model = ollama_embed
+    for embedding_file in sorted(embeddings_path.rglob("*.json")):
+        logger.debug(f"Loading {embedding_file.name}")
+
+        with open(embedding_file, "r", encoding="utf-8") as f:
+            embedding_json = json.load(f)
+
+        # Get embedding vector
+        embeddings.append(embedding_json["embedding"])
+
+        # Get child document
+        child_name = embedding_json["metadata"]["child"]
+        child_doc_path = chunks_path / child_name
+        with open(child_doc_path, "r", encoding="utf-8") as f:
+            child_text = f.read()
+
+        child_docs.append(Document(
+            text=child_text,
+            metadata={
+                "name": child_name,
+                "parent": embedding_json["metadata"]["parent"],
+                "source": embedding_json["metadata"]["source"],
+            }
+        ))
+
+        # Get parent document
+        parent_name = embedding_json["metadata"]["parent"]
+        if "_parent_chunk" in parent_name:
+            parent_doc_path = chunks_path / parent_name
+        else:
+            parent_doc_path = docs_path / parent_name
+
+        with open(parent_doc_path, "r", encoding="utf-8") as f:
+            parent_text = f.read()
+
+        parent_docs.append(Document(
+            text=parent_text,
+            metadata={
+                "name": parent_name,
+                "source": embedding_json["metadata"]["source"],
+            }
+        ))
+
+    logger.info(f"Loaded {len(embeddings)} embeddings with documents")
+    return embeddings, child_docs, parent_docs
+
+
+def build_indexes(recreate: bool = False):
+    """
+    Build child (vector) and parent (keyword) indexes.
+
+    Args:
+        recreate: If True, recreate collections even if they exist
+    """
+    # Ensure directories exist
+    Path(VECTOR_STORE_DIR).mkdir(parents=True, exist_ok=True)
+    Path(INDEX_DIR).mkdir(parents=True, exist_ok=True)
+
+    # Load embeddings and documents
+    logger.info("Loading embeddings and documents...")
+    embeddings, child_docs, parent_docs = load_embeddings_with_documents(
+        embeddings_dir=EMBEDDINGS_DIR,
+        chunks_dir=CHUNKS_DIR,
+        docs_dir=PROCESSED_DIR,
+    )
+
+    # Create child documents vector index
+    logger.info("Creating child documents vector index...")
+    child_index = VectorIndex.create(
+        qdrant_path=VECTOR_STORE_DIR,
+        collection_name="child_documents",
+        embed_model=EMBED_MODEL,
+        recreate=recreate,
+    )
+    child_index.add_documents(child_docs, embeddings=embeddings)
+
+    # Save child index metadata
+    child_index_path = Path(INDEX_DIR) / CHILD_DOCUMENTS_INDEX
+    child_index.save(str(child_index_path))
+
+    # Create parent documents keyword index
+    logger.info("Creating parent documents keyword index...")
+    parent_index = KeywordIndex()
+    parent_index.add_documents(parent_docs)
+
+    # Save parent index
+    parent_index_path = Path(INDEX_DIR) / PARENT_DOCUMENTS_INDEX
+    parent_index.save(str(parent_index_path))
+
+    logger.info(f"Indexes saved to {INDEX_DIR}")
+    print(f"\nIndexes built successfully and saved to {INDEX_DIR}")
 
 
 if __name__ == "__main__":
-
-    for d in [VECTOR_STORE_DIR, INDEX_DIR]:
-        if not os.path.exists(d):
-            os.makedirs(d)
-
-    # Initialize Qdrant (only do this once at indexing time)
-    print("\nInitialize Qdrant Client and Collections...\n")
-    logger.info("Initialize Qdrant Client and Collections...")
-    client = QdrantClient(path=VECTOR_STORE_DIR)
-
-    # Determine embedding dimension using a simple test input
-    test_input = "This is a test input to determine embedding dimensions."
-    # OllamaEmbedding uses the method 'get_text_embedding' to get the embedding vector
-    embed_vector = ollama_embed.get_text_embedding(test_input)
-    embed_dim = len(embed_vector)
-   
-    # Define collection names
-    collection_names = [
-        "child_documents",
-        "parent_documents"
-    ]
-
-    # Recreate collection only if needed
-    # If data is static and unchanged, consider skipping recreation to speed up startup.
-    for collection_name in collection_names:
-        try:
-            # Check if the collection already exists
-            existing_collections = [c.name for c in client.get_collections().collections]
-            if collection_name not in existing_collections:
-                client.create_collection(
-                    collection_name=collection_name,
-                    vectors_config=VectorParams(
-                        size=embed_dim, distance=Distance.COSINE
-                    ),
-                )
-                print(
-                    f"Collection '{collection_name}' created with vector dimension {embed_dim}."
-                )
-                logger.info(
-                    "Collection '%s' created with vector dimension %d.", collection_name, embed_dim
-                )
-            else:
-                print(
-                    f"Collection '{collection_name}' already exists; skipping recreation."
-                )
-                logger.info(
-                    "Collection '%s' already exists; skipping recreation.", collection_name
-                )
-        except ResponseHandlingException as e:
-            logger.error("Failed to create collection '%s' due to response handling error: %s", collection_name, e)
-        except UnexpectedResponse as e:
-            logger.error("Failed to create collection '%s' due to unexpected response: %s", collection_name, e)
-        except (IOError, OSError) as e:
-            logger.error("An unexpected error occurred while creating collection '%s': %s", collection_name, e)
-            
-
-    print("\nQdrant collections setup complete.")
-    logger.info("Qdrant collections setup complete.")
-
-    print("\nLoad the embeddings...\n")
-    logger.info("Load the embeddings.")
-
-    # Embebeddings
-    embeddings, child_documents_with_metadata, parent_documents_with_metadata = load_embeddings_with_associated_documents(
-        embeddings_dir=EMBEDDINGS_DIR,
-        chunks_dir=CHUNKS_DIR,
-        docs_dir=PROCESSED_DIR
-    )
-
-    # Initialize Qdrant Vector Stores
-    children_vector_store = QdrantVectorStore(
-        client=client,
-        collection_name="child_documents"
-    )
-    parents_vector_store = QdrantVectorStore(
-        client=client,
-        collection_name="parent_documents"
-    )
-
-    # Define storage context
-    children_storage_context = StorageContext.from_defaults()
-    children_storage_context.vector_stores["children_vector_store"] = children_vector_store
-
-    parents_storage_context = StorageContext.from_defaults()
-    parents_storage_context.vector_stores["parents_vector_store"] = parents_vector_store
-
-    logger.info("Prepare Documents with Metadata.")
-
-    
-    # Get the texts and the metadata for children and parents
-    child_docs_texts = [child["text"] for child in child_documents_with_metadata]
-    child_docs_metadata = [child["metadata"] for child in child_documents_with_metadata]
-
-    parent_docs_texts = [parent["text"] for parent in parent_documents_with_metadata]
-    parent_docs_metadata = [child["metadata"] for child in parent_documents_with_metadata]
-
-
-    # Create the Child and Parent Document instances
-    child_documents = create_documents(child_docs_texts, child_docs_metadata)
-    parent_documents = create_documents(parent_docs_texts, parent_docs_metadata)
-   
-    print("\nCreate VectorStoreIndex Instance for Child Documents ...")
-    logger.info("Create VectorStoreIndex Instances for Child Documents ...")
-
-    # Building 2 Indexes for: Child and Parents Documents
-    child_documents_index = create_index(
-        documents=child_documents,
-        storage_context=children_storage_context,
-        index_name="child_documents",
-        index_type="vector"
-    )
-
-    print("\nCreate KeywordTableIndex Instance for Parent Documents ...")
-    logger.info("Create KeywordTableIndex Instances for Parent Documents ...")
-
-    parent_documents_index = create_index(
-        documents=parent_documents,
-        storage_context=parents_storage_context,
-        index_name="parent_documents",
-        index_type="keyword"
-    )
-
-    print("\nSave the Indexes to Disk...\n")
-    logger.info("Save the Indexes to Disk.")
-    base_dir = Path(INDEX_DIR)
-    base_dir.mkdir(parents=True, exist_ok=True)
-    # Save the indexes to disk
-    save_index(child_documents_index, base_dir / CHILD_DOCUMENTS_INDEX)
-    save_index(parent_documents_index, base_dir / PARENT_DOCUMENTS_INDEX)
-
-    logger.info("The indexes have been saved to disk successfully to: %s.", base_dir)
-    print(f"\nThe indexes have been saved to disk successfully to: {base_dir}.\n")
+    build_indexes(recreate=True)
