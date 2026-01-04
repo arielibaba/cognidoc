@@ -69,7 +69,7 @@ GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.0-flash")
 
 OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "granite3.3:8b")
 OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b-instruct")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding-0.6b")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
 
 OPENAI_LLM_MODEL = os.getenv("OPENAI_LLM_MODEL", "gpt-4o")
 OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
@@ -125,7 +125,7 @@ USER_PROMPT_GENERATE_FINAL_ANSWER = BASE_DIR / "prompts/user_prompt_generate_fin
 # Chunking Configuration
 # =============================================================================
 
-EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding-0.6b")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:0.6b")
 MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "512"))
 BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", "5"))
 BREAKPOINT_THRESHOLD_TYPE = "percentile"

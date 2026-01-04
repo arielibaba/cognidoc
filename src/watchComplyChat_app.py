@@ -312,7 +312,6 @@ def create_gradio_app(default_reranking: bool = True):
                 chatbot = gr.Chatbot(
                     height=600,
                     label="Conversation",
-                    show_copy_button=True,
                 )
                 user_input = gr.Textbox(
                     label="Your message",
