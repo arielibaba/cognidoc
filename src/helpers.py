@@ -379,19 +379,10 @@ def parse_expanded_queries(response_text: str, max_queries: int = 5) -> List[str
     return queries[:max_queries]
 
 
-def convert_history_to_tuples(history: List[dict]) -> List[Tuple[str, str]]:
-    """Converts chat history to Gradio tuple format."""
-    out = []
-    user_msg = None
-    for msg in history:
-        if msg["role"] == "user":
-            user_msg = msg["content"]
-        elif msg["role"] == "assistant":
-            out.append((user_msg or "", msg["content"]))
-            user_msg = None
-    if user_msg is not None:
-        out.append((user_msg, ""))
-    return out
+def convert_history_to_tuples(history: List[dict]) -> List[dict]:
+    """Converts chat history to Gradio messages format."""
+    # New Gradio expects list of dicts with 'role' and 'content'
+    return [{"role": msg["role"], "content": msg["content"]} for msg in history]
 
 
 def reset_conversation():
