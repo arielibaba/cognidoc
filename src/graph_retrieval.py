@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import ollama
 
 from .knowledge_graph import KnowledgeGraph, GraphNode, Community
@@ -314,21 +315,30 @@ def retrieve_by_community(
         # Fallback to text matching
         query_embedding = None
 
-    # Score communities by relevance
+    # Score communities by relevance using pre-computed embeddings (O(n) fast comparison)
+    q = np.array(query_embedding) if query_embedding else None
+    q_norm = np.linalg.norm(q) if q is not None else 0
+
     scored_communities = []
     for comm_id, community in kg.communities.items():
         if not community.summary:
             continue
 
-        if query_embedding:
-            # Use embedding similarity
+        if query_embedding is not None and q_norm > 0:
+            # Use pre-computed embedding if available (fast path)
+            if community.embedding is not None:
+                s = np.array(community.embedding)
+                s_norm = np.linalg.norm(s)
+                if s_norm > 0:
+                    similarity = float(np.dot(q, s) / (q_norm * s_norm))
+                    scored_communities.append((similarity, community))
+                    continue
+
+            # Fallback: compute embedding on-the-fly (slow path)
             try:
                 summary_embedding = get_embedding(community.summary, EMBED_MODEL)
-                # Cosine similarity
-                import numpy as np
-                q = np.array(query_embedding)
                 s = np.array(summary_embedding)
-                similarity = float(np.dot(q, s) / (np.linalg.norm(q) * np.linalg.norm(s)))
+                similarity = float(np.dot(q, s) / (q_norm * np.linalg.norm(s)))
                 scored_communities.append((similarity, community))
             except Exception:
                 # Fallback to keyword matching

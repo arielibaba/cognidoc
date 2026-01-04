@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from .constants import BASE_DIR
+from .utils.logger import logger
 
 
 # Default configuration file path
@@ -137,7 +138,7 @@ def load_graph_config(config_path: Optional[str] = None) -> GraphConfig:
 
     path = Path(config_path)
     if not path.exists():
-        print(f"Warning: Config file not found at {path}, using defaults")
+        logger.warning(f"Config file not found at {path}, using defaults")
         return GraphConfig()
 
     with open(path, "r", encoding="utf-8") as f:

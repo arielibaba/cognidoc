@@ -27,13 +27,14 @@ from .constants import (
     LLM,
 )
 from .utils.rag_utils import Document, KeywordIndex, stream_chat
+from .utils.logger import logger
 
 
 def clear_pytorch_cache():
     """Clears MPS cache in PyTorch if available."""
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
-    print("\nCache cleared.\n")
+    logger.debug("PyTorch cache cleared")
 
 
 def load_prompt(filepath):
@@ -67,7 +68,7 @@ def is_relevant_image(
 
             return True
     except (IOError, OSError) as e:
-        print(f"Error processing {image_path}: {e}")
+        logger.warning(f"Error processing image {image_path}: {e}")
         return False
 
 
@@ -110,7 +111,7 @@ def recover_json(json_str: str, verbose: bool = False) -> Any:
         try:
             return json.loads(json_str.replace("'", '"'))
         except Exception:
-            print(f"JSON recovery failed for {json_str}")
+            logger.warning(f"JSON recovery failed for: {json_str[:100]}...")
             return json_str
 
 
@@ -186,10 +187,10 @@ def load_embeddings_with_associated_documents(
 
     embeddings, child_docs, parent_docs = [], [], []
 
-    print(f"Loading embeddings from directory: {embeddings_path} ...\n")
+    logger.info(f"Loading embeddings from directory: {embeddings_path}")
 
     for embedding_file in embeddings_path.rglob("*.json"):
-        print(f"\nLoading the embedding file : {embedding_file.name}...")
+        logger.debug(f"Loading embedding file: {embedding_file.name}")
         with open(embedding_file, "r", encoding="utf-8") as f:
             embedding_json = json.load(f)
 
@@ -354,10 +355,10 @@ def expand_query(model: str, user_query: str) -> List[str]:
 
         return all_expanded
     except ReadTimeout:
-        print("Query expansion timed out – using raw query")
+        logger.warning("Query expansion timed out, using raw query")
         return [user_query]
     except Exception as e:
-        print(f"Error during query expansion: {e}")
+        logger.error(f"Error during query expansion: {e}")
         return [user_query]
 
 

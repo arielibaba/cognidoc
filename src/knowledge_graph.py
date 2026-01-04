@@ -28,7 +28,19 @@ GRAPH_DIR = Path(INDEX_DIR) / "knowledge_graph"
 
 @dataclass
 class GraphNode:
-    """Node in the knowledge graph."""
+    """
+    Node in the knowledge graph.
+
+    Attributes:
+        id: Unique identifier for the node
+        name: Human-readable name of the entity
+        type: Entity type (e.g., "PERSON", "CONCEPT")
+        description: Brief description of the entity
+        attributes: Additional key-value attributes
+        source_chunks: List of chunk IDs where this entity was found
+        community_id: ID of the community this node belongs to
+        embedding: Pre-computed embedding vector for similarity search
+    """
     id: str
     name: str
     type: str
@@ -62,11 +74,21 @@ class GraphEdge:
 
 @dataclass
 class Community:
-    """Community of related nodes."""
+    """
+    Community of related nodes detected via community detection algorithm.
+
+    Attributes:
+        id: Unique community identifier
+        node_ids: List of node IDs belonging to this community
+        summary: LLM-generated summary of the community's topic
+        level: Hierarchical level (0 = base level)
+        embedding: Pre-computed embedding of the summary for fast similarity search
+    """
     id: int
     node_ids: List[str] = field(default_factory=list)
     summary: str = ""
     level: int = 0
+    embedding: Optional[List[float]] = None
 
 
 class KnowledgeGraph:
@@ -279,13 +301,21 @@ class KnowledgeGraph:
             logger.error(f"Community detection failed: {e}")
             return 0
 
-    def generate_community_summaries(self, model: str = None) -> None:
-        """Generate summaries for each community using LLM."""
+    def generate_community_summaries(self, model: str = None, compute_embeddings: bool = True) -> None:
+        """
+        Generate summaries and embeddings for each community using LLM.
+
+        Args:
+            model: LLM model for summary generation
+            compute_embeddings: Whether to pre-compute embeddings for fast retrieval
+        """
         if not self.communities:
             return
 
         if model is None:
             model = LLM
+
+        from .constants import EMBED_MODEL
 
         for community_id, community in self.communities.items():
             if not community.node_ids:
@@ -332,6 +362,14 @@ SUMMARY:"""
                     options={"temperature": 0.3},
                 )
                 community.summary = response["message"]["content"].strip()
+
+                # Pre-compute embedding for fast retrieval
+                if compute_embeddings and community.summary:
+                    try:
+                        community.embedding = get_embedding(community.summary, EMBED_MODEL)
+                    except Exception as embed_err:
+                        logger.warning(f"Failed to compute embedding for community {community_id}: {embed_err}")
+
                 logger.debug(f"Generated summary for community {community_id}")
 
             except Exception as e:
@@ -514,12 +552,13 @@ SUMMARY:"""
         with open(save_path / "nodes.json", "w", encoding="utf-8") as f:
             json.dump(nodes_data, f, ensure_ascii=False, indent=2)
 
-        # Save communities
+        # Save communities (including pre-computed embeddings)
         communities_data = {str(cid): {
             "id": c.id,
             "node_ids": c.node_ids,
             "summary": c.summary,
             "level": c.level,
+            "embedding": c.embedding,
         } for cid, c in self.communities.items()}
 
         with open(save_path / "communities.json", "w", encoding="utf-8") as f:
@@ -579,6 +618,7 @@ SUMMARY:"""
                     node_ids=data["node_ids"],
                     summary=data.get("summary", ""),
                     level=data.get("level", 0),
+                    embedding=data.get("embedding"),  # Load pre-computed embedding
                 )
 
         # Load name mapping
