@@ -24,7 +24,10 @@ make format           # Format code with black
 make lint             # Run pylint on source
 make refactor         # Format and lint
 
-# Run the ingestion pipeline
+# Interactive setup wizard (recommended for new users)
+python -m src.setup
+
+# Manual pipeline execution
 python -m src.run_ingestion_pipeline --vision-provider ollama
 
 # Pipeline skip options
@@ -68,6 +71,7 @@ PDFs → Images (600 DPI) → YOLO Detection → Text/Table/Image Extraction
 
 ### Key Modules
 
+- **`src/setup.py`**: Interactive setup wizard (provider config, model verification, pipeline execution)
 - **`src/run_ingestion_pipeline.py`**: Main pipeline orchestrator (async)
 - **`src/cognidoc_app.py`**: Gradio chat application with hybrid retrieval
 - **`src/hybrid_retriever.py`**: Combines vector and graph retrieval with query routing

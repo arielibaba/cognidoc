@@ -46,20 +46,46 @@ pip install -e .
 
 ## Quick Start
 
-### 1. Prepare Your Data
+### Option A: Interactive Setup Wizard (Recommended)
+
+The setup wizard guides you through configuration, model installation, and document processing:
+
+```bash
+python -m src.setup
+```
+
+The wizard will:
+1. Configure your LLM provider (Ollama, Gemini, OpenAI, or Anthropic)
+2. Configure embedding provider
+3. Verify and download required Ollama models
+4. Detect documents in `data/pdfs/`
+5. Show time/cost estimates before processing
+6. Run the ingestion pipeline with progress feedback
+7. Launch the CogniDoc chat interface
+
+### Option B: Manual Setup
+
+#### 1. Prepare Your Data
 
 ```bash
 mkdir -p data/pdfs
 # Copy your PDF files to data/pdfs/
 ```
 
-### 2. Run the Ingestion Pipeline
+#### 2. Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env with your API keys and model preferences
+```
+
+#### 3. Run the Ingestion Pipeline
 
 ```bash
 python -m src.run_ingestion_pipeline --vision-provider ollama
 ```
 
-### 3. Launch CogniDoc
+#### 4. Launch CogniDoc
 
 ```bash
 python -m src.cognidoc_app
