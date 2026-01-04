@@ -1,11 +1,11 @@
 """
-WatchComplyChat - Gradio chat application for Hybrid RAG document querying.
+CogniDoc - Intelligent Document Assistant powered by Hybrid RAG.
 
 Features:
 - Hybrid RAG: combines Vector RAG + GraphRAG
 - Multi-step retrieval: query rewriting, vector search, graph traversal, reranking
 - Streaming responses
-- Reranking and GraphRAG toggles
+- Professional UI with retrieval mode controls
 - Performance profiling
 
 No LlamaIndex dependencies - uses direct Qdrant and Ollama calls.
@@ -16,7 +16,6 @@ import time
 import warnings
 
 import gradio as gr
-import nest_asyncio
 
 from .constants import (
     INDEX_DIR,
@@ -53,14 +52,189 @@ from .utils.rag_utils import (
 from .hybrid_retriever import HybridRetriever, HybridRetrievalResult
 from .utils.logger import logger, retrieval_metrics
 
-# Suppress warnings and apply async patch
+# Suppress warnings
 warnings.filterwarnings("ignore")
-nest_asyncio.apply()
+
+# Custom CSS for professional styling
+CUSTOM_CSS = """
+/* Global styles */
+.gradio-container {
+    max-width: 1400px !important;
+    margin: auto !important;
+}
+
+/* Header styling */
+.header-container {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    padding: 1.5rem 2rem;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.header-title {
+    color: #ffffff;
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-subtitle {
+    color: #a0aec0;
+    font-size: 1rem;
+    margin-top: 0.5rem;
+    font-weight: 400;
+}
+
+.header-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Chat container */
+.chat-container {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Settings panel */
+.settings-panel {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.settings-title {
+    color: #1a202c;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-divider {
+    border-top: 1px solid #e2e8f0;
+    margin: 1rem 0;
+}
+
+/* Toggle cards */
+.toggle-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    transition: all 0.2s ease;
+}
+
+.toggle-card:hover {
+    border-color: #667eea;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+}
+
+/* Info cards */
+.info-card {
+    background: linear-gradient(135deg, #f0f4ff 0%, #e8f4f8 100%);
+    border: 1px solid #c3dafe;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.info-card-title {
+    color: #3730a3;
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+}
+
+.info-card-text {
+    color: #4a5568;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+/* Buttons */
+.primary-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+    padding: 0.75rem 2rem !important;
+    border-radius: 8px !important;
+    transition: all 0.2s ease !important;
+}
+
+.primary-btn:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
+}
+
+.secondary-btn {
+    background: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
+    border-radius: 8px !important;
+}
+
+.secondary-btn:hover {
+    background: #e2e8f0 !important;
+}
+
+/* Status indicator */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.status-active {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-inactive {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 1rem;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    margin-top: 1rem;
+}
+
+/* Chatbot styling */
+.chatbot {
+    border-radius: 12px !important;
+}
+"""
 
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="WatchComplyChat - RAG Chat Application")
+    parser = argparse.ArgumentParser(description="CogniDoc - Intelligent Document Assistant")
     parser.add_argument(
         "--no-rerank",
         action="store_true",
@@ -147,7 +321,7 @@ def chat_conversation(
         logger.error(f"Query rewrite failed: {e}")
         history.append({
             "role": "assistant",
-            "content": "My apologies, the service timed out. Please try again later."
+            "content": "I apologize, but the service is temporarily unavailable. Please try again in a moment."
         })
         yield convert_history_to_tuples(history)
         return
@@ -321,7 +495,7 @@ def chat_conversation(
 
 def create_gradio_app(default_reranking: bool = True):
     """
-    Create the Gradio application.
+    Create the Gradio application with professional UI.
 
     Args:
         default_reranking: Default value for reranking toggle
@@ -329,58 +503,158 @@ def create_gradio_app(default_reranking: bool = True):
     Returns:
         Gradio Blocks app
     """
-    with gr.Blocks(title="WatchComplyChat") as demo:
-        gr.Markdown("""
-        # WatchComplyChat
+    with gr.Blocks(
+        title="CogniDoc - Intelligent Document Assistant",
+        css=CUSTOM_CSS,
+        theme=gr.themes.Soft(
+            primary_hue="indigo",
+            secondary_hue="slate",
+            neutral_hue="slate",
+            font=gr.themes.GoogleFont("Inter"),
+        )
+    ) as demo:
 
-        A Gen AI-Powered Legal Analytics Solution that Analyzes All the Sanctions
-        from French and European Regulators.
-
-        ---
+        # Header
+        gr.HTML("""
+        <div class="header-container">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1 class="header-title">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <path d="M2 17l10 5 10-5"/>
+                            <path d="M2 12l10 5 10-5"/>
+                        </svg>
+                        CogniDoc
+                    </h1>
+                    <p class="header-subtitle">Intelligent Document Assistant powered by Hybrid RAG</p>
+                </div>
+                <div>
+                    <span class="header-badge">Vector + GraphRAG</span>
+                </div>
+            </div>
+        </div>
         """)
 
         with gr.Row():
+            # Main chat area
             with gr.Column(scale=4):
                 chatbot = gr.Chatbot(
-                    height=600,
-                    label="Conversation",
+                    height=550,
+                    label="",
+                    show_label=False,
+                    elem_classes=["chat-container"],
                 )
-                user_input = gr.Textbox(
-                    label="Your message",
-                    placeholder="Type your question here...",
-                    lines=2,
-                    max_lines=5,
-                )
+
                 with gr.Row():
-                    submit_btn = gr.Button("Submit", variant="primary")
-                    reset_btn = gr.Button("Reset Conversation", variant="secondary")
+                    user_input = gr.Textbox(
+                        label="",
+                        show_label=False,
+                        placeholder="Ask me anything about your documents...",
+                        lines=1,
+                        max_lines=3,
+                        scale=6,
+                        container=False,
+                    )
+                    submit_btn = gr.Button(
+                        "Send",
+                        variant="primary",
+                        scale=1,
+                        min_width=100,
+                        elem_classes=["primary-btn"],
+                    )
 
-            with gr.Column(scale=1):
-                gr.Markdown("### Settings")
-                rerank_toggle = gr.Checkbox(
-                    label="Enable LLM Reranking",
-                    value=default_reranking,
-                    info="Improves quality but adds latency (~2-5s)"
-                )
-                graph_toggle = gr.Checkbox(
-                    label="Enable GraphRAG",
-                    value=True,
-                    info="Use knowledge graph for relational queries"
-                )
-                gr.Markdown("""
-                ---
-                ### About Retrieval Modes
+                with gr.Row():
+                    reset_btn = gr.Button(
+                        "🗑️ Clear Conversation",
+                        variant="secondary",
+                        size="sm",
+                        elem_classes=["secondary-btn"],
+                    )
+                    gr.HTML("""
+                        <div style="flex: 1; text-align: right; color: #94a3b8; font-size: 0.8rem; padding: 8px;">
+                            Press Enter to send • Shift+Enter for new line
+                        </div>
+                    """)
 
-                **LLM Reranking**: Re-scores retrieved documents
-                by relevance. Improves quality but adds latency.
-
-                **GraphRAG**: Uses a knowledge graph to answer
-                relational questions (e.g., "What is the relationship
-                between X and Y?"). Best for complex queries.
+            # Settings panel
+            with gr.Column(scale=1, min_width=280):
+                gr.HTML("""
+                <div class="settings-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                    </svg>
+                    Retrieval Settings
+                </div>
                 """)
+
+                rerank_toggle = gr.Checkbox(
+                    label="🎯 Smart Reranking",
+                    value=default_reranking,
+                    info="LLM-based relevance scoring (+2-5s)",
+                    elem_classes=["toggle-card"],
+                )
+
+                graph_toggle = gr.Checkbox(
+                    label="🔗 Knowledge Graph",
+                    value=True,
+                    info="Entity relationships & connections",
+                    elem_classes=["toggle-card"],
+                )
+
+                gr.HTML('<div class="settings-divider"></div>')
+
+                gr.HTML("""
+                <div class="info-card">
+                    <div class="info-card-title">💡 How it works</div>
+                    <div class="info-card-text">
+                        <strong>Smart Reranking</strong> uses AI to re-score
+                        retrieved documents for better relevance.
+                        <br><br>
+                        <strong>Knowledge Graph</strong> understands entity
+                        relationships for complex queries like
+                        "How is X related to Y?"
+                    </div>
+                </div>
+                """)
+
+                gr.HTML('<div class="settings-divider"></div>')
+
+                # System status
+                graph_status = "active" if hybrid_status.get("graph", False) else "inactive"
+                vector_status = "active" if hybrid_status.get("vector_index", False) or hybrid_status.get("keyword_index", False) else "inactive"
+
+                gr.HTML(f"""
+                <div style="font-size: 0.8rem; color: #64748b;">
+                    <div style="margin-bottom: 8px; font-weight: 600;">System Status</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <div class="status-indicator status-{vector_status}">
+                            <span>●</span> Vector Index
+                        </div>
+                        <div class="status-indicator status-{graph_status}">
+                            <span>●</span> Knowledge Graph
+                        </div>
+                    </div>
+                </div>
+                """)
+
+        # Footer
+        gr.HTML("""
+        <div class="footer">
+            <span>Powered by Hybrid RAG</span>
+            <span style="margin: 0 8px;">•</span>
+            <span>Vector Search + GraphRAG</span>
+            <span style="margin: 0 8px;">•</span>
+            <span>Local LLM Inference</span>
+        </div>
+        """)
 
         # Event handlers
         def submit_handler(user_msg, history, rerank, use_graph):
+            if not user_msg.strip():
+                yield history, ""
+                return
             for result in chat_conversation(user_msg, history, rerank, use_graph):
                 yield result, ""
 
@@ -423,7 +697,7 @@ def main():
     # Create and launch app
     demo = create_gradio_app(default_reranking=default_reranking)
 
-    logger.info(f"Launching WatchComplyChat on port {args.port}...")
+    logger.info(f"Launching CogniDoc on port {args.port}...")
     demo.launch(
         server_port=args.port,
         share=args.share,

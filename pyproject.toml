@@ -1,5 +1,5 @@
 [project]
-name = "advanced-hybrid-rag"
+name = "cognidoc"
 version = "0.1.0"
 description = "Hybrid RAG pipeline combining Vector RAG and GraphRAG with multi-modal document processing"
 readme = "README.md"

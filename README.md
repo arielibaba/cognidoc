@@ -1,6 +1,8 @@
-# Advanced Hybrid RAG
+# CogniDoc
 
-A document processing and retrieval pipeline that combines **Vector RAG** and **GraphRAG** for intelligent document querying. Converts PDFs into a searchable knowledge base with a chat interface.
+**Intelligent Document Assistant** powered by Hybrid RAG (Vector + GraphRAG).
+
+A document processing and retrieval pipeline that combines **Vector RAG** and **GraphRAG** for intelligent document querying. Converts PDFs into a searchable knowledge base with a professional chat interface.
 
 ## Features
 
@@ -31,8 +33,8 @@ ollama pull ibm/granite-docling:258m-bf16  # Document parsing
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/advanced-hybrid-rag.git
-cd advanced-hybrid-rag
+git clone https://github.com/arielibaba/cognidoc.git
+cd cognidoc
 
 # Install dependencies (requires uv package manager)
 make install
@@ -44,7 +46,7 @@ pip install -e .
 ## Project Structure
 
 ```
-advanced-hybrid-rag/
+cognidoc/
 ├── config/
 │   └── graph_schema.yaml          # GraphRAG configuration
 ├── data/                          # All pipeline data
@@ -118,15 +120,15 @@ Pipeline options:
 - `--vision-provider`: Choose vision provider (ollama, gemini, openai, anthropic)
 - `--graph-config`: Path to custom graph schema configuration
 
-### 4. Launch the Chat Interface
+### 4. Launch CogniDoc
 
-Start the Gradio chat application:
+Start the intelligent document assistant:
 
 ```bash
-python -m src.watchComplyChat_app
+python -m src.cognidoc_app
 ```
 
-Chat options:
+Options:
 - `--no-rerank`: Disable LLM reranking for faster responses
 - `--port`: Server port (default: 7860)
 - `--share`: Create a public shareable link
