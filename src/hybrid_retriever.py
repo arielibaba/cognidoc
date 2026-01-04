@@ -30,14 +30,14 @@ from .query_orchestrator import (
     route_query,
 )
 from .constants import (
-    LLM,
+    OLLAMA_DEFAULT_MODEL,
     EMBED_MODEL,
     VECTOR_STORE_DIR,
     INDEX_DIR,
     TOP_K_RETRIEVED_CHILDREN,
     TOP_K_RERANKED_PARENTS,
     ENABLE_HYBRID_SEARCH,
-    HYBRID_SEARCH_ALPHA,
+    HYBRID_DENSE_WEIGHT,
     BM25_K1,
     BM25_B,
     BM25_INDEX_PATH,
@@ -391,7 +391,7 @@ class HybridRetriever:
                     fused = hybrid_search_fusion(
                         dense_list,
                         sparse_list,
-                        alpha=HYBRID_SEARCH_ALPHA,
+                        alpha=HYBRID_DENSE_WEIGHT,
                         top_k=top_k,
                     )
 
@@ -400,7 +400,7 @@ class HybridRetriever:
                         NodeWithScore(node=doc if isinstance(doc, Document) else Document(text=str(doc)), score=score)
                         for doc, score in fused
                     ]
-                    logger.debug(f"Hybrid fusion: {len(vector_results)} results (alpha={HYBRID_SEARCH_ALPHA})")
+                    logger.debug(f"Hybrid fusion: {len(vector_results)} results (alpha={HYBRID_DENSE_WEIGHT})")
                 else:
                     vector_results = dense_results
 

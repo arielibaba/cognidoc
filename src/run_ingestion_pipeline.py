@@ -38,13 +38,13 @@ from .constants import (
     CHUNKS_DIR,
     EMBED_MODEL,
     MAX_CHUNK_SIZE,
-    BUFFER_SIZE,
-    BREAKPOINT_THRESHOLD_TYPE,
-    BREAKPOINT_THRESHOLD_AMOUNT,
+    SEMANTIC_CHUNK_BUFFER,
+    SEMANTIC_BREAKPOINT_METHOD,
+    SEMANTIC_BREAKPOINT_VALUE,
     SENTENCE_SPLIT_REGEX,
-    SUMMARIZE_TABLE_PROMPT,
+    TABLE_SUMMARY_PROMPT_PATH,
     EMBEDDINGS_DIR,
-    LLM,
+    OLLAMA_LLM_MODEL,
     TEMPERATURE_GENERATION,
     TOP_P_GENERATION,
     SYSTEM_PROMPT_IMAGE_DESC,
@@ -326,9 +326,9 @@ async def run_ingestion_pipeline_async(
                 MAX_CHUNK_SIZE,
                 None,
                 CHUNKS_DIR,
-                BUFFER_SIZE,
-                BREAKPOINT_THRESHOLD_TYPE,
-                BREAKPOINT_THRESHOLD_AMOUNT,
+                SEMANTIC_CHUNK_BUFFER,
+                SEMANTIC_BREAKPOINT_METHOD,
+                SEMANTIC_BREAKPOINT_VALUE,
                 SENTENCE_SPLIT_REGEX,
                 verbose=True
             )
@@ -342,7 +342,7 @@ async def run_ingestion_pipeline_async(
         try:
             logger.info("Chunking table data...")
             client = ollama.Client()
-            with open(SUMMARIZE_TABLE_PROMPT, encoding="utf-8") as f:
+            with open(TABLE_SUMMARY_PROMPT_PATH, encoding="utf-8") as f:
                 table_prompt = f.read()
 
             chunk_table_data(
@@ -352,7 +352,7 @@ async def run_ingestion_pipeline_async(
                 MAX_CHUNK_SIZE,
                 int(0.25 * MAX_CHUNK_SIZE),
                 client,
-                LLM,
+                OLLAMA_LLM_MODEL,
                 {"temperature": TEMPERATURE_GENERATION, "top_p": TOP_P_GENERATION},
                 CHUNKS_DIR
             )
@@ -414,7 +414,6 @@ async def run_ingestion_pipeline_async(
             extraction_results = extract_from_chunks_dir(
                 chunks_dir=CHUNKS_DIR,
                 config=graph_config,
-                model=LLM,
                 include_parent_chunks=False,
             )
 

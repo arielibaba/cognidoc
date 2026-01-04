@@ -26,7 +26,7 @@ from .constants import (
     TOP_K_RETRIEVED_CHILDREN,
     TOP_K_RERANKED_PARENTS,
     TOP_K_REFS,
-    LLM,
+    OLLAMA_DEFAULT_MODEL,
     EMBED_MODEL,
     TEMPERATURE_GENERATION,
     TOP_P_GENERATION,
@@ -447,7 +447,7 @@ def chat_conversation(
             query=combo_query,
             top_k=TOP_K_RETRIEVED_CHILDREN,
             use_reranking=enable_reranking,
-            model=LLM,
+            model=OLLAMA_DEFAULT_MODEL,
             pre_computed_routing=routing_decision,  # Pass pre-computed routing
         )
 
@@ -617,7 +617,7 @@ def chat_conversation(
             all_supported, claim_results, summary = verify_citations(
                 answer=final,
                 documents=[nws.node for nws in reranked],
-                model=LLM,
+                model=OLLAMA_DEFAULT_MODEL,
             )
             if not all_supported:
                 unsupported = [c.claim for c in claim_results if not c.supported]

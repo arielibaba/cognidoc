@@ -19,8 +19,8 @@ from typing import Optional
 
 from .helpers import extract_markdown_tables, is_relevant_image
 from .constants import (
-    IMAGE_PIXEL_THRESHOLD,
-    IMAGE_PIXEL_VARIANCE_THRESHOLD,
+    MIN_IMAGE_PIXELS,
+    MIN_IMAGE_VARIANCE,
     DEFAULT_VISION_PROVIDER,
 )
 from .utils.logger import logger, timer, PipelineTimer
@@ -232,7 +232,7 @@ async def create_image_descriptions_async(
     # Filter by relevance
     relevant_images = []
     for img in images:
-        if is_relevant_image(img, IMAGE_PIXEL_THRESHOLD, IMAGE_PIXEL_VARIANCE_THRESHOLD):
+        if is_relevant_image(img, MIN_IMAGE_PIXELS, MIN_IMAGE_VARIANCE):
             relevant_images.append(img)
         else:
             stats["skipped_irrelevant"] += 1

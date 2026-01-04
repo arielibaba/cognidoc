@@ -20,7 +20,6 @@ BASE_DIR = Path(__file__).resolve().parent
 
 PDF_DIR = BASE_DIR / "../data/pdfs"
 NON_PDF_DIR = BASE_DIR / "../data/non_pdfs"
-PDF_CONVERTED_DIR = BASE_DIR / "../data/pdfs_converted"
 IMAGE_DIR = BASE_DIR / "../data/images"
 DETECTION_DIR = BASE_DIR / "../data/detections"
 PROCESSED_DIR = BASE_DIR / "../data/processed"
@@ -30,10 +29,6 @@ VECTOR_STORE_DIR = BASE_DIR / "../data/vector_store"
 INDEX_DIR = BASE_DIR / "../data/indexes"
 CACHE_DIR = BASE_DIR / "../data/cache"
 
-# Handled file extensions
-FILE_EXTENSIONS = ['.doc', '.docx', '.html', '.htm', '.ppt', '.pptx']
-FILE_EXTENSIONS.extend([ext.upper() for ext in FILE_EXTENSIONS])
-
 # =============================================================================
 # YOLO Model Configuration
 # =============================================================================
@@ -42,9 +37,9 @@ YOLO_MODEL_PATH = BASE_DIR / "../models/YOLOv11/yolov11x_best.pt"
 YOLO_CONFIDENCE_THRESHOLD = 0.2
 YOLO_IOU_THRESHOLD = 0.8
 
-# Parameters to Use for Filtering the Extracted Images
-IMAGE_PIXEL_THRESHOLD = 10000
-IMAGE_PIXEL_VARIANCE_THRESHOLD = 500
+# Image filtering parameters (for extracted images)
+MIN_IMAGE_PIXELS = 10000            # Minimum pixel count to consider an image valid
+MIN_IMAGE_VARIANCE = 500            # Minimum pixel variance to avoid blank/uniform images
 
 # =============================================================================
 # Docling Model Configuration (via Ollama)
@@ -78,9 +73,8 @@ OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 ANTHROPIC_LLM_MODEL = os.getenv("ANTHROPIC_LLM_MODEL", "claude-sonnet-4-20250514")
 ANTHROPIC_VISION_MODEL = os.getenv("ANTHROPIC_VISION_MODEL", "claude-sonnet-4-20250514")
 
-# Legacy compatibility (maps to current provider settings)
-VLLM = OLLAMA_VISION_MODEL  # Vision model for Ollama
-LLM = OLLAMA_LLM_MODEL       # LLM model for Ollama
+# Default Ollama model for local processing tasks (entity extraction, table summarization)
+OLLAMA_DEFAULT_MODEL = OLLAMA_LLM_MODEL
 
 # =============================================================================
 # Generation Parameters
@@ -89,7 +83,6 @@ LLM = OLLAMA_LLM_MODEL       # LLM model for Ollama
 TEMPERATURE_IMAGE_DESC = float(os.getenv("VISION_TEMPERATURE", "0.2"))
 TEMPERATURE_TEXT_EXTRACT = 0.1
 TOP_P_IMAGE_DESC = float(os.getenv("VISION_TOP_P", "0.85"))
-TOP_P_IMAGE_TEXT_EXTRACT = 0.1
 
 TEMPERATURE_GENERATION = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 TOP_P_GENERATION = float(os.getenv("LLM_TOP_P", "0.85"))
@@ -111,7 +104,7 @@ USER_PROMPT_IMAGE_DESC = BASE_DIR / "prompts/user_prompt_for_image_description.m
 SYSTEM_PROMPT_TEXT_EXTRACT = BASE_DIR / "prompts/system_prompt_for_text_extract.md"
 USER_PROMPT_TEXT_EXTRACT = BASE_DIR / "prompts/user_prompt_for_text_extract.md"
 
-SUMMARIZE_TABLE_PROMPT = BASE_DIR / "prompts/markdown_extract_header_and_summarize_prompt.md"
+TABLE_SUMMARY_PROMPT_PATH = BASE_DIR / "prompts/markdown_extract_header_and_summarize_prompt.md"
 
 SYSTEM_PROMPT_REWRITE_QUERY = BASE_DIR / "prompts/system_prompt_rewrite_query.md"
 USER_PROMPT_REWRITE_QUERY = BASE_DIR / "prompts/user_prompt_rewrite_query.md"
@@ -128,12 +121,12 @@ USER_PROMPT_GENERATE_FINAL_ANSWER = BASE_DIR / "prompts/user_prompt_generate_fin
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:0.6b")
 MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "512"))
-BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", "5"))
-BREAKPOINT_THRESHOLD_TYPE = "percentile"
-BREAKPOINT_THRESHOLD_AMOUNT = 0.95
+SEMANTIC_CHUNK_BUFFER = int(os.getenv("SEMANTIC_CHUNK_BUFFER", "5"))  # Sentences buffer for context
+SEMANTIC_BREAKPOINT_METHOD = "percentile"   # Method for detecting semantic boundaries
+SEMANTIC_BREAKPOINT_VALUE = 0.95            # Threshold value (95th percentile)
 SENTENCE_SPLIT_REGEX = r"\n\n\n"
 
-# Overlapping chunks (#2)
+# Chunk overlap for context continuity
 CHUNK_OVERLAP_PERCENTAGE = float(os.getenv("CHUNK_OVERLAP_PERCENTAGE", "0.1"))  # 10% overlap
 
 # =============================================================================
@@ -158,28 +151,28 @@ ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
 # Advanced RAG Configuration
 # =============================================================================
 
-# Hybrid Search (#7): BM25 + Dense vectors
+# Hybrid Search: BM25 (sparse) + Dense vector fusion
 ENABLE_HYBRID_SEARCH = os.getenv("ENABLE_HYBRID_SEARCH", "true").lower() == "true"
-HYBRID_SEARCH_ALPHA = float(os.getenv("HYBRID_SEARCH_ALPHA", "0.6"))  # Weight for dense (0.0-1.0)
+HYBRID_DENSE_WEIGHT = float(os.getenv("HYBRID_DENSE_WEIGHT", "0.6"))  # Dense vector weight (0.0-1.0)
 BM25_K1 = float(os.getenv("BM25_K1", "1.5"))  # Term frequency saturation
 BM25_B = float(os.getenv("BM25_B", "0.75"))   # Length normalization
 BM25_INDEX_PATH = str((Path(INDEX_DIR) / "bm25_index.json").resolve())
 
-# Cross-Encoder Reranking (#9)
+# Cross-Encoder Reranking
 ENABLE_CROSS_ENCODER = os.getenv("ENABLE_CROSS_ENCODER", "true").lower() == "true"
 CROSS_ENCODER_BATCH_SIZE = int(os.getenv("CROSS_ENCODER_BATCH_SIZE", "5"))
 
-# Lost-in-the-Middle Reordering (#14)
+# Lost-in-the-Middle Reordering (places best results at start/end for LLM attention)
 ENABLE_LOST_IN_MIDDLE_REORDER = os.getenv("ENABLE_LOST_IN_MIDDLE_REORDER", "true").lower() == "true"
 
-# Contextual Compression (#13)
+# Contextual Compression (extracts query-relevant content)
 ENABLE_CONTEXTUAL_COMPRESSION = os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "true").lower() == "true"
 COMPRESSION_MAX_TOKENS_PER_DOC = int(os.getenv("COMPRESSION_MAX_TOKENS_PER_DOC", "200"))
 
-# Citation Verification (#15)
+# Citation Verification
 ENABLE_CITATION_VERIFICATION = os.getenv("ENABLE_CITATION_VERIFICATION", "false").lower() == "true"
 
-# Multi-Index by Content Type (#17)
+# Multi-Index by Content Type
 ENABLE_MULTI_INDEX = os.getenv("ENABLE_MULTI_INDEX", "false").lower() == "true"
 CONTENT_TYPE_WEIGHTS = {
     "text": 1.0,
@@ -193,7 +186,6 @@ CONTENT_TYPE_WEIGHTS = {
 
 PDF_DIR = str(PDF_DIR.resolve())
 NON_PDF_DIR = str(NON_PDF_DIR.resolve())
-PDF_CONVERTED_DIR = str(PDF_CONVERTED_DIR.resolve())
 IMAGE_DIR = str(IMAGE_DIR.resolve())
 DETECTION_DIR = str(DETECTION_DIR.resolve())
 PROCESSED_DIR = str(PROCESSED_DIR.resolve())
@@ -202,6 +194,7 @@ SYSTEM_PROMPT_IMAGE_DESC = str(SYSTEM_PROMPT_IMAGE_DESC.resolve())
 SYSTEM_PROMPT_TEXT_EXTRACT = str(SYSTEM_PROMPT_TEXT_EXTRACT.resolve())
 USER_PROMPT_IMAGE_DESC = str(USER_PROMPT_IMAGE_DESC.resolve())
 USER_PROMPT_TEXT_EXTRACT = str(USER_PROMPT_TEXT_EXTRACT.resolve())
+TABLE_SUMMARY_PROMPT_PATH = str(TABLE_SUMMARY_PROMPT_PATH.resolve())
 CHUNKS_DIR = str((BASE_DIR / "../data/chunks").resolve())
 EMBEDDINGS_DIR = str(EMBEDDINGS_DIR.resolve())
 VECTOR_STORE_DIR = str(VECTOR_STORE_DIR.resolve())
