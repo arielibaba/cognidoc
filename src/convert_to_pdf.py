@@ -380,12 +380,12 @@ def convert_non_pdfs_to_pdf(
     non_pdf_archive_dir: str,
 ) -> Dict[str, any]:
     """
-    Convert all non-PDF documents in a directory to PDF format.
+    Convert all non-PDF documents in a directory (and subdirectories) to PDF format.
 
     This function:
-    1. Scans input_dir for non-PDF documents
-    2. Converts them to PDF and saves in pdf_output_dir
-    3. Moves original files to non_pdf_archive_dir
+    1. Scans input_dir recursively for non-PDF documents
+    2. Converts them to PDF and saves in the same relative location under pdf_output_dir
+    3. Moves original files to the same relative location under non_pdf_archive_dir
     4. Skips conversion if PDF with same name already exists
 
     Args:
@@ -426,8 +426,9 @@ def convert_non_pdfs_to_pdf(
         "errors": [],
     }
 
-    # Scan for files
-    all_files = list(input_path.iterdir())
+    # Scan for files recursively
+    all_files = list(input_path.rglob("*"))
+    logger.info(f"Scanning {input_path} recursively, found {len(all_files)} items")
 
     for file_path in all_files:
         if not file_path.is_file():
@@ -450,15 +451,28 @@ def convert_non_pdfs_to_pdf(
         if ext not in stats["by_format"]:
             stats["by_format"][ext] = {"converted": 0, "failed": 0, "skipped": 0}
 
+        # Calculate relative path to preserve directory structure
+        try:
+            relative_path = file_path.relative_to(input_path)
+            relative_dir = relative_path.parent
+        except ValueError:
+            relative_dir = Path("")
+
+        # Create output directory preserving structure
+        target_output_dir = pdf_output_path / relative_dir
+        target_output_dir.mkdir(parents=True, exist_ok=True)
+
         # Check if PDF already exists
-        target_pdf = pdf_output_path / f"{file_path.stem}.pdf"
+        target_pdf = target_output_dir / f"{file_path.stem}.pdf"
         if target_pdf.exists():
             logger.info(f"PDF already exists, skipping conversion: {file_path.name}")
             stats["skipped_existing"] += 1
             stats["by_format"][ext]["skipped"] += 1
 
-            # Still move the original to archive
-            archive_dest = archive_path / file_path.name
+            # Still move the original to archive (preserving structure)
+            archive_target_dir = archive_path / relative_dir
+            archive_target_dir.mkdir(parents=True, exist_ok=True)
+            archive_dest = archive_target_dir / file_path.name
             if not archive_dest.exists():
                 shutil.move(str(file_path), str(archive_dest))
                 stats["moved_to_archive"] += 1
@@ -466,21 +480,23 @@ def convert_non_pdfs_to_pdf(
             continue
 
         # Convert the document
-        logger.info(f"Converting: {file_path.name}")
-        result = convert_document_to_pdf(file_path, pdf_output_path, libreoffice_path)
+        logger.info(f"Converting: {file_path}")
+        result = convert_document_to_pdf(file_path, target_output_dir, libreoffice_path)
 
         if result:
             stats["converted"] += 1
             stats["by_format"][ext]["converted"] += 1
             logger.info(f"Successfully converted: {file_path.name} -> {result.name}")
 
-            # Move original to archive
-            archive_dest = archive_path / file_path.name
+            # Move original to archive (preserving structure)
+            archive_target_dir = archive_path / relative_dir
+            archive_target_dir.mkdir(parents=True, exist_ok=True)
+            archive_dest = archive_target_dir / file_path.name
             if archive_dest.exists():
                 # Add suffix if file exists in archive
                 counter = 1
                 while archive_dest.exists():
-                    archive_dest = archive_path / f"{file_path.stem}_{counter}{file_path.suffix}"
+                    archive_dest = archive_target_dir / f"{file_path.stem}_{counter}{file_path.suffix}"
                     counter += 1
 
             shutil.move(str(file_path), str(archive_dest))

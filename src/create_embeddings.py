@@ -48,9 +48,33 @@ def get_embeddings(text: str, embed_model: str, use_cache: bool = True) -> List[
     return embed_vector
 
 
+# Path separator used to encode relative paths in filenames
+PATH_SEPARATOR = "__"
+
+
+def decode_document_path(encoded_name: str) -> str:
+    """
+    Decode a path-encoded document name back to its relative path.
+
+    For "projet_A__doc", returns "projet_A/doc"
+    For "doc", returns "doc"
+
+    Args:
+        encoded_name: The encoded document name (without extension)
+
+    Returns:
+        The decoded relative path (without extension)
+    """
+    # Replace the path separator with actual path separator
+    return encoded_name.replace(PATH_SEPARATOR, "/")
+
+
 def make_metadata(chunk_filename: str) -> dict:
     """
     Build the metadata dict based on the chunk filename.
+
+    Handles path-encoded filenames where subdirectory paths are encoded
+    using "__" separator (e.g., "projet_A__doc_page_1" -> document "projet_A/doc").
 
     Args:
         chunk_filename: Name of the chunk file.
@@ -74,7 +98,8 @@ def make_metadata(chunk_filename: str) -> dict:
     if "_page_" in chunk_filename:
         try:
             before, after = chunk_filename.split("_page_", 1)
-            document = before
+            # Decode the path-encoded document name
+            document = decode_document_path(before)
             page = after.split("_")[0]
         except ValueError:
             pass

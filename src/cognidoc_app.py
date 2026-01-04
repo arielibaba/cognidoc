@@ -552,8 +552,10 @@ def chat_conversation(
     refs = []
     for i, (doc, pages) in enumerate(doc_pages.items(), 1):
         # Create PDF file path - URL encoded filename
+        # doc may contain path separators for subdirectories (e.g., "projet_A/doc")
         pdf_filename = f"{doc}.pdf"
-        encoded_filename = urllib.parse.quote(pdf_filename)
+        # Use safe='/' to preserve path separators in the URL
+        encoded_filename = urllib.parse.quote(pdf_filename, safe='/')
         # Use /pdfs/ path for FastAPI static file serving
         base_url = f"/pdfs/{encoded_filename}"
 
