@@ -6,6 +6,7 @@ A document processing and retrieval pipeline that combines **Vector RAG** and **
 
 ## Features
 
+- **Interactive Setup Wizard**: Guided configuration with API validation and model installation
 - **Hybrid RAG**: Combines vector similarity search with knowledge graph traversal
 - **GraphRAG**: Automatic entity/relationship extraction with community detection
 - **Multi-modal Document Processing**: Handles text, tables, and images from PDFs
@@ -15,6 +16,7 @@ A document processing and retrieval pipeline that combines **Vector RAG** and **
 - **Query Routing**: Automatically routes queries to vector or graph retrieval based on query type
 - **LLM Reranking**: Improves retrieval quality using LLM-based relevance scoring
 - **Multi-Provider Support**: Ollama (local), Gemini, OpenAI, Anthropic
+- **Cost Estimation**: Shows time and API cost estimates before processing
 - **No LangChain/LlamaIndex**: Direct Qdrant and Ollama integration for fine-grained control
 
 ## Requirements
@@ -54,14 +56,61 @@ The setup wizard guides you through configuration, model installation, and docum
 python -m src.setup
 ```
 
+```
+╭─────────────────────────────────────────────────────────╮
+│             🧠 CogniDoc Setup Wizard                    │
+╰─────────────────────────────────────────────────────────╯
+
+[1/4] Configuration LLM
+───────────────────────
+? Quel provider pour la génération ?
+  › Ollama (local, gratuit)
+    Gemini (Google)
+    OpenAI
+    Anthropic
+
+[2/4] Configuration Embeddings
+──────────────────────────────
+? Provider pour les embeddings ?
+  › Ollama - qwen3-embedding:0.6b (recommandé, gratuit)
+
+[3/4] Vérification des modèles Ollama
+─────────────────────────────────────
+┌──────────────────────────────┬─────────────────┬───────────────┐
+│ Modèle                       │ Usage           │ Status        │
+├──────────────────────────────┼─────────────────┼───────────────┤
+│ granite3.3:8b                │ LLM génération  │ ✓ Disponible  │
+│ qwen3-embedding:0.6b         │ Embeddings      │ ✓ Disponible  │
+│ ibm/granite-docling:258m-bf16│ Document parsing│ ✗ Manquant    │
+└──────────────────────────────┴─────────────────┴───────────────┘
+? Télécharger les modèles manquants ? [Y/n]
+
+[4/4] Configuration sauvegardée ✓
+
+╭─────────────────────────────────────────────────────────╮
+│             📄 Traitement de documents                  │
+╰─────────────────────────────────────────────────────────╯
+
+Documents détectés: 3 fichiers (4.2 MB)
+Estimation: ~18 minutes | Coût API: ~$0.45
+
+? Traiter ces documents ? [Y/n]
+
+╭─────────────────────────────────────────────────────────╮
+│                    Que faire ensuite ?                  │
+╰─────────────────────────────────────────────────────────╯
+  › 🚀 Lancer CogniDoc (interface web)
+    📄 Ajouter d'autres documents
+    🔄 Relancer le traitement
+    ❌ Quitter
+```
+
 The wizard will:
-1. Configure your LLM provider (Ollama, Gemini, OpenAI, or Anthropic)
-2. Configure embedding provider
-3. Verify and download required Ollama models
-4. Detect documents in `data/pdfs/`
-5. Show time/cost estimates before processing
-6. Run the ingestion pipeline with progress feedback
-7. Launch the CogniDoc chat interface
+1. **Configure LLM** - Choose provider and validate API keys
+2. **Configure Embeddings** - Select embedding model (Ollama recommended)
+3. **Verify Models** - Check and download required Ollama models
+4. **Process Documents** - Show estimates, run pipeline with progress
+5. **Launch Interface** - Start CogniDoc or add more documents
 
 ### Option B: Manual Setup
 
@@ -253,6 +302,7 @@ cognidoc/
 ├── models/
 │   └── YOLOv11/                   # YOLO model weights
 ├── src/
+│   ├── setup.py                   # Interactive setup wizard
 │   ├── run_ingestion_pipeline.py  # Main pipeline orchestrator
 │   ├── cognidoc_app.py            # Gradio chat interface
 │   ├── hybrid_retriever.py        # Vector + Graph fusion
@@ -264,6 +314,7 @@ cognidoc/
 │   ├── helpers.py                 # Query rewriting, reranking utilities
 │   ├── prompts/                   # LLM prompt templates (markdown)
 │   └── utils/                     # RAG utilities, logging, caching
+├── .env.example                   # Environment configuration template
 └── experiments/                   # Jupyter notebooks
 ```
 
@@ -384,8 +435,12 @@ make refactor  # Format + lint
 | `gradio` | Web interface |
 | `tiktoken` | Token counting |
 | `networkx` | Knowledge graph |
-| `python-louvain` | Community detection |
+| `rich` | Beautiful terminal UI |
+| `questionary` | Interactive prompts |
 | `pyyaml` | Configuration parsing |
+| `google-generativeai` | Gemini API |
+| `openai` | OpenAI API |
+| `anthropic` | Claude API |
 
 ## License
 
