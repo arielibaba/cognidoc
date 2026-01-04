@@ -1,20 +1,42 @@
+"""
+Configuration constants for the Advanced Hybrid RAG pipeline.
+
+This module loads configuration from environment variables with sensible defaults.
+"""
+
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Get the directory of the current file (constants.py)
 BASE_DIR = Path(__file__).resolve().parent
 
-# Define paths relative to the location of this file
+# =============================================================================
+# Directory Paths
+# =============================================================================
+
 PDF_DIR = BASE_DIR / "../data/pdfs"
 PDF_CONVERTED_DIR = BASE_DIR / "../data/pdfs_converted"
 IMAGE_DIR = BASE_DIR / "../data/images"
 DETECTION_DIR = BASE_DIR / "../data/detections"
 PROCESSED_DIR = BASE_DIR / "../data/processed"
+CHUNKS_DIR = BASE_DIR / "../data/chunks"
+EMBEDDINGS_DIR = BASE_DIR / "../data/embeddings"
+VECTOR_STORE_DIR = BASE_DIR / "../data/vector_store"
+INDEX_DIR = BASE_DIR / "../data/indexes"
+CACHE_DIR = BASE_DIR / "../data/cache"
 
 # Handled file extensions
 FILE_EXTENSIONS = ['.doc', '.docx', '.html', '.htm', '.ppt', '.pptx']
 FILE_EXTENSIONS.extend([ext.upper() for ext in FILE_EXTENSIONS])
 
-# Yolo Model Configuration
+# =============================================================================
+# YOLO Model Configuration
+# =============================================================================
+
 YOLO_MODEL_PATH = BASE_DIR / "../models/YOLOv11/yolov11x_best.pt"
 YOLO_CONFIDENCE_THRESHOLD = 0.2
 YOLO_IOU_THRESHOLD = 0.8
@@ -23,33 +45,65 @@ YOLO_IOU_THRESHOLD = 0.8
 IMAGE_PIXEL_THRESHOLD = 10000
 IMAGE_PIXEL_VARIANCE_THRESHOLD = 500
 
+# =============================================================================
 # SmolDocling Model Configuration
+# =============================================================================
+
 SMOLDOCLING_MODEL_DIR = BASE_DIR / "../models/ds4sd_SmolDocling-256M-preview-mlx-bf16"
 
-OLLAMA_URL = "http://localhost:11434"  # Ollama server URL, adjust if needed
-OLLAMA_REQUEST_TIMEOUT = 180.0  # Timeout for Ollama requests in seconds
+# =============================================================================
+# LLM Provider Configuration
+# =============================================================================
 
-# Ollama Vision Model Configuration
-VLLM = "qwen2.5vl:7b" #"llama3.2-vision:11b", "gemma3:12b"
-TEMPERATURE_IMAGE_DESC = 0.2
+# Default providers (from env or defaults)
+DEFAULT_LLM_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
+DEFAULT_VISION_PROVIDER = os.getenv("DEFAULT_VISION_PROVIDER", "gemini").lower()
+
+# Ollama Configuration
+OLLAMA_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "180.0"))
+
+# Model names by provider
+GEMINI_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini-2.0-flash")
+GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.0-flash")
+
+OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "granite3.3:8b")
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b-instruct")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding-0.6b")
+
+OPENAI_LLM_MODEL = os.getenv("OPENAI_LLM_MODEL", "gpt-4o")
+OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
+
+ANTHROPIC_LLM_MODEL = os.getenv("ANTHROPIC_LLM_MODEL", "claude-sonnet-4-20250514")
+ANTHROPIC_VISION_MODEL = os.getenv("ANTHROPIC_VISION_MODEL", "claude-sonnet-4-20250514")
+
+# Legacy compatibility (maps to current provider settings)
+VLLM = OLLAMA_VISION_MODEL  # Vision model for Ollama
+LLM = OLLAMA_LLM_MODEL       # LLM model for Ollama
+
+# =============================================================================
+# Generation Parameters
+# =============================================================================
+
+TEMPERATURE_IMAGE_DESC = float(os.getenv("VISION_TEMPERATURE", "0.2"))
 TEMPERATURE_TEXT_EXTRACT = 0.1
-TOP_P_IMAGE_DESC = 0.85
+TOP_P_IMAGE_DESC = float(os.getenv("VISION_TOP_P", "0.85"))
 TOP_P_IMAGE_TEXT_EXTRACT = 0.1
 
-# Ollama Thinking Model Configuration
-LLM = "granite3.3:8b"        # qwen3 (40K): "qwen3:8b-q8_0", "qwen3:14b"
-                             # phi4: "phi4-mini:3.8b" (128K), "phi4-mini:3.8b-fp16 " (4K), "phi4-mini-reasoning" (4K), "phi4-mini-reasoning:3.8b-fp16" (4K), "phi4:14b" (16K)
-                             # "granite3.3:8b" (128K),
-                             # "deepseek-r1:14b" (128K)
-TEMPERATURE_GENERATION = 0.7
-TOP_P_GENERATION = 0.85
-CONTEXT_WINDOW = 128e3                   # LLM contextlength window, adjust based on the model used, e.g. 128k for Qwen2.5VL, 32k for Llama3.2, etc.
-MEMORY_WINDOW = CONTEXT_WINDOW * 0.5    # Maximum lenght of the memory to keep track over the conversation - can start with 50% of the context window of the LLM for example
+TEMPERATURE_GENERATION = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+TOP_P_GENERATION = float(os.getenv("LLM_TOP_P", "0.85"))
+
+# Context Windows
+CONTEXT_WINDOW = int(float(os.getenv("CONTEXT_WINDOW", "128000")))
+MEMORY_WINDOW = int(float(os.getenv("MEMORY_WINDOW", str(CONTEXT_WINDOW * 0.5))))
 
 # Query Expansion
-TEMPERATURE_QUERY_EXPANSION = 0.3       # query expansion task by LLM (e.g. HyDE, etc)
+TEMPERATURE_QUERY_EXPANSION = 0.3
 
-# Prompts Files
+# =============================================================================
+# Prompt Files
+# =============================================================================
+
 SYSTEM_PROMPT_IMAGE_DESC = BASE_DIR / "prompts/system_prompt_for_image_description.md"
 USER_PROMPT_IMAGE_DESC = BASE_DIR / "prompts/user_prompt_for_image_description.md"
 
@@ -67,38 +121,44 @@ USER_PROMPT_EXPAND_QUERY = BASE_DIR / "prompts/user_prompt_expand_query.md"
 SYSTEM_PROMPT_GENERATE_FINAL_ANSWER = BASE_DIR / "prompts/system_prompt_generate_final_answer.md"
 USER_PROMPT_GENERATE_FINAL_ANSWER = BASE_DIR / "prompts/user_prompt_generate_final_answer.md"
 
-# Chunking
-CHUNKS_DIR = BASE_DIR / "../data/chunks"
-EMBED_MODEL = "mxbai-embed-large"
-MAX_CHUNK_SIZE = 512  # Maximum size of each chunk in tokens, let's say 512 tokens for parent chunks and 64 for child chunks
-BUFFER_SIZE = 5  # Buffer size for the semantic chunker
-BREAKPOINT_THRESHOLD_TYPE = "percentile"  # Type of breakpoint threshold
-BREAKPOINT_THRESHOLD_AMOUNT = 0.95  # Amount for the breakpoint threshold
-SENTENCE_SPLIT_REGEX = r"\n\n\n"  # Regex to split sentences, using triple newlines as a delimiter. This can be adjusted based on the text structure.
+# =============================================================================
+# Chunking Configuration
+# =============================================================================
 
-# Embedding
-EMBEDDINGS_DIR = BASE_DIR / "../data/embeddings"
+EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding-0.6b")
+MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "512"))
+BUFFER_SIZE = int(os.getenv("BUFFER_SIZE", "5"))
+BREAKPOINT_THRESHOLD_TYPE = "percentile"
+BREAKPOINT_THRESHOLD_AMOUNT = 0.95
+SENTENCE_SPLIT_REGEX = r"\n\n\n"
 
-# Qdrant Vector Store
-VECTOR_STORE_DIR = BASE_DIR / "../data/vector_store"
+# =============================================================================
+# Indexing Configuration
+# =============================================================================
 
-
-# Indexing
-INDEX_DIR = BASE_DIR / "../data/indexes"
-CHILD_DOCUMENTS_INDEX =  "child_documents"
+CHILD_DOCUMENTS_INDEX = "child_documents"
 PARENT_DOCUMENTS_INDEX = "parent_documents"
 
-# Retrieval Parameters for the Search Engine
-TOP_K_RETRIEVED_CHILDREN = 10           # Number of nodes retrieved
-TOP_K_RERANKED_PARENTS = 5              # Number of nodes retained after reranking - can start with 5 for example
-TOP_K_REFS = 3                          # Number of references to display - must be at most the number of retrieved parents
+# =============================================================================
+# Retrieval Parameters
+# =============================================================================
 
-# Optional: convert all Path objects to strings if needed elsewhere
+TOP_K_RETRIEVED_CHILDREN = int(os.getenv("TOP_K_RETRIEVED_CHILDREN", "10"))
+TOP_K_RERANKED_PARENTS = int(os.getenv("TOP_K_RERANKED_PARENTS", "5"))
+TOP_K_REFS = int(os.getenv("TOP_K_REFS", "3"))
+
+# Reranking toggle (can be overridden at runtime)
+ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
+
+# =============================================================================
+# Convert Path objects to strings for external use
+# =============================================================================
+
 PDF_DIR = str(PDF_DIR.resolve())
 PDF_CONVERTED_DIR = str(PDF_CONVERTED_DIR.resolve())
 IMAGE_DIR = str(IMAGE_DIR.resolve())
 DETECTION_DIR = str(DETECTION_DIR.resolve())
-PROCESSED_DIR= str(PROCESSED_DIR.resolve())
+PROCESSED_DIR = str(PROCESSED_DIR.resolve())
 YOLO_MODEL_PATH = str(YOLO_MODEL_PATH.resolve())
 SYSTEM_PROMPT_IMAGE_DESC = str(SYSTEM_PROMPT_IMAGE_DESC.resolve())
 SYSTEM_PROMPT_TEXT_EXTRACT = str(SYSTEM_PROMPT_TEXT_EXTRACT.resolve())
@@ -109,3 +169,7 @@ CHUNKS_DIR = str((BASE_DIR / "../data/chunks").resolve())
 EMBEDDINGS_DIR = str(EMBEDDINGS_DIR.resolve())
 VECTOR_STORE_DIR = str(VECTOR_STORE_DIR.resolve())
 INDEX_DIR = str(INDEX_DIR.resolve())
+CACHE_DIR = str((BASE_DIR / "../data/cache").resolve())
+
+# Ensure cache directory exists
+Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
