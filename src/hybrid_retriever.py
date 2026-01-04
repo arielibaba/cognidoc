@@ -121,8 +121,8 @@ def analyze_query(
 
     Now uses the intelligent QueryOrchestrator for classification.
     """
-    # Use the new orchestrator
-    decision = route_query(query, model)
+    # Use the new orchestrator (now uses unified LLM client)
+    decision = route_query(query)
 
     # Convert to QueryAnalysis for backward compatibility
     return QueryAnalysis.from_routing_decision(decision)
@@ -300,6 +300,7 @@ class HybridRetriever:
         use_compression: bool = None,
         metadata_filters: List[MetadataFilter] = None,
         use_smart_routing: bool = True,
+        pre_computed_routing: Optional["RoutingDecision"] = None,
     ) -> HybridRetrievalResult:
         """
         Perform hybrid retrieval with advanced RAG features.
@@ -315,6 +316,7 @@ class HybridRetriever:
             use_compression: Apply contextual compression (default from config)
             metadata_filters: List of MetadataFilter for filtering results (#16)
             use_smart_routing: Use intelligent orchestrator for routing decisions
+            pre_computed_routing: Pre-computed routing decision (skips LLM classification)
 
         Returns:
             HybridRetrievalResult with combined context
@@ -335,8 +337,16 @@ class HybridRetriever:
             use_compression = ENABLE_CONTEXTUAL_COMPRESSION
 
         # Smart routing with orchestrator
-        if use_smart_routing:
-            routing = self._orchestrator.route(query, model)
+        if pre_computed_routing is not None:
+            # Use pre-computed routing (from parallel rewrite+classify)
+            routing = pre_computed_routing
+            analysis = QueryAnalysis.from_routing_decision(routing)
+            logger.info(
+                f"Using pre-computed routing: mode={routing.mode.value}, "
+                f"skip_vector={routing.skip_vector}, skip_graph={routing.skip_graph}"
+            )
+        elif use_smart_routing:
+            routing = self._orchestrator.route(query)
             analysis = QueryAnalysis.from_routing_decision(routing)
 
             # Log routing decision
@@ -441,11 +451,10 @@ class HybridRetriever:
                             ]
                             logger.debug(f"Cross-encoder reranking: {len(parent_results)} results")
                         else:
-                            # Fallback to LLM reranking
+                            # Fallback to LLM reranking (uses unified LLM client)
                             parent_results = rerank_documents(
                                 parent_results,
                                 query,
-                                model,
                                 top_n=TOP_K_RERANKED_PARENTS,
                             )
                             logger.debug(f"LLM reranking: {len(parent_results)} results")
@@ -478,7 +487,7 @@ class HybridRetriever:
         skip_graph = routing.skip_graph if routing else False
         if analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph:
             try:
-                graph_result = self._graph_retriever.retrieve(query, model)
+                graph_result = self._graph_retriever.retrieve(query)
                 graph_confidence = graph_result.confidence
                 logger.debug(
                     f"Graph retrieval: {len(graph_result.entities)} entities, "

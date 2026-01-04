@@ -353,23 +353,25 @@ Answer:"""
 def rerank_documents(
     documents: List[NodeWithScore],
     query: str,
-    model: str,
     top_n: int = 5,
     temperature: float = 0.1,
 ) -> List[NodeWithScore]:
     """
     Rerank documents using LLM.
 
+    Uses the unified LLM client (Gemini by default).
+
     Args:
         documents: List of documents with initial scores
         query: User query for relevance assessment
-        model: Ollama model name
         top_n: Number of top documents to return
         temperature: LLM temperature
 
     Returns:
         Reranked list of documents
     """
+    from .llm_client import llm_chat
+
     if not documents:
         return []
 
@@ -387,13 +389,10 @@ def rerank_documents(
 
     # Call LLM
     try:
-        response = ollama.chat(
-            model=model,
+        result_text = llm_chat(
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": temperature},
+            temperature=temperature,
         )
-
-        result_text = response["message"]["content"]
 
         # Parse response to extract document numbers and scores
         reranked = []
@@ -437,31 +436,19 @@ def rerank_documents(
 # =============================================================================
 
 def stream_chat(
-    model: str,
     messages: List[Dict[str, str]],
     temperature: float = 0.7,
-    top_p: float = 0.85,
 ):
     """
-    Stream chat response from Ollama.
+    Stream chat response using the unified LLM client.
 
     Args:
-        model: Ollama model name
         messages: List of message dicts with 'role' and 'content'
         temperature: Generation temperature
-        top_p: Top-p sampling
 
     Yields:
         Accumulated response text
     """
-    response = ""
+    from .llm_client import llm_stream
 
-    for chunk in ollama.chat(
-        model=model,
-        messages=messages,
-        stream=True,
-        options={"temperature": temperature, "top_p": top_p},
-    ):
-        if "message" in chunk and "content" in chunk["message"]:
-            response += chunk["message"]["content"]
-            yield response
+    yield from llm_stream(messages, temperature)

@@ -13,6 +13,7 @@ No LlamaIndex dependencies - uses direct Qdrant and Ollama calls.
 
 import argparse
 import time
+import urllib.parse
 import warnings
 
 import gradio as gr
@@ -34,6 +35,7 @@ from .constants import (
     USER_PROMPT_GENERATE_FINAL_ANSWER,
     ENABLE_RERANKING,
     ENABLE_CITATION_VERIFICATION,
+    PDF_DIR,
 )
 from .helpers import (
     clear_pytorch_cache,
@@ -43,6 +45,7 @@ from .helpers import (
     parse_rewritten_query,
     convert_history_to_tuples,
     reset_conversation,
+    parallel_rewrite_and_classify,
 )
 from .utils.rag_utils import (
     VectorIndex,
@@ -231,6 +234,105 @@ CUSTOM_CSS = """
 .chatbot {
     border-radius: 12px !important;
 }
+
+/* Enhanced message styling */
+.chatbot .message {
+    font-size: 0.95rem !important;
+    line-height: 1.6 !important;
+}
+
+.chatbot .message.bot {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%) !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+.chatbot .message.user {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+}
+
+/* References section styling */
+.chatbot .message hr {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 1rem 0;
+}
+
+.chatbot .message strong {
+    color: #1a202c;
+    font-weight: 600;
+}
+
+.chatbot .message a {
+    color: #4f46e5 !important;
+    text-decoration: none !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.chatbot .message a:hover {
+    color: #7c3aed !important;
+    text-decoration: underline !important;
+}
+
+/* Code and markdown enhancements */
+.chatbot .message code {
+    background: #f1f5f9;
+    padding: 0.2em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: #e11d48;
+}
+
+.chatbot .message pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 1rem;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.chatbot .message pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+}
+
+/* List styling in responses */
+.chatbot .message ul, .chatbot .message ol {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.chatbot .message li {
+    margin: 0.25rem 0;
+}
+
+/* Typing indicator */
+.chatbot .typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px;
+}
+
+.chatbot .typing-indicator span {
+    width: 8px;
+    height: 8px;
+    background: #94a3b8;
+    border-radius: 50%;
+    animation: typing 1.4s infinite ease-in-out;
+}
+
+@keyframes typing {
+    0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .header-title { font-size: 1.5rem; }
+    .header-badge { display: none; }
+}
 """
 
 
@@ -308,10 +410,10 @@ def chat_conversation(
     history = limit_chat_history(history, max_tokens=MEMORY_WINDOW)
     conv_history = "".join(f"{m['role'].capitalize()}: {m['content']}\n" for m in history)
 
-    # Query rewriting
+    # Parallel query rewriting and classification (uses unified LLM client)
     try:
         t1 = time.perf_counter()
-        rewritten = rewrite_query(LLM, user_message, conv_history)
+        rewritten, routing_decision = parallel_rewrite_and_classify(user_message, conv_history)
         t2 = time.perf_counter()
         logger.info(f"Rewritten query ({len(rewritten.split(chr(10)))} parts):\n{rewritten}")
     except Exception as e:
@@ -346,6 +448,7 @@ def chat_conversation(
             top_k=TOP_K_RETRIEVED_CHILDREN,
             use_reranking=enable_reranking,
             model=LLM,
+            pre_computed_routing=routing_decision,  # Pass pre-computed routing
         )
 
         # Extract results from hybrid retrieval
@@ -399,7 +502,6 @@ def chat_conversation(
             reranked = rerank_documents(
                 documents=nws_list,
                 query=combo,
-                model=LLM,
                 top_n=TOP_K_RERANKED_PARENTS,
             )
             t_rerank_end = time.perf_counter()
@@ -426,9 +528,11 @@ def chat_conversation(
         context = f"{graph_context}\n\n{doc_context}"
     else:
         context = doc_context
-    refs = []
-    seen_pages = set()
-    for i, nws in enumerate(reranked, 1):
+
+    # Group pages by document for cleaner references
+    from collections import OrderedDict
+    doc_pages = OrderedDict()  # Preserve order of first appearance
+    for nws in reranked:
         source = nws.node.metadata.get("source", {})
         if isinstance(source, dict):
             doc = source.get("document", "Unknown")
@@ -436,9 +540,41 @@ def chat_conversation(
         else:
             doc = str(source)
             page = "?"
-        if (doc, page) not in seen_pages:
-            seen_pages.add((doc, page))
-            refs.append(f"{i}. {doc} - Page {page}")
+        if doc not in doc_pages:
+            doc_pages[doc] = set()
+        if page != "?":
+            try:
+                doc_pages[doc].add(int(page))
+            except (ValueError, TypeError):
+                doc_pages[doc].add(page)
+
+    # Format references with consolidated page numbers and clickable links
+    refs = []
+    for i, (doc, pages) in enumerate(doc_pages.items(), 1):
+        # Create PDF file path - URL encoded filename
+        pdf_filename = f"{doc}.pdf"
+        encoded_filename = urllib.parse.quote(pdf_filename)
+        # Use /pdfs/ path for FastAPI static file serving
+        base_url = f"/pdfs/{encoded_filename}"
+
+        if not pages:
+            # No page info - link to document
+            refs.append(f'{i}. <a href="{base_url}" target="_blank" rel="noopener">{doc}</a>')
+        elif len(pages) == 1:
+            page_num = list(pages)[0]
+            refs.append(f'{i}. <a href="{base_url}#page={page_num}" target="_blank" rel="noopener">{doc}</a> - Page {page_num}')
+        else:
+            # Sort pages and create range or list
+            sorted_pages = sorted(p for p in pages if isinstance(p, int))
+            if sorted_pages:
+                first_page = min(sorted_pages)
+                # Check if consecutive for range format
+                if sorted_pages == list(range(first_page, max(sorted_pages) + 1)):
+                    refs.append(f'{i}. <a href="{base_url}#page={first_page}" target="_blank" rel="noopener">{doc}</a> - Pages {first_page}-{max(sorted_pages)}')
+                else:
+                    refs.append(f'{i}. <a href="{base_url}#page={first_page}" target="_blank" rel="noopener">{doc}</a> - Pages {", ".join(map(str, sorted_pages))}')
+            else:
+                refs.append(f'{i}. <a href="{base_url}" target="_blank" rel="noopener">{doc}</a> - Pages {", ".join(map(str, pages))}')
         if len(refs) >= TOP_K_REFS:
             break
 
@@ -464,7 +600,7 @@ def chat_conversation(
 
     # Stream response
     history.append({"role": "assistant", "content": ""})
-    for chunk in run_streaming(LLM, msgs, TEMPERATURE_GENERATION, TOP_P_GENERATION):
+    for chunk in run_streaming(msgs, TEMPERATURE_GENERATION):
         history[-1]["content"] = chunk
         yield convert_history_to_tuples(history)
 
@@ -700,6 +836,10 @@ def create_gradio_app(default_reranking: bool = True):
 
 def main():
     """Main entry point."""
+    from fastapi import FastAPI
+    from fastapi.staticfiles import StaticFiles
+    import uvicorn
+
     args = parse_args()
 
     # Set reranking based on CLI argument
@@ -710,14 +850,21 @@ def main():
     else:
         logger.info("Reranking enabled by default")
 
-    # Create and launch app
+    # Create Gradio app
     demo = create_gradio_app(default_reranking=default_reranking)
 
+    # Create FastAPI app and mount Gradio + static files
+    app = FastAPI()
+
+    # Mount PDF directory for static file serving
+    app.mount("/pdfs", StaticFiles(directory=PDF_DIR), name="pdfs")
+    logger.info(f"Static PDF files mounted at /pdfs from {PDF_DIR}")
+
+    # Mount Gradio app
+    app = gr.mount_gradio_app(app, demo, path="/")
+
     logger.info(f"Launching CogniDoc on port {args.port}...")
-    demo.launch(
-        server_port=args.port,
-        share=args.share,
-    )
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
 
 
 if __name__ == "__main__":

@@ -13,11 +13,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import networkx as nx
-import ollama
 
 from .extract_entities import Entity, Relationship, ExtractionResult
 from .graph_config import get_graph_config, GraphConfig
-from .constants import INDEX_DIR, LLM
+from .constants import INDEX_DIR, EMBED_MODEL
+from .utils.llm_client import llm_chat
 from .utils.logger import logger
 from .utils.rag_utils import get_embedding
 
@@ -301,21 +301,17 @@ class KnowledgeGraph:
             logger.error(f"Community detection failed: {e}")
             return 0
 
-    def generate_community_summaries(self, model: str = None, compute_embeddings: bool = True) -> None:
+    def generate_community_summaries(self, compute_embeddings: bool = True) -> None:
         """
         Generate summaries and embeddings for each community using LLM.
 
+        Uses the unified LLM client (Gemini by default).
+
         Args:
-            model: LLM model for summary generation
             compute_embeddings: Whether to pre-compute embeddings for fast retrieval
         """
         if not self.communities:
             return
-
-        if model is None:
-            model = LLM
-
-        from .constants import EMBED_MODEL
 
         for community_id, community in self.communities.items():
             if not community.node_ids:
@@ -356,12 +352,11 @@ RELATIONSHIPS:
 SUMMARY:"""
 
             try:
-                response = ollama.chat(
-                    model=model,
+                response = llm_chat(
                     messages=[{"role": "user", "content": prompt}],
-                    options={"temperature": 0.3},
+                    temperature=0.3,
                 )
-                community.summary = response["message"]["content"].strip()
+                community.summary = response.strip()
 
                 # Pre-compute embedding for fast retrieval
                 if compute_embeddings and community.summary:

@@ -11,12 +11,14 @@ import torch
 import tiktoken
 from PIL import Image, ImageStat
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
-import ollama
 import markdown
 from bs4 import BeautifulSoup
 from httpx import ReadTimeout
+
+if TYPE_CHECKING:
+    import ollama
 
 from .constants import (
     MEMORY_WINDOW,
@@ -24,9 +26,9 @@ from .constants import (
     USER_PROMPT_REWRITE_QUERY,
     SYSTEM_PROMPT_EXPAND_QUERY,
     USER_PROMPT_EXPAND_QUERY,
-    LLM,
 )
-from .utils.rag_utils import Document, KeywordIndex, stream_chat
+from .utils.rag_utils import Document, KeywordIndex
+from .utils.llm_client import llm_chat, llm_stream
 from .utils.logger import logger
 
 
@@ -81,11 +83,11 @@ def markdown_to_plain_text(markdown_text: str) -> str:
 
 def ask_LLM_with_JSON(
     prompt: str,
-    ollama_client: ollama.Client,
+    ollama_client: "ollama.Client",
     model: str,
     model_options: Dict[str, Any]
 ) -> str:
-    """Asks the LLM to generate a JSON response."""
+    """Asks the LLM to generate a JSON response using a specific Ollama client."""
     messages = [
         {"role": "system", "content": "You are a helpful assistant. Output JSON."},
         {"role": "user", "content": prompt}
@@ -249,15 +251,13 @@ def limit_chat_history(history: List[dict], max_tokens: int = MEMORY_WINDOW) -> 
     return list(reversed(truncated))
 
 
-def run_streaming(model: str, messages: List[Dict[str, str]], temperature: float = 0.7, top_p: float = 0.85):
+def run_streaming(messages: List[Dict[str, str]], temperature: float = 0.7):
     """
-    Run LLM in streaming mode using direct Ollama calls.
+    Run LLM in streaming mode using the unified LLM client.
 
     Args:
-        model: Ollama model name
         messages: List of message dicts with 'role' and 'content'
         temperature: Generation temperature
-        top_p: Top-p sampling
 
     Yields:
         Accumulated response text
@@ -270,15 +270,16 @@ def run_streaming(model: str, messages: List[Dict[str, str]], temperature: float
         else:
             msg_list.append(m)
 
-    yield from stream_chat(model, msg_list, temperature, top_p)
+    yield from llm_stream(msg_list, temperature)
 
 
-def rewrite_query(model: str, user_query: str, conversation_history_str: str = "") -> str:
+def rewrite_query(user_query: str, conversation_history_str: str = "") -> str:
     """
     Rewrites the user query based on conversation history.
 
+    Uses the unified LLM client (Gemini by default).
+
     Args:
-        model: Ollama model name
         user_query: The new question to rewrite
         conversation_history_str: The conversation history as a string
 
@@ -296,15 +297,15 @@ def rewrite_query(model: str, user_query: str, conversation_history_str: str = "
         question=user_query
     )
 
-    response = ollama.chat(
-        model=model,
+    response = llm_chat(
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_prompt},
         ],
+        temperature=0.3,
     )
 
-    rewritten = response["message"]["content"].strip()
+    rewritten = response.strip()
     return rewritten or f"- {user_query}"
 
 
@@ -319,12 +320,13 @@ def parse_rewritten_query(text: str) -> List[str]:
     return bullets
 
 
-def expand_query(model: str, user_query: str) -> List[str]:
+def expand_query(user_query: str) -> List[str]:
     """
     Expands the user query by identifying synonyms or related terms.
 
+    Uses the unified LLM client (Gemini by default).
+
     Args:
-        model: Ollama model name
         user_query: The user query to expand
 
     Returns:
@@ -343,14 +345,14 @@ def expand_query(model: str, user_query: str) -> List[str]:
 
         for sq in sub_questions:
             user_prompt = user_message.format(subq=sq)
-            response = ollama.chat(
-                model=model,
+            response = llm_chat(
                 messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": user_prompt},
                 ],
+                temperature=0.3,
             )
-            cands = parse_expanded_queries(response["message"]["content"])
+            cands = parse_expanded_queries(response)
             all_expanded.extend(cands or [sq])
 
         return all_expanded
@@ -389,3 +391,136 @@ def convert_history_to_tuples(history: List[dict]) -> List[dict]:
 def reset_conversation():
     """Resets the conversation history."""
     return [], ""
+
+
+def parallel_rewrite_and_classify(
+    user_query: str,
+    conversation_history_str: str = "",
+) -> Tuple[str, Any]:
+    """
+    Run query rewriting and classification in parallel.
+
+    This significantly reduces latency by overlapping two LLM calls
+    instead of running them sequentially.
+
+    Args:
+        user_query: The user's question
+        conversation_history_str: Formatted conversation history
+
+    Returns:
+        Tuple of (rewritten_query, routing_decision)
+    """
+    from .utils.llm_client import run_parallel_sync
+    from .query_orchestrator import (
+        CLASSIFIER_PROMPT,
+        QueryType,
+        RoutingDecision,
+        RetrievalMode,
+        WEIGHT_CONFIG,
+        classify_query_rules,
+    )
+
+    # Build rewrite messages
+    with open(SYSTEM_PROMPT_REWRITE_QUERY, "r", encoding="utf-8") as s_prompt:
+        rewrite_system = s_prompt.read()
+    with open(USER_PROMPT_REWRITE_QUERY, "r", encoding="utf-8") as u_prompt:
+        rewrite_user_template = u_prompt.read()
+
+    rewrite_user = rewrite_user_template.format(
+        conversation_history=conversation_history_str,
+        question=user_query
+    )
+
+    rewrite_messages = [
+        {"role": "system", "content": rewrite_system},
+        {"role": "user", "content": rewrite_user},
+    ]
+
+    # Build classify messages
+    classify_messages = [
+        {"role": "user", "content": CLASSIFIER_PROMPT.format(query=user_query)}
+    ]
+
+    # Run both in parallel
+    try:
+        results = run_parallel_sync([
+            ("rewrite", rewrite_messages, 0.3),
+            ("classify", classify_messages, 0.1),
+        ])
+
+        # Parse rewrite result
+        rewritten = results.get("rewrite", "").strip()
+        if not rewritten:
+            rewritten = f"- {user_query}"
+
+        # Parse classify result
+        classify_result = results.get("classify", "")
+        query_type = QueryType.UNKNOWN
+        confidence = 0.5
+        reasoning = ""
+        entities = []
+
+        for line in classify_result.split("\n"):
+            line = line.strip()
+            if line.startswith("TYPE:"):
+                type_str = line.split(":", 1)[1].strip().upper()
+                try:
+                    query_type = QueryType[type_str]
+                except KeyError:
+                    query_type = QueryType.UNKNOWN
+            elif line.startswith("CONFIDENCE:"):
+                try:
+                    confidence = float(line.split(":", 1)[1].strip())
+                except ValueError:
+                    confidence = 0.5
+            elif line.startswith("ENTITIES:"):
+                ent_str = line.split(":", 1)[1].strip()
+                if ent_str.lower() != "none":
+                    entities = [e.strip() for e in ent_str.split(",")]
+            elif line.startswith("REASONING:"):
+                reasoning = line.split(":", 1)[1].strip()
+
+        # Build routing decision
+        weight_cfg = WEIGHT_CONFIG.get(query_type, WEIGHT_CONFIG[QueryType.UNKNOWN])
+        vector_weight = weight_cfg["vector"]
+        graph_weight = weight_cfg["graph"]
+        mode = weight_cfg["mode"]
+
+        # Never skip vector completely - we need documents for references
+        # Only skip if weight is very low AND it's not needed for context
+        skip_vector = False  # Always include vector for document references
+        skip_graph = graph_weight < 0.15
+
+        # For exploratory queries, use hybrid mode but favor graph
+        if query_type == QueryType.EXPLORATORY:
+            mode = RetrievalMode.HYBRID
+            vector_weight = 0.3  # Still get some vector results for references
+            graph_weight = 0.7
+
+        decision = RoutingDecision(
+            query=user_query,
+            query_type=query_type,
+            mode=mode,
+            vector_weight=vector_weight,
+            graph_weight=graph_weight,
+            skip_vector=skip_vector,
+            skip_graph=skip_graph,
+            confidence=confidence,
+            reasoning=reasoning,
+            entities_detected=entities,
+        )
+
+        logger.info(
+            f"Parallel rewrite+classify: type={query_type.value}, "
+            f"mode={mode.value}, rewritten_parts={len(rewritten.split(chr(10)))}"
+        )
+
+        return rewritten, decision
+
+    except Exception as e:
+        logger.warning(f"Parallel execution failed: {e}, falling back to sequential")
+        # Fall back to sequential execution
+        rewritten = rewrite_query(user_query, conversation_history_str)
+        from .query_orchestrator import route_query
+        decision = route_query(user_query)
+        return rewritten, decision

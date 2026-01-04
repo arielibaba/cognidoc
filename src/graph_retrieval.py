@@ -13,11 +13,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import ollama
 
 from .knowledge_graph import KnowledgeGraph, GraphNode, Community
 from .graph_config import get_graph_config, GraphConfig
-from .constants import LLM, EMBED_MODEL
+from .constants import EMBED_MODEL
+from .utils.llm_client import llm_chat
 from .utils.logger import logger
 from .utils.rag_utils import get_embedding
 
@@ -70,18 +70,16 @@ class GraphRetrievalResult:
 def extract_entities_from_query(
     query: str,
     kg: KnowledgeGraph,
-    model: str = None,
     config: Optional[GraphConfig] = None,
 ) -> List[GraphNode]:
     """
     Extract entity mentions from query and match to graph nodes.
 
     Uses fuzzy matching and LLM extraction for better recall.
+    Uses the unified LLM client (Gemini by default).
     """
     if config is None:
         config = get_graph_config()
-    if model is None:
-        model = LLM
 
     matched_entities = []
 
@@ -118,12 +116,10 @@ If no entities match, return: []
 OUTPUT:"""
 
     try:
-        response = ollama.chat(
-            model=model,
+        result_text = llm_chat(
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.1},
+            temperature=0.1,
         )
-        result_text = response["message"]["content"].strip()
 
         # Parse JSON list
         import json
@@ -148,7 +144,6 @@ OUTPUT:"""
 def retrieve_by_entities(
     query: str,
     kg: KnowledgeGraph,
-    model: str = None,
     max_depth: int = 2,
     max_results: int = 20,
 ) -> GraphRetrievalResult:
@@ -162,7 +157,7 @@ def retrieve_by_entities(
     4. Build context from results
     """
     # Extract entities from query
-    mentioned_entities = extract_entities_from_query(query, kg, model)
+    mentioned_entities = extract_entities_from_query(query, kg)
 
     if not mentioned_entities:
         return GraphRetrievalResult(
@@ -288,17 +283,14 @@ def retrieve_by_relationship(
 def retrieve_by_community(
     query: str,
     kg: KnowledgeGraph,
-    model: str = None,
     top_k: int = 3,
 ) -> GraphRetrievalResult:
     """
     Retrieve based on community summaries (global queries).
 
     Good for broad questions about themes or topics.
+    Uses pre-computed embeddings for fast similarity matching.
     """
-    if model is None:
-        model = LLM
-
     if not kg.communities:
         return GraphRetrievalResult(
             query=query,
@@ -380,18 +372,16 @@ def retrieve_by_community(
 def retrieve_from_graph(
     query: str,
     kg: KnowledgeGraph,
-    model: str = None,
     config: Optional[GraphConfig] = None,
 ) -> GraphRetrievalResult:
     """
     Main retrieval function that combines multiple retrieval strategies.
 
     Automatically determines the best retrieval strategy based on the query.
+    Uses the unified LLM client (Gemini by default) for entity extraction.
     """
     if config is None:
         config = get_graph_config()
-    if model is None:
-        model = LLM
 
     logger.info(f"Graph retrieval for query: {query[:100]}...")
 
@@ -423,16 +413,16 @@ def retrieve_from_graph(
 
     for pattern in global_patterns:
         if re.search(pattern, query.lower()):
-            result = retrieve_by_community(query, kg, model)
+            result = retrieve_by_community(query, kg)
             if result.communities:
                 return result
 
     # Default: entity-based retrieval
-    result = retrieve_by_entities(query, kg, model)
+    result = retrieve_by_entities(query, kg)
 
     # If entity retrieval has low confidence, try community as supplement
     if result.confidence < 0.3 and kg.communities:
-        community_result = retrieve_by_community(query, kg, model)
+        community_result = retrieve_by_community(query, kg)
         if community_result.confidence > result.confidence:
             # Merge results
             result.communities = community_result.communities
@@ -473,12 +463,8 @@ class GraphRetriever:
         """Check if graph is loaded."""
         return self.kg is not None and len(self.kg.nodes) > 0
 
-    def retrieve(
-        self,
-        query: str,
-        model: str = None,
-    ) -> GraphRetrievalResult:
-        """Retrieve from the knowledge graph."""
+    def retrieve(self, query: str) -> GraphRetrievalResult:
+        """Retrieve from the knowledge graph using unified LLM client."""
         if not self.is_loaded():
             logger.warning("Knowledge graph not loaded, attempting to load...")
             if not self.load():
@@ -489,7 +475,7 @@ class GraphRetriever:
                     confidence=0.0,
                 )
 
-        return retrieve_from_graph(query, self.kg, model, self.config)
+        return retrieve_from_graph(query, self.kg, self.config)
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get graph statistics."""

@@ -14,9 +14,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
-import ollama
-
-from .constants import LLM
+from .utils.llm_client import llm_chat
 from .utils.logger import logger
 
 
@@ -205,30 +203,23 @@ ENTITIES: <comma-separated list or "none">
 REASONING: <brief explanation>"""
 
 
-def classify_query_llm(
-    query: str,
-    model: str = None,
-) -> Tuple[QueryType, float, str, List[str]]:
+def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
     """
     Classify query using LLM.
+
+    Uses the unified LLM client (Gemini by default).
 
     Returns:
         Tuple of (query_type, confidence, reasoning, entities)
     """
-    if model is None:
-        model = LLM
-
     try:
-        response = ollama.chat(
-            model=model,
+        result = llm_chat(
             messages=[{
                 "role": "user",
                 "content": CLASSIFIER_PROMPT.format(query=query)
             }],
-            options={"temperature": 0.1, "num_predict": 150},
+            temperature=0.1,
         )
-
-        result = response["message"]["content"]
 
         # Parse response
         query_type = QueryType.UNKNOWN
@@ -282,22 +273,21 @@ class QueryOrchestrator:
     def __init__(self, config: OrchestratorConfig = None):
         self.config = config or OrchestratorConfig()
 
-    def route(self, query: str, model: str = None) -> RoutingDecision:
+    def route(self, query: str) -> RoutingDecision:
         """
         Analyze query and decide routing strategy.
 
+        Uses the unified LLM client (Gemini by default) for classification.
+
         Args:
             query: User query
-            model: LLM model for classification
 
         Returns:
             RoutingDecision with routing strategy
         """
         # Classify query
         if self.config.use_llm_classifier:
-            query_type, confidence, reasoning, entities = classify_query_llm(
-                query, model or self.config.classifier_model
-            )
+            query_type, confidence, reasoning, entities = classify_query_llm(query)
         else:
             query_type, confidence, reasoning = classify_query_rules(query)
             entities = []
@@ -503,6 +493,6 @@ def get_orchestrator(config: OrchestratorConfig = None) -> QueryOrchestrator:
     return _orchestrator
 
 
-def route_query(query: str, model: str = None) -> RoutingDecision:
+def route_query(query: str) -> RoutingDecision:
     """Convenience function for query routing."""
-    return get_orchestrator().route(query, model)
+    return get_orchestrator().route(query)

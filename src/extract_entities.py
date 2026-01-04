@@ -12,10 +12,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-import ollama
-
 from .graph_config import get_graph_config, GraphConfig
-from .constants import LLM, CHUNKS_DIR, PROCESSED_DIR
+from .constants import CHUNKS_DIR, PROCESSED_DIR
+from .utils.llm_client import llm_chat
 from .utils.logger import logger
 
 
@@ -231,34 +230,30 @@ def extract_entities_from_text(
     text: str,
     chunk_id: str,
     config: Optional[GraphConfig] = None,
-    model: str = None,
 ) -> List[Entity]:
     """
     Extract entities from text using LLM.
+
+    Uses the unified LLM client (Gemini by default).
 
     Args:
         text: Text to extract entities from
         chunk_id: ID of the source chunk
         config: Graph configuration (uses global if not provided)
-        model: LLM model to use (uses default if not provided)
 
     Returns:
         List of extracted entities
     """
     if config is None:
         config = get_graph_config()
-    if model is None:
-        model = LLM
 
     prompt = build_entity_extraction_prompt(text, config)
 
     try:
-        response = ollama.chat(
-            model=model,
+        result_text = llm_chat(
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": config.extraction.extraction_temperature},
+            temperature=config.extraction.extraction_temperature,
         )
-        result_text = response["message"]["content"]
         result = extract_json_from_response(result_text)
 
         entities = []
@@ -291,17 +286,17 @@ def extract_relationships_from_text(
     entities: List[Entity],
     chunk_id: str,
     config: Optional[GraphConfig] = None,
-    model: str = None,
 ) -> List[Relationship]:
     """
     Extract relationships from text using LLM.
+
+    Uses the unified LLM client (Gemini by default).
 
     Args:
         text: Text to extract relationships from
         entities: Entities already extracted from the text
         chunk_id: ID of the source chunk
         config: Graph configuration (uses global if not provided)
-        model: LLM model to use (uses default if not provided)
 
     Returns:
         List of extracted relationships
@@ -311,18 +306,14 @@ def extract_relationships_from_text(
 
     if config is None:
         config = get_graph_config()
-    if model is None:
-        model = LLM
 
     prompt = build_relationship_extraction_prompt(text, entities, config)
 
     try:
-        response = ollama.chat(
-            model=model,
+        result_text = llm_chat(
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": config.extraction.extraction_temperature},
+            temperature=config.extraction.extraction_temperature,
         )
-        result_text = response["message"]["content"]
         result = extract_json_from_response(result_text)
 
         # Build entity name set for validation
@@ -364,16 +355,16 @@ def extract_from_chunk(
     text: str,
     chunk_id: str,
     config: Optional[GraphConfig] = None,
-    model: str = None,
 ) -> ExtractionResult:
     """
     Extract entities and relationships from a single chunk.
+
+    Uses the unified LLM client (Gemini by default).
 
     Args:
         text: Chunk text
         chunk_id: Chunk identifier
         config: Graph configuration
-        model: LLM model to use
 
     Returns:
         ExtractionResult with entities and relationships
@@ -381,11 +372,11 @@ def extract_from_chunk(
     logger.info(f"Extracting from chunk: {chunk_id}")
 
     # Extract entities first
-    entities = extract_entities_from_text(text, chunk_id, config, model)
+    entities = extract_entities_from_text(text, chunk_id, config)
     logger.debug(f"Extracted {len(entities)} entities")
 
     # Then extract relationships using found entities
-    relationships = extract_relationships_from_text(text, entities, chunk_id, config, model)
+    relationships = extract_relationships_from_text(text, entities, chunk_id, config)
     logger.debug(f"Extracted {len(relationships)} relationships")
 
     return ExtractionResult(
@@ -399,16 +390,16 @@ def extract_from_chunk(
 def extract_from_chunks_dir(
     chunks_dir: str = None,
     config: Optional[GraphConfig] = None,
-    model: str = None,
     include_parent_chunks: bool = False,
 ) -> List[ExtractionResult]:
     """
     Extract entities and relationships from all chunks in a directory.
 
+    Uses the unified LLM client (Gemini by default).
+
     Args:
         chunks_dir: Directory containing chunk files
         config: Graph configuration
-        model: LLM model to use
         include_parent_chunks: Whether to process parent chunks (default: False)
 
     Returns:
@@ -439,7 +430,6 @@ def extract_from_chunks_dir(
                 text=text,
                 chunk_id=chunk_file.stem,
                 config=config,
-                model=model,
             )
             results.append(result)
 
