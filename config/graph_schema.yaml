@@ -1,286 +1,436 @@
 # =============================================================================
-# Graph Schema Configuration
+# Graph Schema Configuration - Bioéthique & Questions de Vie
 # =============================================================================
-# This file defines how entities and relationships are extracted from documents
-# to build the knowledge graph for GraphRAG retrieval.
-#
-# Instructions:
-# 1. Fill in the domain section to describe your document corpus
-# 2. Define entity types relevant to your domain
-# 3. Define relationship types between entities
-# 4. Optionally customize extraction prompts
+# This schema is tailored for a French Catholic bioethics document corpus
+# covering: infertility, miscarriage, contraception, abortion, euthanasia,
+# assisted reproduction (PMA), and Church magisterial teachings.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
 # Domain Description
 # -----------------------------------------------------------------------------
-# Provide context about your documents to guide entity/relationship extraction
 domain:
-  # Short name for the domain (used in prompts)
-  name: "General Knowledge Base"
+  name: "Bioéthique Catholique"
 
-  # Detailed description of what the documents contain
-  # Be specific - this helps the LLM extract relevant entities
   description: |
-    This is a general-purpose document collection that may contain various types
-    of content including technical documentation, procedures, reports, and
-    reference materials.
+    Corpus de documents en français sur la bioéthique catholique et les questions
+    de vie humaine. Les sujets couverts incluent:
+    - Bioéthique générale et principes moraux
+    - Infertilité et procréation médicalement assistée (PMA)
+    - Contraception et régulation des naissances
+    - Avortement et début de la vie humaine
+    - Euthanasie et fin de vie
+    - Fausse couche et accompagnement
+    - Enseignements du Magistère de l'Église catholique
 
-  # Language of the documents (affects extraction prompts)
-  language: "en"  # en, fr, de, es, etc.
+    Les documents comprennent des textes magistériels (encycliques, instructions),
+    des articles théologiques, des études médicales et éthiques, ainsi que des
+    ressources pastorales.
 
-  # Document types present in the corpus (helps calibrate extraction)
+  language: "fr"
+
   document_types:
-    - "technical_documentation"
-    - "procedures"
-    - "reports"
-    - "training_materials"
+    - "magisterial_documents"      # Encycliques, instructions, lettres apostoliques
+    - "theological_articles"       # Articles de théologie morale
+    - "medical_studies"            # Études médicales et scientifiques
+    - "pastoral_resources"         # Ressources d'accompagnement pastoral
+    - "ethical_analyses"           # Analyses éthiques et philosophiques
+    - "legal_documents"            # Textes juridiques et législatifs
 
 # -----------------------------------------------------------------------------
 # Entity Types
 # -----------------------------------------------------------------------------
-# Define the types of entities to extract from documents.
-# Each entity type should have:
-#   - name: Identifier for the entity type
-#   - description: What this entity represents (used in extraction prompts)
-#   - examples: Example instances to guide extraction
-#   - attributes: Optional attributes to extract for each entity
 entities:
-  - name: "Concept"
-    description: "Key concepts, terms, or ideas defined or discussed in the documents"
+  # === Concepts médicaux et biologiques ===
+  - name: "ConceptMedical"
+    description: "Concepts médicaux, biologiques ou scientifiques liés à la vie humaine, la reproduction et la santé"
     examples:
-      - "Machine Learning"
-      - "Data Pipeline"
-      - "User Authentication"
+      - "embryon"
+      - "fœtus"
+      - "gamète"
+      - "fécondation in vitro"
+      - "ovulation"
+      - "implantation"
+      - "grossesse"
+      - "fertilité"
+      - "stérilité"
     attributes:
       - "definition"
-      - "category"
+      - "domaine_medical"
 
-  - name: "Process"
-    description: "Procedures, workflows, or step-by-step processes described in the documents"
+  # === Concepts éthiques et moraux ===
+  - name: "ConceptEthique"
+    description: "Principes éthiques, moraux ou philosophiques relatifs à la bioéthique et à la dignité humaine"
     examples:
-      - "Data Ingestion Process"
-      - "Approval Workflow"
-      - "Deployment Pipeline"
+      - "dignité humaine"
+      - "respect de la vie"
+      - "loi naturelle"
+      - "bien commun"
+      - "intention morale"
+      - "proportionnalité"
+      - "double effet"
+      - "consentement éclairé"
     attributes:
-      - "steps"
-      - "owner"
+      - "definition"
+      - "tradition_philosophique"
 
-  - name: "Tool"
-    description: "Software tools, systems, or technologies mentioned in the documents"
+  # === Concepts théologiques ===
+  - name: "ConceptTheologique"
+    description: "Concepts théologiques et spirituels liés à la foi catholique et à la morale chrétienne"
     examples:
-      - "Python"
-      - "Docker"
-      - "Kubernetes"
+      - "sacralité de la vie"
+      - "création divine"
+      - "providence"
+      - "péché"
+      - "grâce"
+      - "vocation"
+      - "paternité responsable"
+      - "chasteté conjugale"
     attributes:
-      - "purpose"
-      - "version"
+      - "definition"
+      - "source_biblique"
 
-  - name: "Person"
-    description: "People, roles, or stakeholders mentioned in the documents"
+  # === Procédures médicales ===
+  - name: "ProcedureMedicale"
+    description: "Traitements médicaux, interventions ou procédures liés à la reproduction et à la fin de vie"
     examples:
-      - "Project Manager"
-      - "Data Engineer"
-      - "End User"
+      - "fécondation in vitro (FIV)"
+      - "insémination artificielle"
+      - "ICSI"
+      - "diagnostic préimplantatoire"
+      - "amniocentèse"
+      - "interruption volontaire de grossesse"
+      - "sédation profonde"
+      - "soins palliatifs"
+    attributes:
+      - "type_intervention"
+      - "evaluation_morale"
+
+  # === Méthodes de régulation des naissances ===
+  - name: "MethodeContraceptive"
+    description: "Méthodes de contraception ou de régulation naturelle des naissances"
+    examples:
+      - "pilule contraceptive"
+      - "stérilet"
+      - "préservatif"
+      - "méthode Billings"
+      - "méthode symptothermique"
+      - "continence périodique"
+    attributes:
+      - "type"
+      - "mecanisme_action"
+      - "evaluation_morale"
+
+  # === Documents magistériels ===
+  - name: "DocumentMagisteriel"
+    description: "Textes officiels du Magistère de l'Église catholique (encycliques, instructions, déclarations)"
+    examples:
+      - "Humanae Vitae"
+      - "Evangelium Vitae"
+      - "Donum Vitae"
+      - "Dignitas Personae"
+      - "Veritatis Splendor"
+      - "Familiaris Consortio"
+    attributes:
+      - "type_document"
+      - "date_publication"
+      - "auteur"
+
+  # === Personnes et autorités ===
+  - name: "Personne"
+    description: "Personnes mentionnées: papes, théologiens, médecins, saints, auteurs"
+    examples:
+      - "Pape Jean-Paul II"
+      - "Pape Paul VI"
+      - "Pape François"
+      - "Cardinal Ratzinger"
+      - "Saint Thomas d'Aquin"
+      - "Jérôme Lejeune"
     attributes:
       - "role"
-      - "department"
+      - "periode"
 
-  - name: "Organization"
-    description: "Companies, departments, teams, or organizational units"
+  # === Institutions et organisations ===
+  - name: "Institution"
+    description: "Organisations, institutions ecclésiales ou médicales"
     examples:
-      - "Engineering Team"
-      - "HR Department"
-      - "Partner Company"
+      - "Congrégation pour la Doctrine de la Foi"
+      - "Académie Pontificale pour la Vie"
+      - "Conférence des Évêques de France"
+      - "OMS"
+      - "Comité Consultatif National d'Éthique"
     attributes:
       - "type"
+      - "role"
 
-  - name: "Document"
-    description: "References to other documents, standards, or specifications"
+  # === Situations de vie ===
+  - name: "SituationVie"
+    description: "Situations existentielles ou conditions de vie concernées par la bioéthique"
     examples:
-      - "User Guide"
-      - "API Specification"
-      - "Compliance Policy"
+      - "couple infertile"
+      - "grossesse à risque"
+      - "fin de vie"
+      - "handicap"
+      - "fausse couche"
+      - "grossesse non désirée"
+      - "maladie terminale"
     attributes:
-      - "type"
-      - "version"
+      - "contexte"
+      - "accompagnement_pastoral"
 
-  - name: "Metric"
-    description: "KPIs, measurements, or quantitative indicators"
+  # === Cadre juridique ===
+  - name: "CadreJuridique"
+    description: "Lois, règlements ou dispositions légales relatives à la bioéthique"
     examples:
-      - "Response Time"
-      - "Accuracy Rate"
-      - "Cost Savings"
+      - "loi Veil"
+      - "loi de bioéthique"
+      - "loi Claeys-Leonetti"
+      - "Code de la santé publique"
     attributes:
-      - "unit"
-      - "target_value"
+      - "pays"
+      - "date"
+      - "disposition_principale"
+
+  # === Arguments et positions ===
+  - name: "ArgumentEthique"
+    description: "Arguments, objections ou positions éthiques dans les débats bioéthiques"
+    examples:
+      - "argument de la pente glissante"
+      - "objection de conscience"
+      - "autonomie du patient"
+      - "principe de précaution"
+    attributes:
+      - "type_argument"
+      - "position_defendue"
 
 # -----------------------------------------------------------------------------
 # Relationship Types
 # -----------------------------------------------------------------------------
-# Define the types of relationships between entities.
-# Each relationship should have:
-#   - name: Identifier for the relationship type
-#   - description: What this relationship represents
-#   - source_types: Entity types that can be the source
-#   - target_types: Entity types that can be the target
-#   - examples: Example relationships to guide extraction
 relationships:
-  - name: "USES"
-    description: "An entity uses or utilizes another entity"
-    source_types: ["Process", "Person", "Organization"]
-    target_types: ["Tool", "Concept", "Document"]
+  # === Relations d'enseignement et d'autorité ===
+  - name: "ENSEIGNE"
+    description: "Un document ou une personne enseigne/affirme une doctrine ou un principe"
+    source_types: ["DocumentMagisteriel", "Personne", "Institution"]
+    target_types: ["ConceptEthique", "ConceptTheologique", "ArgumentEthique"]
     examples:
-      - "Data Pipeline USES Python"
-      - "Engineering Team USES Kubernetes"
+      - "Humanae Vitae ENSEIGNE l'ouverture à la vie"
+      - "Jean-Paul II ENSEIGNE la dignité de l'embryon"
 
-  - name: "PRODUCES"
-    description: "An entity produces or creates another entity"
-    source_types: ["Process", "Tool", "Person"]
-    target_types: ["Document", "Metric", "Concept"]
+  - name: "CONDAMNE"
+    description: "Une autorité condamne moralement une pratique ou une position"
+    source_types: ["DocumentMagisteriel", "Personne", "Institution"]
+    target_types: ["ProcedureMedicale", "MethodeContraceptive", "ConceptEthique"]
     examples:
-      - "Build Process PRODUCES Artifacts"
-      - "Report Generator PRODUCES Monthly Report"
+      - "Evangelium Vitae CONDAMNE l'avortement"
+      - "Donum Vitae CONDAMNE la FIV hétérologue"
 
-  - name: "REQUIRES"
-    description: "An entity requires or depends on another entity"
-    source_types: ["Process", "Tool", "Concept"]
-    target_types: ["Tool", "Concept", "Person", "Document"]
+  - name: "APPROUVE"
+    description: "Une autorité approuve ou recommande une pratique ou un principe"
+    source_types: ["DocumentMagisteriel", "Personne", "Institution"]
+    target_types: ["ProcedureMedicale", "MethodeContraceptive", "ConceptEthique"]
     examples:
-      - "Deployment REQUIRES Approval"
-      - "API REQUIRES Authentication"
+      - "Humanae Vitae APPROUVE les méthodes naturelles"
+      - "Magistère APPROUVE les soins palliatifs"
 
-  - name: "PART_OF"
-    description: "An entity is part of or belongs to another entity"
-    source_types: ["Person", "Process", "Concept", "Tool"]
-    target_types: ["Organization", "Process", "Concept"]
+  # === Relations conceptuelles ===
+  - name: "IMPLIQUE"
+    description: "Un concept ou principe implique logiquement un autre"
+    source_types: ["ConceptEthique", "ConceptTheologique", "ArgumentEthique"]
+    target_types: ["ConceptEthique", "ConceptTheologique", "ArgumentEthique"]
     examples:
-      - "Data Engineer PART_OF Engineering Team"
-      - "Validation PART_OF Testing Process"
+      - "Dignité humaine IMPLIQUE respect de la vie"
+      - "Loi naturelle IMPLIQUE finalité procréative"
 
-  - name: "RELATED_TO"
-    description: "General relationship between entities (use when more specific relationships don't apply)"
-    source_types: ["*"]  # Any entity type
-    target_types: ["*"]  # Any entity type
+  - name: "CONTREDIT"
+    description: "Un concept ou pratique contredit ou s'oppose à un autre"
+    source_types: ["ProcedureMedicale", "MethodeContraceptive", "ConceptEthique", "ArgumentEthique"]
+    target_types: ["ConceptEthique", "ConceptTheologique", "ArgumentEthique"]
     examples:
-      - "Security RELATED_TO Compliance"
-      - "Performance RELATED_TO Optimization"
+      - "Avortement CONTREDIT dignité humaine"
+      - "Euthanasie CONTREDIT sacralité de la vie"
 
-  - name: "MEASURES"
-    description: "A metric measures or evaluates something"
-    source_types: ["Metric"]
-    target_types: ["Process", "Tool", "Concept"]
+  - name: "FONDE"
+    description: "Un principe ou concept fonde/justifie un autre"
+    source_types: ["ConceptTheologique", "ConceptEthique", "DocumentMagisteriel"]
+    target_types: ["ConceptEthique", "ArgumentEthique", "ConceptTheologique"]
     examples:
-      - "Response Time MEASURES API Performance"
-      - "Accuracy Rate MEASURES Model Quality"
+      - "Création divine FONDE dignité humaine"
+      - "Evangelium Vitae FONDE le droit à la vie"
 
-  - name: "DEFINED_IN"
-    description: "An entity is defined or documented in another entity"
-    source_types: ["Concept", "Process", "Metric"]
-    target_types: ["Document"]
+  # === Relations médicales ===
+  - name: "TRAITE"
+    description: "Une procédure médicale traite ou répond à une situation"
+    source_types: ["ProcedureMedicale", "MethodeContraceptive"]
+    target_types: ["SituationVie", "ConceptMedical"]
     examples:
-      - "API Specification DEFINED_IN Technical Guide"
-      - "Approval Process DEFINED_IN Policy Document"
+      - "FIV TRAITE infertilité"
+      - "Soins palliatifs TRAITE fin de vie"
 
-  - name: "RESPONSIBLE_FOR"
-    description: "A person or organization is responsible for something"
-    source_types: ["Person", "Organization"]
-    target_types: ["Process", "Tool", "Document"]
+  - name: "PROVOQUE"
+    description: "Une procédure ou situation provoque un effet médical ou éthique"
+    source_types: ["ProcedureMedicale", "MethodeContraceptive", "SituationVie"]
+    target_types: ["ConceptMedical", "SituationVie", "ConceptEthique"]
     examples:
-      - "Project Manager RESPONSIBLE_FOR Delivery"
-      - "DevOps Team RESPONSIBLE_FOR Infrastructure"
+      - "FIV PROVOQUE embryons surnuméraires"
+      - "Stérilet PROVOQUE effet anti-nidatoire"
+
+  # === Relations de référence ===
+  - name: "CITE"
+    description: "Un document cite ou fait référence à un autre"
+    source_types: ["DocumentMagisteriel", "Personne"]
+    target_types: ["DocumentMagisteriel", "Personne", "ConceptTheologique"]
+    examples:
+      - "Dignitas Personae CITE Donum Vitae"
+      - "Jean-Paul II CITE Saint Thomas"
+
+  - name: "PROMULGUE"
+    description: "Une personne ou institution promulgue un document"
+    source_types: ["Personne", "Institution"]
+    target_types: ["DocumentMagisteriel", "CadreJuridique"]
+    examples:
+      - "Paul VI PROMULGUE Humanae Vitae"
+      - "Parlement PROMULGUE loi bioéthique"
+
+  # === Relations institutionnelles ===
+  - name: "MEMBRE_DE"
+    description: "Une personne est membre d'une institution"
+    source_types: ["Personne"]
+    target_types: ["Institution"]
+    examples:
+      - "Jérôme Lejeune MEMBRE_DE Académie Pontificale pour la Vie"
+
+  - name: "REGULE"
+    description: "Un cadre juridique ou institution régule une pratique"
+    source_types: ["CadreJuridique", "Institution"]
+    target_types: ["ProcedureMedicale", "MethodeContraceptive", "SituationVie"]
+    examples:
+      - "Loi bioéthique REGULE PMA"
+      - "CCNE REGULE recherche sur embryon"
+
+  # === Relations de correspondance ===
+  - name: "CONCERNE"
+    description: "Un concept, document ou procédure concerne une situation de vie"
+    source_types: ["ConceptEthique", "ConceptTheologique", "DocumentMagisteriel", "ProcedureMedicale"]
+    target_types: ["SituationVie"]
+    examples:
+      - "Donum Vitae CONCERNE couple infertile"
+      - "Accompagnement CONCERNE fausse couche"
+
+  - name: "ALTERNATIVE_A"
+    description: "Une méthode ou procédure est présentée comme alternative à une autre"
+    source_types: ["ProcedureMedicale", "MethodeContraceptive"]
+    target_types: ["ProcedureMedicale", "MethodeContraceptive"]
+    examples:
+      - "NaProTechnology ALTERNATIVE_A FIV"
+      - "Méthodes naturelles ALTERNATIVE_A contraception"
+
+  - name: "LIEE_A"
+    description: "Relation générale entre entités (quand une relation plus spécifique ne s'applique pas)"
+    source_types: ["*"]
+    target_types: ["*"]
+    examples:
+      - "Infertilité LIEE_A souffrance"
+      - "Avortement LIEE_A contraception"
 
 # -----------------------------------------------------------------------------
 # Extraction Settings
 # -----------------------------------------------------------------------------
-# Fine-tune how entities and relationships are extracted
 extraction:
-  # Maximum entities to extract per chunk
-  max_entities_per_chunk: 15
-
-  # Maximum relationships to extract per chunk
-  max_relationships_per_chunk: 20
-
-  # Minimum confidence score (0.0-1.0) for extracted entities/relationships
-  min_confidence: 0.7
-
-  # Whether to extract implicit relationships (inferred, not explicitly stated)
+  max_entities_per_chunk: 20
+  max_relationships_per_chunk: 25
+  min_confidence: 0.65
   extract_implicit_relations: true
-
-  # Whether to resolve coreferences (e.g., "it" refers to "the system")
   resolve_coreferences: true
-
-  # LLM temperature for extraction (lower = more consistent)
   extraction_temperature: 0.1
 
 # -----------------------------------------------------------------------------
 # Graph Settings
 # -----------------------------------------------------------------------------
-# Configure the knowledge graph structure and behavior
 graph:
-  # Whether to merge similar entities (fuzzy matching)
   merge_similar_entities: true
-
-  # Similarity threshold for entity merging (0.0-1.0)
-  entity_similarity_threshold: 0.85
-
-  # Whether to compute community detection (for global queries)
+  entity_similarity_threshold: 0.82
   enable_communities: true
-
-  # Algorithm for community detection: "louvain" or "leiden"
   community_algorithm: "louvain"
-
-  # Resolution parameter for community detection (higher = more communities)
   community_resolution: 1.0
-
-  # Maximum depth for graph traversal queries
-  max_traversal_depth: 3
-
-  # Whether to generate community summaries
+  max_traversal_depth: 4
   generate_community_summaries: true
 
 # -----------------------------------------------------------------------------
 # Query Routing Settings
 # -----------------------------------------------------------------------------
-# Configure how queries are routed between vector RAG and GraphRAG
 routing:
-  # Strategy: "classifier" (LLM-based) or "hybrid" (always use both)
   strategy: "hybrid"
 
-  # For classifier strategy: patterns that indicate graph queries
   graph_query_patterns:
-    - "relationship"
-    - "related to"
-    - "connected"
-    - "depends on"
-    - "affects"
-    - "impacts"
-    - "all .* that"
-    - "how many"
-    - "list all"
+    - "relation"
+    - "lié à"
+    - "connecté"
+    - "dépend de"
+    - "affecte"
+    - "impact"
+    - "tous les"
+    - "toutes les"
+    - "combien"
+    - "liste"
     - "compare"
-    - "difference between"
+    - "différence entre"
+    - "enseigne"
+    - "condamne"
+    - "approuve"
+    - "selon"
+    - "d'après"
+    - "position de"
+    - "magistère"
+    - "encyclique"
 
-  # Weight for vector RAG results in fusion (0.0-1.0)
   vector_weight: 0.5
-
-  # Weight for GraphRAG results in fusion (0.0-1.0)
   graph_weight: 0.5
-
-  # Whether to always include vector results as fallback
   always_include_vector: true
 
 # -----------------------------------------------------------------------------
-# Custom Prompts (Optional)
+# Custom Prompts
 # -----------------------------------------------------------------------------
-# Override default prompts for entity/relationship extraction
-# Leave empty to use default prompts
 custom_prompts:
-  # Custom prompt for entity extraction (use {text}, {entity_types}, {domain})
-  entity_extraction: ""
+  entity_extraction: |
+    Tu es un expert en bioéthique catholique. Analyse le texte suivant et extrais les entités pertinentes.
 
-  # Custom prompt for relationship extraction (use {text}, {entities}, {relationship_types})
-  relationship_extraction: ""
+    Domaine: {domain}
+    Types d'entités à identifier: {entity_types}
 
-  # Custom prompt for community summarization (use {entities}, {relationships})
-  community_summary: ""
+    Texte à analyser:
+    {text}
+
+    Pour chaque entité, indique:
+    1. Le nom exact tel qu'il apparaît dans le texte
+    2. Le type d'entité
+    3. Les attributs pertinents
+
+    Sois précis et exhaustif. Inclus les concepts théologiques, éthiques, médicaux,
+    les documents magistériels, les personnes et institutions mentionnés.
+
+  relationship_extraction: |
+    Tu es un expert en bioéthique catholique. Analyse les relations entre les entités suivantes.
+
+    Entités identifiées: {entities}
+    Types de relations possibles: {relationship_types}
+
+    Texte source:
+    {text}
+
+    Identifie toutes les relations explicites et implicites entre les entités.
+    Porte une attention particulière aux:
+    - Relations d'enseignement (qui enseigne quoi)
+    - Positions morales (approbation/condamnation)
+    - Implications logiques entre concepts
+    - Références entre documents
+
+  community_summary: |
+    Résume ce groupe d'entités et relations liées à la bioéthique catholique.
+
+    Entités: {entities}
+    Relations: {relationships}
+
+    Génère un résumé concis (2-3 phrases) qui capture:
+    1. Le thème central du groupe
+    2. Les principales positions ou enseignements
+    3. Les concepts clés reliés

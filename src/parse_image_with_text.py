@@ -1,152 +1,178 @@
 """
-Parse images containing text using granite-docling via Ollama.
+Parse images containing text using vision LLM providers.
 
 Extracts text content from document images and exports as Markdown.
-Uses DocTags format for structured document parsing.
+Supports multiple providers: Gemini (default), Ollama, OpenAI, Anthropic.
 """
 
 import re
 from pathlib import Path
-from typing import List, Tuple
-
-import ollama
-from PIL import Image
+from typing import Optional
 
 from .utils.logger import logger, timer
-from .constants import DOCLING_MODEL
+from .utils.llm_providers import (
+    LLMProvider,
+    LLMConfig,
+    create_llm_provider,
+    get_default_vision_provider,
+)
+from .constants import (
+    SYSTEM_PROMPT_TEXT_EXTRACT,
+    USER_PROMPT_TEXT_EXTRACT,
+    DOCLING_MODEL,
+    OLLAMA_VISION_MODEL,
+    OPENAI_VISION_MODEL,
+    ANTHROPIC_VISION_MODEL,
+    GEMINI_VISION_MODEL,
+)
+from .helpers import load_prompt
 
 
-def extract_text_from_doctags(doctags: str) -> List[Tuple[str, str]]:
+def clean_extracted_text(text: str) -> str:
     """
-    Extract text content from DocTags format.
+    Clean and format extracted text from vision model.
 
     Args:
-        doctags: Raw DocTags string from granite-docling
+        text: Raw text from vision model
 
     Returns:
-        List of (tag_type, content) tuples
+        Cleaned markdown text
     """
-    elements = []
+    # Remove common artifacts from model responses
+    text = text.strip()
 
-    # Pattern to match DocTags elements with content
-    # Matches: <tag><loc_...>...<loc_...>content</tag>
-    patterns = [
-        (r"<section_header_level_(\d+)>(?:<loc_\d+>)*([^<]+)</section_header_level_\d+>", "header"),
-        (r"<text>(?:<loc_\d+>)*([^<]+)</text>", "text"),
-        (r"<paragraph>(?:<loc_\d+>)*([^<]+)</paragraph>", "paragraph"),
-        (r"<caption>(?:<loc_\d+>)*([^<]+)</caption>", "caption"),
-        (r"<list_item>(?:<loc_\d+>)*([^<]+)</list_item>", "list_item"),
-        (r"<title>(?:<loc_\d+>)*([^<]+)</title>", "title"),
+    # Remove markdown code block wrappers if present
+    if text.startswith("```markdown"):
+        text = text[len("```markdown"):].strip()
+    if text.startswith("```"):
+        text = text[3:].strip()
+    if text.endswith("```"):
+        text = text[:-3].strip()
+
+    # Remove extraction markers if present
+    markers = [
+        "## START OF EXTRACTED TEXT",
+        "## END OF EXTRACTED TEXT",
+        "START OF EXTRACTED TEXT",
+        "END OF EXTRACTED TEXT",
     ]
+    for marker in markers:
+        text = text.replace(marker, "")
 
-    for pattern, tag_type in patterns:
-        matches = re.findall(pattern, doctags)
-        for match in matches:
-            if isinstance(match, tuple):
-                # For headers with level
-                content = match[-1].strip()
-            else:
-                content = match.strip()
-            if content:
-                elements.append((tag_type, content))
+    # Clean up excessive whitespace
+    text = re.sub(r'\n{4,}', '\n\n\n', text)
+    text = text.strip()
 
-    return elements
-
-
-def doctags_to_markdown(doctags: str) -> str:
-    """
-    Convert DocTags to Markdown format.
-
-    Args:
-        doctags: Raw DocTags string
-
-    Returns:
-        Markdown formatted string
-    """
-    elements = extract_text_from_doctags(doctags)
-
-    if not elements:
-        # Fallback: extract any text between tags
-        text_content = re.sub(r"<[^>]+>", " ", doctags)
-        text_content = re.sub(r"\s+", " ", text_content).strip()
-        return text_content
-
-    lines = []
-    for tag_type, content in elements:
-        if tag_type == "header":
-            lines.append(f"## {content}\n")
-        elif tag_type == "title":
-            lines.append(f"# {content}\n")
-        elif tag_type == "list_item":
-            lines.append(f"- {content}")
-        elif tag_type == "caption":
-            lines.append(f"*{content}*\n")
-        else:
-            lines.append(content)
-
-    return "\n\n".join(lines)
+    return text
 
 
 def parse_image_with_text_func(
     image_path: Path,
-    client: ollama.Client,
-    model: str,
-    prompt: str,
     output_dir: Path,
-) -> None:
+    provider: str = "gemini",
+    model: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    user_prompt: Optional[str] = None,
+) -> bool:
     """
-    Parse a single image containing text.
+    Parse a single image containing text using vision LLM.
 
     Args:
         image_path: Path to the image file
-        client: Ollama client instance
-        model: Model name for Ollama
-        prompt: Extraction prompt
         output_dir: Directory for output files
+        provider: LLM provider ("gemini", "ollama", "openai", "anthropic")
+        model: Model name (uses provider default if not specified)
+        system_prompt: System prompt for extraction
+        user_prompt: User prompt for extraction
+
+    Returns:
+        True if successful, False otherwise
     """
-    logger.info(f"Parsing text from: {image_path.name}")
+    logger.info(f"Parsing text from: {image_path.name} using {provider}")
 
-    # Call Ollama with vision
-    with timer(f"extract text from {image_path.name}"):
-        response = client.chat(
+    # Load prompts if not provided
+    if system_prompt is None:
+        system_prompt = load_prompt(SYSTEM_PROMPT_TEXT_EXTRACT)
+    if user_prompt is None:
+        user_prompt = load_prompt(USER_PROMPT_TEXT_EXTRACT)
+        # Remove the {text} placeholder since we're extracting, not filling in
+        user_prompt = user_prompt.replace("{text}", "").strip()
+
+    # Determine model based on provider
+    if model is None:
+        if provider == "gemini":
+            model = GEMINI_VISION_MODEL
+        elif provider == "ollama":
+            model = OLLAMA_VISION_MODEL
+        elif provider == "openai":
+            model = OPENAI_VISION_MODEL
+        elif provider == "anthropic":
+            model = ANTHROPIC_VISION_MODEL
+        else:
+            model = GEMINI_VISION_MODEL
+
+    # Create provider
+    try:
+        config = LLMConfig(
+            provider=LLMProvider(provider),
             model=model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": [str(image_path)],
-                }
-            ],
-            options={"num_predict": 4096},
+            temperature=0.1,  # Low temperature for accurate extraction
+            top_p=0.85,
         )
+        llm = create_llm_provider(config)
+    except Exception as e:
+        logger.error(f"Failed to create {provider} provider: {e}")
+        return False
 
-    output = response["message"]["content"]
+    # Extract text using vision
+    with timer(f"extract text from {image_path.name}"):
+        try:
+            output = llm.vision(
+                image_path=str(image_path),
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+            )
+        except Exception as e:
+            logger.error(f"Vision extraction failed for {image_path.name}: {e}")
+            return False
 
-    # Convert DocTags to Markdown
-    markdown_content = doctags_to_markdown(output)
+    # Clean the extracted text
+    markdown_content = clean_extracted_text(output)
+
+    if not markdown_content:
+        logger.warning(f"No text extracted from {image_path.name}")
+        return False
 
     # Save as Markdown
     doc_path = output_dir / f"{image_path.stem}.md"
-    with open(doc_path, "w", encoding="utf-8") as f:
-        f.write(markdown_content)
-
-    logger.info(f"Text content saved to: {doc_path.name} ({len(markdown_content)} chars)")
+    try:
+        with open(doc_path, "w", encoding="utf-8") as f:
+            f.write(markdown_content)
+        logger.info(f"Text content saved to: {doc_path.name} ({len(markdown_content)} chars)")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save {doc_path.name}: {e}")
+        return False
 
 
 def parse_image_with_text(
     image_dir: str,
-    model: str = None,
-    prompt: str = "Extract all text from this document image.",
     output_dir: str = None,
+    provider: str = "gemini",
+    model: str = None,
+    system_prompt: str = None,
+    user_prompt: str = None,
 ) -> dict:
     """
     Process all text images in a directory.
 
     Args:
         image_dir: Directory containing images
-        model: Ollama model name (defaults to DOCLING_MODEL)
-        prompt: Extraction prompt
         output_dir: Output directory for extracted text
+        provider: LLM provider ("gemini", "ollama", "openai", "anthropic")
+        model: Model name (uses provider default if not specified)
+        system_prompt: System prompt for extraction
+        user_prompt: User prompt for extraction
 
     Returns:
         Statistics dictionary
@@ -155,27 +181,42 @@ def parse_image_with_text(
     output_dir = Path(output_dir) if output_dir else image_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    model = model or DOCLING_MODEL
-    client = ollama.Client()
-
-    stats = {"processed": 0, "errors": 0}
+    stats = {"processed": 0, "errors": 0, "skipped": 0}
 
     logger.info(f"Processing text images in: {image_dir}")
-    logger.info(f"Using model: {model}")
+    logger.info(f"Using provider: {provider}, model: {model or 'default'}")
 
-    for image_path in image_dir.glob("*_Text.jpg"):
+    # Find text images (YOLO-detected text regions)
+    text_images = list(image_dir.glob("*_Text.jpg"))
+    logger.info(f"Found {len(text_images)} text images to process")
+
+    for image_path in text_images:
+        # Check if already processed
+        output_file = output_dir / f"{image_path.stem}.md"
+        if output_file.exists():
+            logger.debug(f"Skipping already processed: {image_path.name}")
+            stats["skipped"] += 1
+            continue
+
         try:
-            parse_image_with_text_func(
+            success = parse_image_with_text_func(
                 image_path=image_path,
-                client=client,
-                model=model,
-                prompt=prompt,
                 output_dir=output_dir,
+                provider=provider,
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
             )
-            stats["processed"] += 1
+            if success:
+                stats["processed"] += 1
+            else:
+                stats["errors"] += 1
         except Exception as e:
             logger.error(f"Failed to process {image_path.name}: {e}")
             stats["errors"] += 1
 
-    logger.info(f"Text extraction complete: {stats['processed']} processed, {stats['errors']} errors")
+    logger.info(
+        f"Text extraction complete: {stats['processed']} processed, "
+        f"{stats['skipped']} skipped, {stats['errors']} errors"
+    )
     return stats

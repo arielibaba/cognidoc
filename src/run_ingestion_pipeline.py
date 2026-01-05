@@ -84,6 +84,13 @@ def parse_args():
         help="Vision provider for image description (default: from .env)"
     )
     parser.add_argument(
+        "--extraction-provider",
+        type=str,
+        default="gemini",
+        choices=["gemini", "ollama", "openai", "anthropic"],
+        help="Provider for text/table extraction from images (default: gemini)"
+    )
+    parser.add_argument(
         "--skip-conversion",
         action="store_true",
         help="Skip non-PDF to PDF conversion"
@@ -149,6 +156,7 @@ def parse_args():
 
 async def run_ingestion_pipeline_async(
     vision_provider: str = None,
+    extraction_provider: str = "gemini",
     skip_conversion: bool = False,
     skip_pdf: bool = False,
     skip_yolo: bool = False,
@@ -167,6 +175,7 @@ async def run_ingestion_pipeline_async(
 
     Args:
         vision_provider: Vision provider for image descriptions
+        extraction_provider: Provider for text/table extraction (default: gemini)
         skip_conversion: Skip non-PDF to PDF conversion
         skip_pdf: Skip PDF conversion
         skip_yolo: Skip YOLO detection
@@ -267,21 +276,21 @@ async def run_ingestion_pipeline_async(
     if not skip_extraction:
         pipeline_timer.stage("content_extraction")
         try:
-            logger.info("Extracting text from images...")
-            parse_image_with_text(
+            logger.info(f"Extracting text from images using {extraction_provider}...")
+            text_stats = parse_image_with_text(
                 image_dir=DETECTION_DIR,
-                model=DOCLING_MODEL,
-                prompt="Extract all text content from this document page.",
                 output_dir=PROCESSED_DIR,
+                provider=extraction_provider,
             )
+            stats["text_extraction"] = text_stats
 
-            logger.info("Extracting tables from images...")
-            parse_image_with_table(
+            logger.info(f"Extracting tables from images using {extraction_provider}...")
+            table_stats = parse_image_with_table(
                 image_dir=DETECTION_DIR,
-                model=DOCLING_MODEL,
-                prompt="Extract the table from this document image.",
                 output_dir=PROCESSED_DIR,
+                provider=extraction_provider,
             )
+            stats["table_extraction"] = table_stats
             logger.info("Content extraction completed")
         except Exception as e:
             logger.error(f"Content extraction failed: {e}")
@@ -473,6 +482,7 @@ def main():
 
     asyncio.run(run_ingestion_pipeline_async(
         vision_provider=args.vision_provider,
+        extraction_provider=args.extraction_provider,
         skip_conversion=args.skip_conversion,
         skip_pdf=args.skip_pdf,
         skip_yolo=args.skip_yolo,
