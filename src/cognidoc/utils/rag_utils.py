@@ -15,11 +15,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from .logger import logger
+from .embedding_providers import get_embedding_provider
 
 
 @dataclass
@@ -41,16 +41,40 @@ class NodeWithScore:
 # Embedding utilities
 # =============================================================================
 
-def get_embedding(text: str, model: str) -> List[float]:
-    """Get embedding vector for text using Ollama."""
-    response = ollama.embeddings(model=model, prompt=text)
-    return response["embedding"]
+def get_embedding(text: str, model: str = None) -> List[float]:
+    """
+    Get embedding vector for text.
+
+    Uses the configured embedding provider (Ollama by default, but can be
+    OpenAI or Gemini based on configuration).
+
+    Args:
+        text: Text to embed
+        model: Model name (optional, uses provider default if not specified)
+               Note: model parameter is kept for backwards compatibility but
+               the actual model is determined by the provider configuration.
+
+    Returns:
+        Embedding vector as list of floats
+    """
+    provider = get_embedding_provider()
+    return provider.embed_single(text)
 
 
-def get_embedding_dimension(model: str) -> int:
-    """Get embedding dimension by running a test embedding."""
-    test_embedding = get_embedding("test", model)
-    return len(test_embedding)
+def get_embedding_dimension(model: str = None) -> int:
+    """
+    Get embedding dimension.
+
+    Uses the configured embedding provider.
+
+    Args:
+        model: Model name (optional, for backwards compatibility)
+
+    Returns:
+        Dimension of embedding vectors
+    """
+    provider = get_embedding_provider()
+    return provider.dimension
 
 
 # =============================================================================

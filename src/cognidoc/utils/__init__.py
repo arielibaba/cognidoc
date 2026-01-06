@@ -4,6 +4,7 @@ Utility modules for the Advanced Hybrid RAG system.
 Exports:
 - logger: Structured logging with timing metrics
 - llm_providers: Multi-provider LLM abstraction
+- embedding_providers: Multi-provider embedding abstraction
 - embedding_cache: Content-based embedding caching
 - rag_utils: Document, Vector/Keyword indexes, reranking
 """
@@ -27,6 +28,23 @@ from .llm_providers import (
     create_llm_provider,
     get_default_generation_provider,
     get_default_vision_provider,
+)
+
+from .embedding_providers import (
+    EmbeddingProvider,
+    EmbeddingConfig,
+    BaseEmbeddingProvider,
+    OllamaEmbeddingProvider,
+    OpenAIEmbeddingProvider,
+    GeminiEmbeddingProvider,
+    create_embedding_provider,
+    get_embedding_provider,
+    set_embedding_provider,
+    reset_embedding_provider,
+    is_ollama_available,
+    is_provider_available,
+    get_available_embedding_providers,
+    DEFAULT_EMBEDDING_MODELS,
 )
 
 from .embedding_cache import (
@@ -63,6 +81,21 @@ __all__ = [
     "create_llm_provider",
     "get_default_generation_provider",
     "get_default_vision_provider",
+    # Embedding Providers
+    "EmbeddingProvider",
+    "EmbeddingConfig",
+    "BaseEmbeddingProvider",
+    "OllamaEmbeddingProvider",
+    "OpenAIEmbeddingProvider",
+    "GeminiEmbeddingProvider",
+    "create_embedding_provider",
+    "get_embedding_provider",
+    "set_embedding_provider",
+    "reset_embedding_provider",
+    "is_ollama_available",
+    "is_provider_available",
+    "get_available_embedding_providers",
+    "DEFAULT_EMBEDDING_MODELS",
     # Embedding Cache
     "EmbeddingCache",
     "get_embedding_cache",

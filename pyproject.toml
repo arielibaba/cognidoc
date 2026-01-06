@@ -1,65 +1,154 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "cognidoc"
 version = "0.1.0"
-description = "Hybrid RAG pipeline combining Vector RAG and GraphRAG with multi-modal document processing"
+description = "Hybrid RAG document assistant with Vector + GraphRAG"
 readme = "README.md"
-requires-python = ">=3.12"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Ariel IBABA" }
+]
+keywords = ["rag", "graphrag", "document", "retrieval", "llm", "knowledge-graph"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
 dependencies = [
-    # LLM & Embeddings (direct Ollama usage)
-    "ollama>=0.4.0",
-
-    # Vector Store
-    "qdrant-client>=1.12.0",
-
-    # Text Processing & Chunking
-    "tiktoken>=0.8.0",
-    "markdown>=3.7",
-    "beautifulsoup4>=4.12.0",
-    "json-repair>=0.30.0",
-
-    # Document Processing
-    "pdf2image>=1.17.0",
-    "docling-core>=2.0.0",
-
-    # Computer Vision
-    "ultralytics>=8.3.0",
-    "opencv-python>=4.10.0",
-    "pillow>=11.0.0",
-
-    # Azure OpenAI (optional)
-    "openai>=1.50.0",
-    "tenacity>=9.0.0",
-
-    # Web UI
-    "gradio>=5.0.0",
-
-    # Utilities
-    "nest-asyncio>=1.6.0",
-    "python-dotenv>=1.0.0",
-    "httpx>=0.28.0",
-    "numpy>=2.0.0",
-    "pandas>=2.2.0",
-    "torch>=2.5.0",
-    "ipython>=8.29.0",
-    "pyyaml>=6.0.0",
-
-    # Knowledge Graph (GraphRAG)
-    "networkx>=3.0.0",
-
-    # Logging
+    # Core - always required
+    "qdrant-client>=1.7.0",
+    "networkx>=3.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "httpx>=0.25",
+    "tqdm>=4.65",
+    "tiktoken>=0.5",
+    "numpy>=1.24",
     "loguru>=0.7.0",
 
-    # Multi-provider LLM support
-    "google-generativeai>=0.8.0",
-    "anthropic>=0.40.0",
+    # PDF processing
+    "pdf2image>=1.16",
 
-    # Interactive CLI
+    # Text processing
+    "beautifulsoup4>=4.12",
+    "markdown>=3.5",
+    "json-repair>=0.30.0",
+
+    # Rich CLI output
     "rich>=13.0.0",
-    "questionary>=2.0.0",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "black>=24.0.0",
-    "pylint>=3.3.0",
+# Gradio UI
+ui = [
+    "gradio>=4.0",
 ]
+
+# YOLO detection (optional - falls back to simple extraction)
+yolo = [
+    "ultralytics>=8.0",
+    "pillow>=10.0",
+    "opencv-python>=4.8",
+    "torch>=2.0",
+]
+
+# Local Ollama inference (optional - cloud providers work without it)
+ollama = [
+    "ollama>=0.4",
+]
+
+# Cloud LLM providers
+gemini = [
+    "google-generativeai>=0.8",
+]
+
+openai = [
+    "openai>=1.0",
+    "tenacity>=9.0",
+]
+
+anthropic = [
+    "anthropic>=0.18",
+]
+
+# All cloud providers
+cloud = [
+    "cognidoc[gemini,openai,anthropic]",
+]
+
+# Document conversion (Office files)
+conversion = [
+    "weasyprint>=60.0",
+    "reportlab>=4.0",
+    "python-pptx>=0.6",
+    "python-docx>=1.0",
+    "openpyxl>=3.1",
+    "lxml>=4.9",
+    "pillow>=10.0",
+    "docling-core>=2.0",
+]
+
+# Interactive setup wizard
+wizard = [
+    "questionary>=2.0",
+]
+
+# Full installation (everything)
+all = [
+    "cognidoc[ui,yolo,ollama,cloud,conversion,wizard]",
+]
+
+# Development
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "black>=24.0",
+    "pylint>=3.0",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+cognidoc = "cognidoc.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/arielibaba/cognidoc"
+Repository = "https://github.com/arielibaba/cognidoc"
+Issues = "https://github.com/arielibaba/cognidoc/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cognidoc"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/cognidoc",
+    "config",
+    "README.md",
+    "LICENSE",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.pylint.messages_control]
+disable = [
+    "C0114",
+    "C0115",
+    "C0116",
+    "R0903",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

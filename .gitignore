@@ -22,3 +22,4 @@ models/
 # Generated documentation
 .docai/
 .DS_Store
+logs/

@@ -9,15 +9,67 @@ This module provides:
 Fallback behavior:
 - If YOLO fails to load or detect, the entire image is saved as text
 - This ensures the pipeline continues even with detection issues
+
+YOLO is optional:
+- Install with: pip install cognidoc[yolo]
+- Without YOLO, the module falls back to simple page-level extraction
 """
 
 import os
-import cv2
-import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
 from .utils.logger import logger, timer
+
+# YOLO is optional - import with fallback
+_YOLO_AVAILABLE = False
+_CV2_AVAILABLE = False
+
+try:
+    import cv2
+    import numpy as np
+    _CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    np = None
+
+try:
+    from ultralytics import YOLO
+    _YOLO_AVAILABLE = True
+except ImportError:
+    YOLO = None
+
+
+def is_yolo_available() -> bool:
+    """Check if YOLO is available (package installed)."""
+    return _YOLO_AVAILABLE and _CV2_AVAILABLE
+
+
+def is_yolo_model_available(model_path: str = None) -> bool:
+    """
+    Check if YOLO is available and model file exists.
+
+    Args:
+        model_path: Path to YOLO model (uses default if None)
+
+    Returns:
+        True if YOLO can be used
+    """
+    if not is_yolo_available():
+        return False
+
+    if model_path is None:
+        # Check default locations
+        default_paths = [
+            Path("models/YOLOv11/document_yolo_model.pt"),
+            Path(__file__).parent.parent.parent / "models" / "YOLOv11" / "document_yolo_model.pt",
+        ]
+        for path in default_paths:
+            if path.exists():
+                return True
+        return False
+
+    return Path(model_path).exists()
 
 
 def vertical_overlap(box1: Tuple[int, int, int, int], box2: Tuple[int, int, int, int]) -> bool:
@@ -74,6 +126,14 @@ class DetectionProcessor:
 
     def _load_model(self):
         """Load the YOLO model with error handling."""
+        if not is_yolo_available():
+            logger.warning(
+                "YOLO not available. Install with: pip install cognidoc[yolo]. "
+                "Using fallback extraction."
+            )
+            self._model_loaded = False
+            return
+
         try:
             from ultralytics import YOLO
             self.model = YOLO(self.model_path)
