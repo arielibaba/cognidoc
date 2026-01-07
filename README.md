@@ -200,6 +200,117 @@ relationship_types:
     description: "General relationship"
 ```
 
+### Schema Wizard
+
+CogniDoc includes a **Schema Wizard** that helps you create an optimized GraphRAG schema for your documents. The wizard runs automatically during ingestion when no schema exists.
+
+#### How It Works
+
+When you run `doc.ingest()` without an existing schema, the wizard:
+
+1. **Interactive Mode** (default): Asks questions about your domain to build a customized schema
+2. **Auto-Generation Mode**: Analyzes sample documents and generates a schema using LLM
+
+#### Interactive Mode
+
+If `questionary` is installed (`pip install cognidoc[wizard]`), you'll get an interactive experience:
+
+```
+╭──────────────────────────────────────────────────────────────╮
+│                   CogniDoc Schema Wizard                      │
+│                                                              │
+│  This wizard will help you create a GraphRAG schema for     │
+│  your documents.                                             │
+╰──────────────────────────────────────────────────────────────╯
+
+? What type of documents are you working with?
+  ❯ Technical documentation
+    Legal documents
+    Medical/Scientific papers
+    Business/Corporate documents
+    Educational materials
+    Other (describe below)
+
+? What language are your documents in? English
+
+? Do you want to auto-generate the schema from document analysis?
+  ❯ Yes - analyze my documents and generate schema automatically
+    No - I'll provide entity types manually
+```
+
+If you choose auto-generation, the wizard samples your documents and uses LLM to identify:
+- Relevant entity types (people, concepts, products, etc.)
+- Relationship types between entities
+- Domain-specific terminology
+
+#### Non-Interactive Mode
+
+Without `questionary`, or in automated pipelines, the wizard uses auto-generation:
+
+```python
+# Auto-generate schema from documents
+doc = CogniDoc()
+doc.ingest("./documents/")  # Wizard runs automatically
+
+# Skip the wizard entirely
+doc.ingest("./documents/", skip_schema_wizard=True)
+```
+
+#### Existing Schema Detection
+
+If a schema already exists (`config/graph_schema.yaml`), you'll be prompted:
+
+```
+? A graph schema already exists at config/graph_schema.yaml. What would you like to do?
+  ❯ Use existing schema
+    Create new schema (will overwrite)
+    Skip graph building for this run
+```
+
+#### Manual Schema Creation
+
+You can also create a schema manually by copying and editing the template:
+
+```bash
+# Copy template
+cp config/graph_schema_generic.yaml config/graph_schema.yaml
+
+# Edit to match your domain
+vim config/graph_schema.yaml
+```
+
+#### Example Generated Schema
+
+For technical documentation, the wizard might generate:
+
+```yaml
+domain:
+  name: Technical Documentation
+  description: Software and technical documentation for developers
+  language: en
+
+entities:
+  - name: Component
+    description: Software components, modules, or services
+    examples: [API, Database, Cache, Queue]
+  - name: Technology
+    description: Programming languages, frameworks, or tools
+    examples: [Python, Docker, Kubernetes]
+  - name: Concept
+    description: Technical concepts or patterns
+    examples: [microservices, REST API, authentication]
+
+relationships:
+  - name: USES
+    description: One component uses another
+    valid_source: [Component]
+    valid_target: [Component, Technology]
+  - name: IMPLEMENTS
+    description: Component implements a concept
+    valid_source: [Component]
+    valid_target: [Concept]
+```
+
 ### Prompts
 
 All LLM prompts are in `prompts/` directory and can be customized.
@@ -233,14 +344,17 @@ cognidoc/
 │   ├── api.py              # CogniDoc class
 │   ├── cli.py              # Command-line interface
 │   ├── app.py              # Gradio interface
+│   ├── schema_wizard.py    # Interactive schema configuration
 │   ├── pipeline/           # Ingestion pipeline
 │   ├── retrieval/          # Hybrid retriever
 │   └── providers/          # LLM/Embedding providers
 ├── config/
-│   └── graph_schema.yaml   # GraphRAG configuration
+│   ├── graph_schema.yaml         # GraphRAG configuration (user)
+│   └── graph_schema_generic.yaml # Generic schema template
 ├── prompts/                # Customizable prompts
 └── data/                   # Document storage
-    ├── pdfs/               # Input documents
+    ├── sources/            # Input documents (any format)
+    ├── pdfs/               # Converted PDFs
     ├── indexes/            # Vector/graph indexes
     └── vector_store/       # Qdrant database
 ```
@@ -263,7 +377,8 @@ make test      # Run tests
 | `gradio` | Web interface (optional) |
 | `ultralytics` | YOLO detection (optional) |
 | `ollama` | Local inference (optional) |
-| `google-generativeai` | Gemini API |
+| `questionary` | Interactive schema wizard (optional) |
+| `google-genai` | Gemini API |
 | `openai` | OpenAI API |
 | `anthropic` | Claude API |
 

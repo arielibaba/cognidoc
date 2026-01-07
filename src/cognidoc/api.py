@@ -215,6 +215,57 @@ class CogniDoc:
             return self.config.use_yolo
         return self._check_yolo_available()
 
+    def _handle_schema_wizard(self) -> Optional[str]:
+        """
+        Handle schema wizard flow for graph configuration.
+
+        Returns:
+            Path to schema file, or "__skip_graph__" to skip graph, or None
+        """
+        from .schema_wizard import (
+            is_wizard_available,
+            check_existing_schema,
+            prompt_schema_choice,
+            run_interactive_wizard,
+            run_non_interactive_wizard,
+        )
+        from .constants import SOURCES_DIR
+
+        # Check for existing schema
+        existing_schema = check_existing_schema()
+
+        if existing_schema:
+            # Schema exists - ask user what to do
+            if is_wizard_available():
+                choice = prompt_schema_choice(existing_schema)
+                if choice == "use_existing":
+                    logger.info(f"Using existing schema: {existing_schema}")
+                    return existing_schema
+                elif choice == "skip":
+                    logger.info("Skipping graph extraction")
+                    return "__skip_graph__"
+                # choice == "create_new" -> continue to wizard
+            else:
+                # No interactive mode - use existing
+                logger.info(f"Using existing schema: {existing_schema}")
+                return existing_schema
+
+        # No schema or user wants new one - run wizard
+        if is_wizard_available():
+            schema = run_interactive_wizard(SOURCES_DIR)
+            if schema:
+                return check_existing_schema()  # Return path to saved schema
+            else:
+                # User cancelled - use non-interactive fallback
+                logger.info("Wizard cancelled, generating default schema")
+                run_non_interactive_wizard(SOURCES_DIR, use_auto=True)
+                return check_existing_schema()
+        else:
+            # No interactive mode - generate automatically
+            logger.info("Generating schema automatically (questionary not installed)")
+            run_non_interactive_wizard(SOURCES_DIR, use_auto=True)
+            return check_existing_schema()
+
     def ingest(
         self,
         source: Union[str, Path, List[str]] = None,
@@ -230,12 +281,16 @@ class CogniDoc:
         force_reembed: bool = False,
         use_cache: bool = True,
         graph_config_path: Optional[str] = None,
+        skip_schema_wizard: bool = False,
     ) -> IngestionResult:
         """
         Ingest documents from path(s).
 
         The pipeline processes documents in the data/pdfs directory by default.
         If source is specified, files will be copied to data/pdfs first.
+
+        On first ingestion with graph enabled, a schema wizard will guide you through
+        creating a custom graph schema. Use skip_schema_wizard=True to skip this.
 
         Args:
             source: Path to document(s) or directory (optional, uses data/pdfs if None)
@@ -251,6 +306,7 @@ class CogniDoc:
             force_reembed: Force re-embedding even for cached content
             use_cache: Use embedding cache
             graph_config_path: Path to custom graph configuration
+            skip_schema_wizard: Skip the interactive schema wizard
 
         Returns:
             IngestionResult with statistics
@@ -258,6 +314,15 @@ class CogniDoc:
         from .run_ingestion_pipeline import run_ingestion_pipeline_async
         from .constants import SOURCES_DIR
         import shutil
+
+        # Handle graph schema configuration
+        actual_skip_graph = skip_graph or not self.config.use_graph
+
+        if not actual_skip_graph and graph_config_path is None and not skip_schema_wizard:
+            graph_config_path = self._handle_schema_wizard()
+            if graph_config_path == "__skip_graph__":
+                actual_skip_graph = True
+                graph_config_path = None
 
         # Copy source files to SOURCES_DIR if provided (skip if already in SOURCES_DIR)
         if source is not None:
@@ -290,9 +355,6 @@ class CogniDoc:
         # Determine YOLO usage
         use_yolo = self._get_use_yolo() and not skip_yolo
         actual_skip_yolo = not use_yolo
-
-        # Determine graph usage
-        actual_skip_graph = skip_graph or not self.config.use_graph
 
         logger.info(f"Starting ingestion pipeline")
         logger.info(f"YOLO: {use_yolo}, Graph: {not actual_skip_graph}")
