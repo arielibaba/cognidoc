@@ -1,0 +1,110 @@
+# =============================================================================
+# Generic Graph Schema for Testing
+# =============================================================================
+
+domain:
+  name: "Generic Technical Documentation"
+  description: |
+    Generic schema for extracting entities and relationships from any technical
+    documentation, including software, products, processes, and concepts.
+  language: "en"
+  document_types:
+    - "technical_documentation"
+    - "product_documentation"
+    - "software_documentation"
+
+entities:
+  - name: "Product"
+    description: "Software products, tools, systems, or applications"
+    examples:
+      - "CogniDoc"
+      - "YOLO"
+      - "Qdrant"
+      - "NetworkX"
+    attributes:
+      - "version"
+      - "category"
+
+  - name: "Feature"
+    description: "Features, capabilities, or functionalities"
+    examples:
+      - "document ingestion"
+      - "vector search"
+      - "knowledge graph"
+      - "semantic chunking"
+    attributes:
+      - "description"
+
+  - name: "Technology"
+    description: "Technologies, frameworks, or technical concepts"
+    examples:
+      - "RAG"
+      - "embeddings"
+      - "BM25"
+      - "community detection"
+    attributes:
+      - "category"
+
+  - name: "Process"
+    description: "Processes, pipelines, or workflows"
+    examples:
+      - "document conversion"
+      - "text extraction"
+      - "query routing"
+    attributes:
+      - "steps"
+
+  - name: "Component"
+    description: "System components or modules"
+    examples:
+      - "hybrid retriever"
+      - "vector store"
+      - "query orchestrator"
+    attributes:
+      - "purpose"
+
+relationships:
+  - name: "USES"
+    description: "A product or component uses a technology or feature"
+    valid_source: ["Product", "Component"]
+    valid_target: ["Technology", "Feature", "Component"]
+
+  - name: "HAS_FEATURE"
+    description: "A product has a specific feature"
+    valid_source: ["Product"]
+    valid_target: ["Feature"]
+
+  - name: "PART_OF"
+    description: "A component is part of a larger system"
+    valid_source: ["Component", "Process"]
+    valid_target: ["Product", "Process"]
+
+  - name: "IMPLEMENTS"
+    description: "A component implements a technology"
+    valid_source: ["Component"]
+    valid_target: ["Technology"]
+
+  - name: "PRODUCES"
+    description: "A process produces an output"
+    valid_source: ["Process"]
+    valid_target: ["Component", "Feature"]
+
+query_routing:
+  factual:
+    vector_weight: 0.7
+    graph_weight: 0.3
+  relational:
+    vector_weight: 0.2
+    graph_weight: 0.8
+  exploratory:
+    vector_weight: 0.0
+    graph_weight: 1.0
+  procedural:
+    vector_weight: 0.8
+    graph_weight: 0.2
+
+graph:
+  enable_communities: true
+  generate_community_summaries: true
+  min_community_size: 2
+  resolution: 1.0

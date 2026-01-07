@@ -321,6 +321,10 @@ class HybridRetriever:
         Returns:
             HybridRetrievalResult with combined context
         """
+        # Auto-load if not already loaded
+        if not self.is_loaded():
+            self.load()
+
         if model is None:
             model = OLLAMA_DEFAULT_MODEL
         if top_k is None:
