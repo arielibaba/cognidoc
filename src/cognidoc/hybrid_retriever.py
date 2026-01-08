@@ -30,7 +30,7 @@ from .query_orchestrator import (
     route_query,
 )
 from .constants import (
-    OLLAMA_DEFAULT_MODEL,
+    DEFAULT_LLM_MODEL,
     EMBED_MODEL,
     VECTOR_STORE_DIR,
     INDEX_DIR,
@@ -142,7 +142,7 @@ def fuse_results(
         Tuple of (fused_context, source_chunks)
     """
     if model is None:
-        model = LLM
+        model = DEFAULT_LLM_MODEL
 
     context_parts = []
     source_chunks = []
@@ -326,7 +326,7 @@ class HybridRetriever:
             self.load()
 
         if model is None:
-            model = OLLAMA_DEFAULT_MODEL
+            model = DEFAULT_LLM_MODEL
         if top_k is None:
             top_k = TOP_K_RETRIEVED_CHILDREN
 

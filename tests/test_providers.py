@@ -379,5 +379,276 @@ class TestBatchEmbedding:
             assert embeddings == []
 
 
+class TestAnthropicProvider:
+    """Tests for Anthropic provider (mocked)."""
+
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-api-key"})
+    def test_anthropic_chat(self):
+        """Test Anthropic chat with mocked client."""
+        mock_anthropic = MagicMock()
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+
+        # Mock response
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="Hello from Claude!")]
+        mock_response.usage = MagicMock(input_tokens=10, output_tokens=5)
+        mock_client.messages.create.return_value = mock_response
+
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            from cognidoc.utils.llm_providers import AnthropicProvider
+
+            config = LLMConfig(
+                provider=LLMProvider.ANTHROPIC,
+                model="claude-3-haiku-20240307",
+            )
+            provider = AnthropicProvider(config)
+
+            messages = [Message(role="user", content="Hello")]
+            response = provider.chat(messages)
+
+            assert response.content == "Hello from Claude!"
+            assert response.provider == LLMProvider.ANTHROPIC
+
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-api-key"})
+    def test_anthropic_json_mode(self):
+        """Test Anthropic JSON mode with system prompt injection."""
+        mock_anthropic = MagicMock()
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"result": "test"}')]
+        mock_response.usage = MagicMock(input_tokens=10, output_tokens=5)
+        mock_client.messages.create.return_value = mock_response
+
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic}):
+            from cognidoc.utils.llm_providers import AnthropicProvider
+
+            config = LLMConfig(
+                provider=LLMProvider.ANTHROPIC,
+                model="claude-3-haiku-20240307",
+                json_mode=True,
+            )
+            provider = AnthropicProvider(config)
+
+            messages = [Message(role="user", content="Return JSON")]
+            response = provider.chat(messages, json_mode=True)
+
+            # Verify system prompt includes JSON instruction
+            call_args = mock_client.messages.create.call_args
+            assert "system" in call_args.kwargs
+            assert "JSON" in call_args.kwargs["system"]
+
+
+class TestGeminiEmbeddingProvider:
+    """Tests for Gemini embedding provider (mocked)."""
+
+    @patch.dict(os.environ, {"GOOGLE_API_KEY": "test-api-key"})
+    def test_gemini_embedding_single(self):
+        """Test Gemini single embedding."""
+        # Create mock module and client
+        mock_google = MagicMock()
+        mock_genai = MagicMock()
+        mock_google.genai = mock_genai
+        mock_client = MagicMock()
+        mock_genai.Client.return_value = mock_client
+
+        # Mock embedding response with proper structure
+        expected_values = [0.1, 0.2, 0.3, 0.4]
+        mock_embedding = MagicMock()
+        mock_embedding.values = expected_values
+        mock_result = MagicMock()
+        mock_result.embeddings = [mock_embedding]
+        mock_client.models.embed_content.return_value = mock_result
+
+        with patch.dict(sys.modules, {"google": mock_google, "google.genai": mock_genai}):
+            from cognidoc.utils.embedding_providers import GeminiEmbeddingProvider
+
+            config = EmbeddingConfig(
+                provider=EmbeddingProvider.GEMINI,
+                model="text-embedding-004",
+            )
+            provider = GeminiEmbeddingProvider(config)
+
+            embedding = provider.embed_single("Hello world")
+            assert embedding == expected_values
+
+    @patch.dict(os.environ, {"GOOGLE_API_KEY": "test-api-key"})
+    def test_gemini_embedding_batch(self):
+        """Test Gemini batch embedding."""
+        mock_google = MagicMock()
+        mock_genai = MagicMock()
+        mock_google.genai = mock_genai
+        mock_client = MagicMock()
+        mock_genai.Client.return_value = mock_client
+
+        expected_values = [0.1, 0.2, 0.3]
+        mock_embedding = MagicMock()
+        mock_embedding.values = expected_values
+        mock_result = MagicMock()
+        mock_result.embeddings = [mock_embedding]
+        mock_client.models.embed_content.return_value = mock_result
+
+        with patch.dict(sys.modules, {"google": mock_google, "google.genai": mock_genai}):
+            from cognidoc.utils.embedding_providers import GeminiEmbeddingProvider
+
+            config = EmbeddingConfig(
+                provider=EmbeddingProvider.GEMINI,
+                model="text-embedding-004",
+                batch_size=2,
+            )
+            provider = GeminiEmbeddingProvider(config)
+
+            embeddings = provider.embed(["Hello", "World"])
+            assert len(embeddings) == 2
+            assert embeddings[0] == expected_values
+
+
+class TestJSONMode:
+    """Tests for JSON mode across providers."""
+
+    def test_ollama_json_mode(self):
+        """Test Ollama JSON format parameter."""
+        mock_ollama = MagicMock()
+        mock_client = MagicMock()
+        mock_ollama.Client.return_value = mock_client
+        mock_client.chat.return_value = {
+            "message": {"content": '{"test": "value"}'}
+        }
+
+        with patch.dict(sys.modules, {"ollama": mock_ollama}):
+            from cognidoc.utils.llm_providers import OllamaProvider
+
+            config = LLMConfig(
+                provider=LLMProvider.OLLAMA,
+                model="granite3.3:8b",
+            )
+            provider = OllamaProvider(config)
+
+            messages = [Message(role="user", content="Return JSON")]
+            provider.chat(messages, json_mode=True)
+
+            # Verify format="json" was passed
+            call_args = mock_client.chat.call_args
+            assert call_args.kwargs.get("format") == "json"
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
+    def test_openai_json_mode(self):
+        """Test OpenAI JSON response format."""
+        mock_openai = MagicMock()
+        mock_client = MagicMock()
+        mock_openai.OpenAI.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content='{"test": "value"}'))]
+        mock_response.usage = None
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            from cognidoc.utils.llm_providers import OpenAIProvider
+
+            config = LLMConfig(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o-mini",
+            )
+            provider = OpenAIProvider(config)
+
+            messages = [Message(role="user", content="Return JSON")]
+            provider.chat(messages, json_mode=True)
+
+            # Verify response_format was passed
+            call_args = mock_client.chat.completions.create.call_args
+            assert call_args.kwargs.get("response_format") == {"type": "json_object"}
+
+
+class TestVisionFunctionality:
+    """Tests for vision functionality (mocked)."""
+
+    def test_ollama_vision(self):
+        """Test Ollama vision with image path."""
+        mock_ollama = MagicMock()
+        mock_client = MagicMock()
+        mock_ollama.Client.return_value = mock_client
+        mock_client.chat.return_value = {
+            "message": {"content": "This is an image of a cat."}
+        }
+
+        with patch.dict(sys.modules, {"ollama": mock_ollama}):
+            from cognidoc.utils.llm_providers import OllamaProvider
+
+            config = LLMConfig(
+                provider=LLMProvider.OLLAMA,
+                model="qwen3-vl:8b-instruct",
+            )
+            provider = OllamaProvider(config)
+
+            result = provider.vision(
+                image_path="/fake/path/image.jpg",
+                prompt="What is in this image?",
+                system_prompt="You are a helpful assistant."
+            )
+
+            assert result == "This is an image of a cat."
+            # Verify images were passed
+            call_args = mock_client.chat.call_args
+            messages = call_args.kwargs.get("messages", [])
+            assert any("images" in msg for msg in messages)
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
+    def test_openai_vision(self):
+        """Test OpenAI vision with base64 encoding."""
+        mock_openai = MagicMock()
+        mock_client = MagicMock()
+        mock_openai.OpenAI.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="A scenic mountain view."))]
+        mock_response.usage = None
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch.dict(sys.modules, {"openai": mock_openai}):
+            from cognidoc.utils.llm_providers import OpenAIProvider
+            import tempfile
+            import os as os_module
+
+            config = LLMConfig(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4o",
+            )
+            provider = OpenAIProvider(config)
+
+            # Create a temporary image file
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
+                f.write(b"fake image data")
+                temp_path = f.name
+
+            try:
+                result = provider.vision(
+                    image_path=temp_path,
+                    prompt="Describe this image",
+                )
+                assert result == "A scenic mountain view."
+            finally:
+                os_module.unlink(temp_path)
+
+
+class TestProviderEnumValues:
+    """Tests for provider enum values."""
+
+    def test_llm_provider_values(self):
+        """Test LLM provider enum values."""
+        assert LLMProvider.GEMINI.value == "gemini"
+        assert LLMProvider.OLLAMA.value == "ollama"
+        assert LLMProvider.OPENAI.value == "openai"
+        assert LLMProvider.ANTHROPIC.value == "anthropic"
+
+    def test_embedding_provider_values(self):
+        """Test embedding provider enum values."""
+        assert EmbeddingProvider.OLLAMA.value == "ollama"
+        assert EmbeddingProvider.OPENAI.value == "openai"
+        assert EmbeddingProvider.GEMINI.value == "gemini"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -79,6 +79,9 @@ ANTHROPIC_VISION_MODEL = os.getenv("ANTHROPIC_VISION_MODEL", "claude-sonnet-4-20
 # Default Ollama model for local processing tasks (entity extraction, table summarization)
 OLLAMA_DEFAULT_MODEL = OLLAMA_LLM_MODEL
 
+# Default LLM model for the application (Gemini 2.0 Flash)
+DEFAULT_LLM_MODEL = GEMINI_LLM_MODEL
+
 # =============================================================================
 # Generation Parameters
 # =============================================================================
