@@ -63,7 +63,7 @@ Resume from specific stage:
 
 ## Architecture
 
-### Pipeline Flow
+### Ingestion Pipeline
 
 ```
 Documents → PDF Conversion → Images (600 DPI) → YOLO Detection
@@ -81,6 +81,66 @@ Documents → PDF Conversion → Images (600 DPI) → YOLO Detection
                         └─────────────────────────────┬─────────────────────────────┘
                                                       ↓
                                             Hybrid Retriever
+```
+
+### Query Processing Flow
+
+```
+                                    User Query
+                                        │
+                                        ▼
+                        ┌───────────────────────────────┐
+                        │     Query Rewriter            │
+                        │  (adds conversation context)  │
+                        └───────────────────────────────┘
+                                        │
+                        ┌───────────────┴───────────────┐
+                        ▼                               ▼
+                ┌───────────────┐               ┌───────────────┐
+                │   Classifier  │               │  Complexity   │
+                │  (query type) │               │   Evaluator   │
+                └───────────────┘               └───────────────┘
+                        │                               │
+                        ▼                               ▼
+                   Query Type                    Complexity Score
+              (factual/relational/               (0.0 - 1.0)
+               exploratory/procedural)
+                        │                               │
+                        └───────────────┬───────────────┘
+                                        │
+                            ┌───────────┴───────────┐
+                            │   score >= 0.55 ?     │
+                            └───────────┬───────────┘
+                                        │
+                    ┌───────────────────┼───────────────────┐
+                    │ NO                │                   │ YES
+                    ▼                   ▼                   ▼
+        ┌───────────────────┐  ┌───────────────┐  ┌───────────────────┐
+        │    FAST PATH      │  │ ENHANCED PATH │  │    AGENT PATH     │
+        │  (Standard RAG)   │  │ (score 0.35+) │  │   (ReAct Loop)    │
+        └───────────────────┘  └───────────────┘  └───────────────────┘
+                    │                   │                   │
+                    ▼                   ▼                   ▼
+        ┌───────────────────────────────────────┐  ┌───────────────────┐
+        │          Hybrid Retriever             │  │  THINK → ACT →    │
+        │  (Vector weight + Graph weight based  │  │  OBSERVE → REFLECT│
+        │   on query type)                      │  │  (max 7 steps)    │
+        └───────────────────────────────────────┘  └───────────────────┘
+                    │                                       │
+                    ▼                                       ▼
+        ┌───────────────────┐               ┌───────────────────────────┐
+        │  LLM Generation   │               │     9 Agent Tools         │
+        │  (final answer)   │               │  (retrieve, synthesize,   │
+        └───────────────────┘               │   compare, verify, etc.)  │
+                    │                       └───────────────────────────┘
+                    │                                       │
+                    └───────────────────┬───────────────────┘
+                                        ▼
+                                ┌───────────────┐
+                                │    Response   │
+                                │ (same language│
+                                │  as query)    │
+                                └───────────────┘
 ```
 
 ### Key Modules
@@ -130,6 +190,47 @@ Agent tools (`agent_tools.py`):
 - Easier debugging (no framework abstractions)
 - Minimal dependencies
 - Simple use case (single agent, 9 fixed tools)
+
+**ReAct Loop:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         START                               │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  THINK: Analyze query, decide next action                   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  final_answer?  │───YES───▶ Return Response
+                    └─────────────────┘
+                              │ NO
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  ACT: Execute chosen tool (retrieve, compare, etc.)         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  OBSERVE: Process tool result                               │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  REFLECT: Do I have enough info? (max 7 steps)              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │  enough info?   │───YES───▶ THINK (final_answer)
+                    └─────────────────┘
+                              │ NO
+                              ▼
+                         Loop to THINK
+```
 
 Language rules are enforced in prompts to ensure responses match query language (French/English).
 
