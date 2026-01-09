@@ -331,7 +331,10 @@ def parse_rewritten_query(text: str) -> List[str]:
     bullets = []
     for line in lines:
         stripped = line.strip()
+        # Handle both - and * bullet styles
         if stripped.startswith('- '):
+            bullets.append(stripped[2:].strip())
+        elif stripped.startswith('* '):
             bullets.append(stripped[2:].strip())
     return bullets
 

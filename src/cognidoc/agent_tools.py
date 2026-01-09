@@ -111,6 +111,9 @@ class ToolResult:
                 parts.append(f"Graph nodes: {stats['graph_nodes']}")
             if "graph_edges" in stats:
                 parts.append(f"Graph edges: {stats['graph_edges']}")
+            if "document_names" in stats and stats["document_names"]:
+                names = stats["document_names"]
+                parts.append(f"Document names: {', '.join(names)}")
             return "DATABASE STATS: " + ", ".join(parts) if parts else "No stats available"
 
         return str(self.data)
@@ -173,8 +176,15 @@ class RetrieveVectorTool(BaseTool):
     def __init__(self, retriever: "HybridRetriever"):
         self.retriever = retriever
 
-    def execute(self, query: str, top_k: str = "5") -> ToolResult:
+    def execute(self, query: str = "", top_k: str = "5") -> ToolResult:
         try:
+            if not query or not query.strip():
+                return ToolResult(
+                    tool=self.name,
+                    success=False,
+                    error="Query parameter is required for vector search",
+                )
+
             k = int(top_k)
             if not self.retriever.is_loaded():
                 self.retriever.load()
@@ -566,27 +576,48 @@ class DatabaseStatsTool(BaseTool):
     """Get statistics about the document database."""
 
     name = ToolName.DATABASE_STATS
-    description = "Get statistics about the document database: total number of documents, chunks, graph nodes, etc. Use this when the user asks about the database size, document count, or similar meta-questions about the knowledge base."
-    parameters = {}
+    description = "Get statistics about the document database: total number of documents, chunks, graph nodes, document names/titles. Use this when the user asks about the database size, document count, to list documents, or similar meta-questions about the knowledge base."
+    parameters = {
+        "list_documents": "Set to true to get the list of document names/titles (default: false)",
+    }
 
     def __init__(self, retriever=None):
         self.retriever = retriever
 
-    def execute(self) -> ToolResult:
+    def execute(self, list_documents: bool = False) -> ToolResult:
         """Get database statistics."""
         try:
             stats = {}
 
             if self.retriever:
-                # Get vector index stats
-                if hasattr(self.retriever, '_vector_index') and self.retriever._vector_index:
-                    if hasattr(self.retriever._vector_index, 'documents'):
-                        stats["total_chunks"] = len(self.retriever._vector_index.documents)
-
-                # Get keyword index stats (parent documents)
+                # Get keyword index stats (parent documents) using get_all_documents()
                 if hasattr(self.retriever, '_keyword_index') and self.retriever._keyword_index:
-                    if hasattr(self.retriever._keyword_index, 'documents'):
-                        stats["total_documents"] = len(self.retriever._keyword_index.documents)
+                    ki = self.retriever._keyword_index
+                    if hasattr(ki, 'get_all_documents'):
+                        docs = ki.get_all_documents()
+                        stats["total_documents"] = len(docs)
+
+                        # List document names if requested
+                        if list_documents:
+                            # Extract unique source document names
+                            doc_names = set()
+                            for doc in docs:
+                                if hasattr(doc, 'metadata') and doc.metadata:
+                                    # Try to get source document name
+                                    source = doc.metadata.get('source', {})
+                                    if isinstance(source, dict):
+                                        name = source.get('document')
+                                    else:
+                                        name = str(source) if source else None
+
+                                    if not name:
+                                        # Fallback to name or title
+                                        name = doc.metadata.get('name') or doc.metadata.get('title')
+
+                                    if name:
+                                        doc_names.add(name)
+
+                            stats["document_names"] = sorted(list(doc_names))
 
                 # Get graph stats
                 if hasattr(self.retriever, '_graph_retriever') and self.retriever._graph_retriever:

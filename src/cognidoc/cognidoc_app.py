@@ -522,11 +522,16 @@ def chat_conversation(
                     # Run agent with streaming feedback
                     history.append({"role": "assistant", "content": ""})
 
+                    # Use the rewritten query which includes conversation context
+                    # This allows the agent to understand references like "cite-les-moi"
+                    # when the previous message mentioned documents
+                    agent_query = candidates[0] if candidates else user_message
+
                     # Stream agent progress and capture result
                     # Note: run_streaming is a generator that returns AgentResult
                     # We need to capture the return value via StopIteration.value
                     result = None
-                    streaming_gen = agent.run_streaming(user_message, complexity)
+                    streaming_gen = agent.run_streaming(agent_query, complexity)
 
                     try:
                         while True:

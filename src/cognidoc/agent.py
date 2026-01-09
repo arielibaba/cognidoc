@@ -134,12 +134,18 @@ You have access to these tools:
 ```
 THOUGHT: <your reasoning about what to do next>
 ACTION: <tool_name>
-ARGUMENTS: <json arguments for the tool>
+ARGUMENTS: <valid JSON object with the tool's parameters>
 ```
 
 2. After receiving an observation, reflect on whether you have enough information.
 
 3. When you have gathered enough information, use the `final_answer` tool to provide your complete answer.
+   IMPORTANT: You MUST provide the answer in the ARGUMENTS, like this:
+   ```
+   THOUGHT: I have enough information to answer.
+   ACTION: final_answer
+   ARGUMENTS: {{"answer": "Your complete answer here in the user's language"}}
+   ```
 
 4. If the query is ambiguous, use `ask_clarification` to request more information.
 
@@ -272,7 +278,14 @@ class CogniDocAgent:
 
                 # 2. Check for terminal actions
                 if action.tool == ToolName.FINAL_ANSWER:
+                    # Extract answer, with fallback to any string value in arguments
                     answer = action.arguments.get("answer", "")
+                    if not answer and action.arguments:
+                        # Fallback: use first string value if "answer" key not found
+                        for v in action.arguments.values():
+                            if isinstance(v, str) and v:
+                                answer = v
+                                break
                     step.observation = "Final answer provided"
                     context.add_step(step)
                     context.current_state = AgentState.FINISHED
@@ -529,7 +542,14 @@ Provide the best possible answer with the available information. If some aspects
 
                 # 2. Check terminal actions
                 if action.tool == ToolName.FINAL_ANSWER:
+                    # Extract answer, with fallback to any string value in arguments
                     answer = action.arguments.get("answer", "")
+                    if not answer and action.arguments:
+                        # Fallback: use first string value if "answer" key not found
+                        for v in action.arguments.values():
+                            if isinstance(v, str) and v:
+                                answer = v
+                                break
                     step.observation = "Final answer provided"
                     context.add_step(step)
 
