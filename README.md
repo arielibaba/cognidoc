@@ -177,6 +177,8 @@ For complex queries requiring multi-step reasoning, CogniDoc automatically activ
 | `database_stats` | Get statistics and list documents in the knowledge base |
 | `synthesize` | Combine information from multiple sources |
 | `verify_claim` | Fact-check statements against sources |
+| `ask_clarification` | Request clarification from the user |
+| `final_answer` | Provide the final answer (terminates the reasoning loop) |
 
 The agent is triggered automatically for:
 - Analytical queries requiring multi-step reasoning
