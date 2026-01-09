@@ -283,9 +283,127 @@ Le fast path répondait parfois en anglais (ex: "No relevant details are availab
 | `0a05114` | Update SESSION_RESUME.md with performance improvements |
 | `c68164f` | Fix language consistency in fast path responses |
 
+## Améliorations implémentées (session 3)
+
+### 1. Cache Persistant SQLite (`utils/tool_cache.py`)
+
+Remplacement du cache mémoire par un cache SQLite persistant :
+
+```python
+class PersistentToolCache:
+    """SQLite-based persistent cache for tool results."""
+    TTL_CONFIG = {
+        "database_stats": 300,      # 5 minutes
+        "retrieve_vector": 120,     # 2 minutes
+        "retrieve_graph": 120,
+        "lookup_entity": 300,
+        "compare_entities": 180,
+    }
+
+    @classmethod
+    def get(cls, tool_name: str, **kwargs) -> Optional[Any]
+    @classmethod
+    def set(cls, tool_name: str, result: Any, **kwargs) -> None
+    @classmethod
+    def cleanup_expired(cls) -> int  # Nettoie les entrées expirées
+    @classmethod
+    def stats(cls) -> Dict[str, Any]
+```
+
+**Avantages:**
+- Persiste entre les redémarrages de l'app
+- Même API que l'ancien ToolCache (migration transparente)
+- Cleanup automatique des entrées expirées
+- Stockage dans `data/cache/tool_cache.db`
+
+### 2. Métriques de Performance (`utils/metrics.py`)
+
+Nouveau système de métriques avec stockage SQLite :
+
+```python
+@dataclass
+class QueryMetrics:
+    path: str                    # "fast", "enhanced", "agent"
+    query_type: Optional[str]    # "FACTUAL", "EXPLORATORY", etc.
+    complexity_score: Optional[float]
+    total_time_ms: float
+    rewrite_time_ms: Optional[float]
+    retrieval_time_ms: Optional[float]
+    rerank_time_ms: Optional[float]
+    llm_time_ms: Optional[float]
+    cache_hits: int = 0
+    cache_misses: int = 0
+    agent_steps: Optional[int] = None
+    tools_used: Optional[List[str]] = None
+
+class PerformanceMetrics:
+    def log_query(self, metrics: QueryMetrics) -> None
+    def get_global_stats(self) -> Dict[str, Any]
+    def get_latency_by_path(self) -> List[Dict]
+    def get_latency_over_time(self, hours: int = 24) -> List[Dict]
+    def get_path_distribution(self) -> List[Dict]
+    def get_recent_queries(self, limit: int = 20) -> List[Dict]
+```
+
+### 3. Dashboard Metrics (`cognidoc_app.py`)
+
+Nouvel onglet "Metrics" dans l'interface Gradio avec :
+
+| Composant | Description |
+|-----------|-------------|
+| **Stats globales** | Total queries, avg latency, cache hit rate, avg agent steps |
+| **Latence par path** | Bar chart Plotly (agent vs fast vs enhanced) |
+| **Distribution paths** | Pie chart Plotly |
+| **Latence temporelle** | Line chart avec évolution sur 24h |
+| **Table requêtes** | 20 dernières requêtes avec détails |
+
+```python
+# Fonctions dashboard
+def create_latency_by_path_chart() -> go.Figure
+def create_path_distribution_chart() -> go.Figure
+def create_latency_over_time_chart() -> go.Figure
+def get_recent_queries_dataframe() -> pd.DataFrame
+def get_global_stats_html() -> str
+```
+
+### 4. Fichiers modifiés/créés
+
+| Fichier | Action |
+|---------|--------|
+| `src/cognidoc/utils/tool_cache.py` | **NOUVEAU** - PersistentToolCache SQLite |
+| `src/cognidoc/utils/metrics.py` | **NOUVEAU** - PerformanceMetrics + QueryMetrics |
+| `src/cognidoc/agent_tools.py` | Import PersistentToolCache, tracking cache hits |
+| `src/cognidoc/cognidoc_app.py` | Dashboard Metrics, logging QueryMetrics |
+| `src/cognidoc/constants.py` | TOOL_CACHE_DB, METRICS_DB paths |
+| `pyproject.toml` | Ajout `plotly>=5.0` aux dépendances UI |
+
+### 5. Commits session 3
+
+| Hash | Description |
+|------|-------------|
+| `c2521fa` | Add persistent SQLite cache and performance metrics dashboard |
+| `0a8f73c` | Fix QueryType enum serialization for SQLite metrics |
+| `6eddd30` | Add plotly to UI dependencies for metrics dashboard |
+
+### 6. Tests vérifiés
+
+```bash
+# 125 tests passent (2 skipped - gradio import)
+uv run python -m pytest tests/ -v
+```
+
+| Métrique | Valeur |
+|----------|--------|
+| Tests passés | 125 |
+| Tests skipped | 2 |
+| Couverture cache | ✅ |
+| Couverture metrics | ✅ |
+
 ## Améliorations futures
 
 1. **Support langues additionnelles** - Espagnol, Allemand, etc.
-2. **Cache persistant** - Utiliser Redis ou SQLite pour le cache
-3. **Métriques de performance** - Dashboard temps de réponse, cache hits
+2. ~~**Cache persistant** - Utiliser Redis ou SQLite pour le cache~~ ✅ Fait
+3. ~~**Métriques de performance** - Dashboard temps de réponse, cache hits~~ ✅ Fait
 4. **Tests de charge** - Benchmarks avec multiple requêtes simultanées
+5. **Export métriques** - CSV/JSON pour analyse externe
+6. **Alerting** - Notifications si latence > seuil
