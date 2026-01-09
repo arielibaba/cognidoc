@@ -346,6 +346,13 @@ def create_embeddings(
         # Process in batches
         num_batches = (len(chunks_to_embed) + batch_size - 1) // batch_size
 
+        # Check if we're already in an async context
+        try:
+            loop = asyncio.get_running_loop()
+            in_async_context = True
+        except RuntimeError:
+            in_async_context = False
+
         with tqdm(total=len(chunks_to_embed), desc="Embedding chunks", unit="chunk") as pbar:
             for i in range(0, len(chunks_to_embed), batch_size):
                 batch = chunks_to_embed[i:i + batch_size]
@@ -354,11 +361,21 @@ def create_embeddings(
                 logger.debug(f"Processing batch {batch_num}/{num_batches} ({len(batch)} chunks)")
 
                 # Run async embedding for this batch
-                success, errors = asyncio.run(
-                    embed_batch_async(
-                        batch, embeddings_path, embed_model, use_cache, max_concurrent
+                if in_async_context:
+                    # Use nest_asyncio or run in thread to avoid event loop conflict
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            embed_batch_async(batch, embeddings_path, embed_model, use_cache, max_concurrent)
+                        )
+                        success, errors = future.result()
+                else:
+                    success, errors = asyncio.run(
+                        embed_batch_async(
+                            batch, embeddings_path, embed_model, use_cache, max_concurrent
+                        )
                     )
-                )
 
                 total_success += success
                 total_errors += errors
