@@ -437,6 +437,99 @@ class PerformanceMetrics:
 | `1520d57` | Update SESSION_RESUME.md with session 3 changes |
 | `721ebc8` | Add CSV and JSON export for metrics dashboard |
 
+## Améliorations implémentées (session 4)
+
+### 1. Batching Async des Embeddings (`create_embeddings.py`)
+
+Refactoring complet pour traitement par lots avec requêtes concurrentes :
+
+```python
+# Nouveaux paramètres
+create_embeddings(
+    chunks_dir="...",
+    embeddings_dir="...",
+    embed_model="qwen3-embedding:0.6b",
+    batch_size=32,        # Chunks par batch
+    max_concurrent=4,     # Requêtes HTTP simultanées
+)
+```
+
+**Architecture:**
+```
+Phase 1: Collecte
+├── Scan des fichiers
+├── Vérification cache
+└── Filtrage (parent chunks, fichiers courts)
+         ↓
+Phase 2: Batching async
+├── Batches de 32 chunks
+├── 4 requêtes HTTP concurrentes (asyncio + httpx)
+├── Progress bar tqdm
+└── Cache + écriture fichiers
+```
+
+**Benchmark:** 8 textes
+- Séquentiel: 1.01s (126ms/texte)
+- Async batch: 0.19s (24ms/texte)
+- **Speedup: 5.27x**
+
+### 2. Parallélisation PDF→Images (`convert_pdf_to_image.py`)
+
+Conversion parallèle avec ProcessPoolExecutor :
+
+```python
+convert_pdf_to_image(
+    pdf_dir="data/pdfs",
+    image_dir="data/images",
+    dpi=600,
+    max_workers=4,    # Processus parallèles
+    parallel=True,
+)
+```
+
+**Benchmark:** 7 PDFs, 12 pages, 150 DPI
+- Séquentiel: 13.63s
+- Parallèle (4 workers): 1.23s
+- **Speedup: 11x**
+
+### 3. Méthode embed_async() (`utils/embedding_providers.py`)
+
+Nouvelle méthode async pour OllamaEmbeddingProvider :
+
+```python
+class OllamaEmbeddingProvider:
+    async def embed_async(
+        self,
+        texts: List[str],
+        max_concurrent: int = 4
+    ) -> List[List[float]]:
+        """Embed avec requêtes HTTP concurrentes."""
+        ...
+```
+
+### 4. Fichiers modifiés
+
+| Fichier | Action |
+|---------|--------|
+| `src/cognidoc/create_embeddings.py` | Refactoring complet avec batching async |
+| `src/cognidoc/convert_pdf_to_image.py` | Ajout ProcessPoolExecutor + tqdm |
+| `src/cognidoc/utils/embedding_providers.py` | Ajout `embed_async()` |
+
+### 5. Commits session 4
+
+| Hash | Description |
+|------|-------------|
+| `74f94ec` | Add batched async embedding generation for faster ingestion |
+| `eed1313` | Add parallel PDF to image conversion for faster ingestion |
+
+### 6. Optimisations pour M2 16GB
+
+| Paramètre | Valeur | Raison |
+|-----------|--------|--------|
+| `max_workers` (PDF) | 4 | Évite saturation mémoire unifiée |
+| `max_concurrent` (embed) | 4 | Overlap I/O sans surcharger Ollama |
+| `batch_size` | 32 | Bon équilibre mémoire/throughput |
+
 ## Améliorations futures
 
 1. **Support langues additionnelles** - Espagnol, Allemand, etc.
@@ -445,3 +538,7 @@ class PerformanceMetrics:
 4. **Tests de charge** - Benchmarks avec multiple requêtes simultanées
 5. ~~**Export métriques** - CSV/JSON pour analyse externe~~ ✅ Fait
 6. **Alerting** - Notifications si latence > seuil
+7. ~~**Parallélisation ingestion** - PDF→images, embeddings~~ ✅ Fait
+8. **YOLO batching** - Batch inference GPU pour détection
+9. **Entity extraction async** - Queue LLM avec workers
+10. **Pipeline streaming** - Démarrer chunking pendant extraction
