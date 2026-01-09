@@ -134,6 +134,15 @@ DATABASE_META_PATTERNS = [
     r"\bcette base\b.*\bcombien\b",  # "cette base...combien"
     r"\bla base\b.*\bcombien\b",  # "la base...combien"
 
+    # French patterns - listing documents
+    r"\bliste[rz]?\b.*\bdoc",  # "liste les documents", "lister les docs"
+    r"\bnoms?\b.*\bdoc",  # "noms des documents", "nom des docs"
+    r"\bdoc.*\bnoms?\b",  # "documents et leurs noms"
+    r"\bcite[rz]?\b.*\bdoc",  # "cite les documents", "citer les docs"
+    r"\b[eé]num[eè]re[rz]?\b.*\bdoc",  # "énumère les documents"
+    r"\bquels?\b.*\bdoc",  # "quels documents", "quels sont les docs"
+    r"\bdonne.*\bnoms?\b",  # "donne-moi les noms", "donne leurs noms"
+
     # English patterns
     r"\bhow many doc",  # "how many documents/docs"
     r"\bdocument count\b",
@@ -142,6 +151,13 @@ DATABASE_META_PATTERNS = [
     r"\btotal (?:de )?(?:documents?|fichiers?)\b",
     r"\btotal (?:documents?|files?)\b",
     r"\bnumber of doc",  # "number of documents"
+
+    # English patterns - listing documents
+    r"\blist\b.*\bdoc",  # "list the documents", "list all docs"
+    r"\bnames?\b.*\bdoc",  # "names of documents"
+    r"\bdoc.*\bnames?\b",  # "document names"
+    r"\bwhat\b.*\bdoc",  # "what documents are there"
+    r"\bwhich\b.*\bdoc",  # "which documents"
 
     # Generic database meta patterns
     r"\b(?:database|base)\b.*\b(?:size|taille|count|nombre)\b",

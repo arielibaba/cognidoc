@@ -608,7 +608,13 @@ class DatabaseStatsTool(BaseTool):
         self.retriever = retriever
 
     def execute(self, list_documents: bool = False) -> ToolResult:
-        """Get database statistics."""
+        """Get database statistics.
+
+        Returns unique source document count (not chunk count).
+        - total_documents: Number of unique source files (PDFs)
+        - total_chunks: Number of chunks in the index
+        - document_names: List of unique source document names (if list_documents=True)
+        """
         try:
             # Normalize list_documents to bool
             if isinstance(list_documents, str):
@@ -632,29 +638,32 @@ class DatabaseStatsTool(BaseTool):
                     ki = self.retriever._keyword_index
                     if hasattr(ki, 'get_all_documents'):
                         docs = ki.get_all_documents()
-                        stats["total_documents"] = len(docs)
+                        stats["total_chunks"] = len(docs)  # This is chunk count
+
+                        # Extract unique source document names from ALL chunks
+                        unique_sources = set()
+                        for doc in docs:
+                            if hasattr(doc, 'metadata') and doc.metadata:
+                                # Try to get source document name from metadata
+                                source = doc.metadata.get('source', {})
+                                if isinstance(source, dict):
+                                    name = source.get('document')
+                                else:
+                                    name = str(source) if source else None
+
+                                if not name:
+                                    # Fallback to name or title
+                                    name = doc.metadata.get('name') or doc.metadata.get('title')
+
+                                if name:
+                                    unique_sources.add(name)
+
+                        # Total documents = unique source files
+                        stats["total_documents"] = len(unique_sources)
 
                         # List document names if requested
                         if list_documents:
-                            # Extract unique source document names
-                            doc_names = set()
-                            for doc in docs:
-                                if hasattr(doc, 'metadata') and doc.metadata:
-                                    # Try to get source document name
-                                    source = doc.metadata.get('source', {})
-                                    if isinstance(source, dict):
-                                        name = source.get('document')
-                                    else:
-                                        name = str(source) if source else None
-
-                                    if not name:
-                                        # Fallback to name or title
-                                        name = doc.metadata.get('name') or doc.metadata.get('title')
-
-                                    if name:
-                                        doc_names.add(name)
-
-                            stats["document_names"] = sorted(list(doc_names))
+                            stats["document_names"] = sorted(list(unique_sources))
 
                 # Get graph stats
                 if hasattr(self.retriever, '_graph_retriever') and self.retriever._graph_retriever:
