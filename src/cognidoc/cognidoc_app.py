@@ -643,7 +643,7 @@ def chat_conversation(
                         cache_stats = get_performance_metrics().get_session_cache_stats()
                         agent_metrics = QueryMetrics(
                             path="agent",
-                            query_type=routing_decision.query_type if routing_decision else None,
+                            query_type=str(routing_decision.query_type) if routing_decision and routing_decision.query_type else None,
                             complexity_score=complexity.score if complexity else None,
                             total_time_ms=total_time * 1000,
                             rewrite_time_ms=(t2 - t1) * 1000,
@@ -890,7 +890,7 @@ def chat_conversation(
     path_type = "enhanced" if complexity and complexity.score >= 0.35 else "fast"
     fast_metrics = QueryMetrics(
         path=path_type,
-        query_type=routing_decision.query_type if routing_decision else None,
+        query_type=str(routing_decision.query_type) if routing_decision and routing_decision.query_type else None,
         complexity_score=complexity.score if complexity else None,
         total_time_ms=(t6 - t0) * 1000,
         rewrite_time_ms=(t2 - t1) * 1000,
