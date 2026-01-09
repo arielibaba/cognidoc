@@ -243,7 +243,23 @@ def limit_chat_history(history: List[dict], max_tokens: int = MEMORY_WINDOW) -> 
     total_tokens = 0
     truncated = []
     for msg in reversed(history):
-        tokens = get_token_count(msg["content"])
+        content = msg.get("content", "")
+        # Handle Gradio multimodal format (list) or None
+        if content is None:
+            content = ""
+        elif isinstance(content, list):
+            # Extract text from multimodal content
+            text_parts = []
+            for item in content:
+                if isinstance(item, str):
+                    text_parts.append(item)
+                elif isinstance(item, dict) and "text" in item:
+                    text_parts.append(item["text"])
+            content = " ".join(text_parts)
+        elif not isinstance(content, str):
+            content = str(content)
+
+        tokens = get_token_count(content)
         if total_tokens + tokens > max_tokens:
             break
         truncated.append(msg)

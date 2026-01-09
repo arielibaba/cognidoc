@@ -17,9 +17,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import json
 
-import ollama
-
 from .logger import logger
+from .llm_client import llm_chat
 
 
 # =============================================================================
@@ -249,7 +248,7 @@ def hybrid_search_fusion(
 def cross_encoder_rerank(
     query: str,
     documents: List[Any],
-    model: str = "granite3.3:8b",
+    model: str = None,  # Deprecated, uses configured LLM provider
     top_n: int = 5,
     batch_size: int = 5,
 ) -> List[Tuple[Any, float]]:
@@ -262,7 +261,7 @@ def cross_encoder_rerank(
     Args:
         query: The search query
         documents: List of documents to rerank
-        model: LLM model for scoring
+        model: Deprecated, uses configured LLM provider (Gemini by default)
         top_n: Number of top documents to return
         batch_size: Documents to score per LLM call
 
@@ -272,7 +271,6 @@ def cross_encoder_rerank(
     if not documents:
         return []
 
-    client = ollama.Client()
     scored_docs = []
 
     # Score documents in batches
@@ -296,16 +294,14 @@ Documents:{docs_text}
 Scores (JSON array only):"""
 
         try:
-            response = client.chat(
-                model=model,
+            # Use the configured LLM provider (Gemini by default)
+            response_text = llm_chat(
                 messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.0},
+                temperature=0.0,
             )
 
-            # Parse scores from response
-            response_text = response['message']['content'].strip()
-            # Extract JSON array
-            match = re.search(r'\[[\d\s,\.]+\]', response_text)
+            # Extract JSON array from response
+            match = re.search(r'\[[\d\s,\.]+\]', response_text.strip())
             if match:
                 scores = json.loads(match.group())
                 for j, doc in enumerate(batch):
@@ -374,7 +370,7 @@ def reorder_lost_in_middle(documents: List[Any]) -> List[Any]:
 def compress_context(
     query: str,
     documents: List[Any],
-    model: str = "granite3.3:8b",
+    model: str = None,  # Deprecated, uses configured LLM provider
     max_tokens_per_doc: int = 200,
 ) -> List[str]:
     """
@@ -385,7 +381,7 @@ def compress_context(
     Args:
         query: The user's query
         documents: List of documents to compress
-        model: LLM model for compression
+        model: Deprecated, uses configured LLM provider (Gemini by default)
         max_tokens_per_doc: Target max tokens per compressed doc
 
     Returns:
@@ -394,7 +390,6 @@ def compress_context(
     if not documents:
         return []
 
-    client = ollama.Client()
     compressed = []
 
     for doc in documents:
@@ -416,13 +411,11 @@ Document:
 Relevant extract:"""
 
         try:
-            response = client.chat(
-                model=model,
+            result = llm_chat(
                 messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.0, "num_predict": max_tokens_per_doc * 2},
-            )
+                temperature=0.0,
+            ).strip()
 
-            result = response['message']['content'].strip()
             if result and result != "NOT_RELEVANT":
                 compressed.append(result)
             # Skip if not relevant
@@ -453,7 +446,7 @@ class CitationResult:
 def verify_citations(
     answer: str,
     documents: List[Any],
-    model: str = "granite3.3:8b",
+    model: str = None,  # Deprecated, uses configured LLM provider
 ) -> Tuple[bool, List[CitationResult], str]:
     """
     Verify that claims in the answer are supported by the source documents.
@@ -463,15 +456,13 @@ def verify_citations(
     Args:
         answer: The generated answer to verify
         documents: Source documents used for generation
-        model: LLM model for verification
+        model: Deprecated, uses configured LLM provider (Gemini by default)
 
     Returns:
         Tuple of (all_supported, claim_results, verification_summary)
     """
     if not documents or not answer:
         return True, [], "No verification needed"
-
-    client = ollama.Client()
 
     # Build context from documents
     context = ""
@@ -501,13 +492,10 @@ Output JSON format:
 Verification:"""
 
     try:
-        response = client.chat(
-            model=model,
+        response_text = llm_chat(
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.0},
-        )
-
-        response_text = response['message']['content'].strip()
+            temperature=0.0,
+        ).strip()
 
         # Try to parse JSON
         json_match = re.search(r'\{[\s\S]*\}', response_text)

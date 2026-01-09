@@ -120,6 +120,34 @@ AMBIGUOUS_PATTERNS = [
     r"\bor\b.*\bor\b",
 ]
 
+# Database meta-questions that FORCE agent path (require database_stats tool)
+# These cannot be answered by document retrieval alone
+DATABASE_META_PATTERNS = [
+    # French patterns - flexible matching
+    r"\bcombien de doc",  # Matches "combien de documents", "combien de docs", typos
+    r"\bcombien.{0,20}base\b",  # "combien...base" with up to 20 chars between
+    r"\bnombre de doc",  # "nombre de documents/docs"
+    r"\bbase.{0,15}comprend",  # "cette base comprend", "la base comprend-elle"
+    r"\bbase.{0,15}contient",  # "la base contient"
+    r"\btaille de (?:la |cette )?base\b",  # "taille de la base", "taille de cette base"
+    r"\bstatistiques?\b.*\bbase\b",  # "statistiques de la base"
+    r"\bcette base\b.*\bcombien\b",  # "cette base...combien"
+    r"\bla base\b.*\bcombien\b",  # "la base...combien"
+
+    # English patterns
+    r"\bhow many doc",  # "how many documents/docs"
+    r"\bdocument count\b",
+    r"\bsize of (?:the )?(?:database|knowledge base)\b",
+    r"\bstats?\b.*\b(?:database|knowledge base)\b",
+    r"\btotal (?:de )?(?:documents?|fichiers?)\b",
+    r"\btotal (?:documents?|files?)\b",
+    r"\bnumber of doc",  # "number of documents"
+
+    # Generic database meta patterns
+    r"\b(?:database|base)\b.*\b(?:size|taille|count|nombre)\b",
+    r"\b(?:count|nombre)\b.*\b(?:database|base)\b",
+]
+
 # Weights for complexity factors
 COMPLEXITY_WEIGHTS = {
     "query_type": 0.25,
@@ -180,6 +208,14 @@ def count_subquestions(rewritten_query: str) -> int:
 def is_ambiguous(query: str) -> bool:
     """Check if query is ambiguous and needs clarification."""
     for pattern in AMBIGUOUS_PATTERNS:
+        if re.search(pattern, query, re.IGNORECASE):
+            return True
+    return False
+
+
+def is_database_meta_question(query: str) -> bool:
+    """Check if query is about the database itself (requires database_stats tool)."""
+    for pattern in DATABASE_META_PATTERNS:
         if re.search(pattern, query, re.IGNORECASE):
             return True
     return False
@@ -270,8 +306,13 @@ def evaluate_complexity(
         for k in COMPLEXITY_WEIGHTS
     )
 
+    # Check for database meta-questions (force agent path)
+    if is_database_meta_question(query):
+        level = ComplexityLevel.COMPLEX
+        reasoning_parts.append("Database meta-question requires database_stats tool")
+        total_score = max(total_score, AGENT_THRESHOLD + 0.2)
     # Check for ambiguity (overrides other factors)
-    if is_ambiguous(query):
+    elif is_ambiguous(query):
         level = ComplexityLevel.AMBIGUOUS
         reasoning_parts.append("Query appears ambiguous, clarification needed")
         total_score = max(total_score, AGENT_THRESHOLD + 0.1)
@@ -352,5 +393,6 @@ __all__ = [
     "count_complex_keywords",
     "count_subquestions",
     "is_ambiguous",
+    "is_database_meta_question",
     "AGENT_THRESHOLD",
 ]

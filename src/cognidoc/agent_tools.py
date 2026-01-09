@@ -39,6 +39,7 @@ class ToolName(str, Enum):
     VERIFY_CLAIM = "verify_claim"
     ASK_CLARIFICATION = "ask_clarification"
     FINAL_ANSWER = "final_answer"
+    DATABASE_STATS = "database_stats"
 
 
 @dataclass
@@ -98,6 +99,19 @@ class ToolResult:
 
         elif self.tool == ToolName.FINAL_ANSWER:
             return self.data or ""
+
+        elif self.tool == ToolName.DATABASE_STATS:
+            stats = self.data or {}
+            parts = []
+            if "total_documents" in stats:
+                parts.append(f"Total documents: {stats['total_documents']}")
+            if "total_chunks" in stats:
+                parts.append(f"Total chunks: {stats['total_chunks']}")
+            if "graph_nodes" in stats:
+                parts.append(f"Graph nodes: {stats['graph_nodes']}")
+            if "graph_edges" in stats:
+                parts.append(f"Graph edges: {stats['graph_edges']}")
+            return "DATABASE STATS: " + ", ".join(parts) if parts else "No stats available"
 
         return str(self.data)
 
@@ -512,9 +526,9 @@ class AskClarificationTool(BaseTool):
     """Request clarification from the user."""
 
     name = ToolName.ASK_CLARIFICATION
-    description = "Ask the user for clarification when the query is ambiguous or more information is needed. Use sparingly."
+    description = "Ask the user for clarification when the query is ambiguous or more information is needed. IMPORTANT: The question MUST be in the SAME LANGUAGE as the user's original query. Use sparingly."
     parameters = {
-        "question": "The clarification question to ask the user",
+        "question": "The clarification question to ask the user (MUST be in the same language as the user's query)",
     }
 
     def execute(self, question: str) -> ToolResult:
@@ -534,9 +548,9 @@ class FinalAnswerTool(BaseTool):
     """Provide the final answer to the user."""
 
     name = ToolName.FINAL_ANSWER
-    description = "Provide the final, complete answer to the user's question. Use when you have gathered enough information and are ready to respond."
+    description = "Provide the final, complete answer to the user's question. IMPORTANT: The answer MUST be in the SAME LANGUAGE as the user's original query. Use when you have gathered enough information and are ready to respond."
     parameters = {
-        "answer": "The complete answer to provide to the user",
+        "answer": "The complete answer to provide to the user (MUST be in the same language as the user's query)",
     }
 
     def execute(self, answer: str) -> ToolResult:
@@ -546,6 +560,53 @@ class FinalAnswerTool(BaseTool):
             data=answer,
             metadata={"is_final": True},
         )
+
+
+class DatabaseStatsTool(BaseTool):
+    """Get statistics about the document database."""
+
+    name = ToolName.DATABASE_STATS
+    description = "Get statistics about the document database: total number of documents, chunks, graph nodes, etc. Use this when the user asks about the database size, document count, or similar meta-questions about the knowledge base."
+    parameters = {}
+
+    def __init__(self, retriever=None):
+        self.retriever = retriever
+
+    def execute(self) -> ToolResult:
+        """Get database statistics."""
+        try:
+            stats = {}
+
+            if self.retriever:
+                # Get vector index stats
+                if hasattr(self.retriever, '_vector_index') and self.retriever._vector_index:
+                    if hasattr(self.retriever._vector_index, 'documents'):
+                        stats["total_chunks"] = len(self.retriever._vector_index.documents)
+
+                # Get keyword index stats (parent documents)
+                if hasattr(self.retriever, '_keyword_index') and self.retriever._keyword_index:
+                    if hasattr(self.retriever._keyword_index, 'documents'):
+                        stats["total_documents"] = len(self.retriever._keyword_index.documents)
+
+                # Get graph stats
+                if hasattr(self.retriever, '_graph_retriever') and self.retriever._graph_retriever:
+                    gr = self.retriever._graph_retriever
+                    if hasattr(gr, 'kg') and gr.kg:
+                        stats["graph_nodes"] = len(gr.kg.nodes) if hasattr(gr.kg, 'nodes') else 0
+                        stats["graph_edges"] = len(gr.kg.edges) if hasattr(gr.kg, 'edges') else 0
+
+            return ToolResult(
+                tool=self.name,
+                success=True,
+                data=stats,
+            )
+
+        except Exception as e:
+            return ToolResult(
+                tool=self.name,
+                success=False,
+                error=str(e),
+            )
 
 
 # =============================================================================
@@ -626,6 +687,9 @@ def create_tool_registry(
     registry.register(SynthesizeTool())
     registry.register(VerifyClaimTool())
 
+    # Database stats tool (for meta-questions)
+    registry.register(DatabaseStatsTool(retriever))
+
     # Special tools
     registry.register(AskClarificationTool())
     registry.register(FinalAnswerTool())
@@ -647,6 +711,7 @@ __all__ = [
     "VerifyClaimTool",
     "AskClarificationTool",
     "FinalAnswerTool",
+    "DatabaseStatsTool",
     "ToolRegistry",
     "create_tool_registry",
 ]

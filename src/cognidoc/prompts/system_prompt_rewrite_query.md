@@ -6,6 +6,12 @@ Given a conversation context and a new user query, follow these steps:
 2. Rewrite each sub-question into a stand-alone query, incorporating necessary context from previous conversation (e.g., clarifying pronouns or references).
 3. Present these rewritten queries in bullet points, each bullet containing one self-contained sub-question.
 
+## IMPORTANT: Language Preservation
+- ALWAYS keep the rewritten query in the SAME LANGUAGE as the original user query.
+- If the user asks in French, rewrite in French.
+- If the user asks in English, rewrite in English.
+- NEVER translate the query to another language.
+
 ### Examples:
 
 #### Example 1

@@ -8,6 +8,8 @@ A document processing and retrieval pipeline that combines **Vector RAG** and **
 
 - **Hybrid RAG**: Combines vector similarity search with knowledge graph traversal
 - **GraphRAG**: Automatic entity/relationship extraction with community detection
+- **Agentic RAG**: Multi-step reasoning agent for complex queries with tool use
+- **Multi-Language Support**: Automatic language detection (French/English) with consistent responses
 - **Multi-Format Support**: PDF, PPTX, DOCX, XLSX, HTML, Markdown, images
 - **Flexible Providers**: Mix and match LLM and embedding providers independently
 - **YOLO Object Detection**: Automatically detects tables, pictures, text regions (optional)
@@ -161,6 +163,33 @@ Documents → PDF Conversion → Images (600 DPI) → YOLO Detection*
 | **RELATIONAL** | "Relationship between A and B?" | 20% | 80% |
 | **EXPLORATORY** | "List all main topics" | 0% | 100% |
 | **PROCEDURAL** | "How to configure?" | 80% | 20% |
+
+### Agentic RAG
+
+For complex queries requiring multi-step reasoning, CogniDoc automatically activates an agent with specialized tools:
+
+| Tool | Purpose |
+|------|---------|
+| `retrieve_vector` | Search documents by semantic similarity |
+| `retrieve_graph` | Query knowledge graph for relationships |
+| `lookup_entity` | Get detailed entity information |
+| `compare_entities` | Compare multiple entities |
+| `database_stats` | Get statistics about the knowledge base |
+| `synthesize` | Combine information from multiple sources |
+| `verify_claim` | Fact-check statements against sources |
+
+The agent is triggered automatically for:
+- Analytical queries requiring multi-step reasoning
+- Comparative questions between entities
+- Meta-questions about the database (e.g., "How many documents?")
+- Ambiguous queries needing clarification
+
+### Language Support
+
+CogniDoc automatically detects the query language and responds in the same language:
+- French queries receive French responses
+- English queries receive English responses
+- Clarification requests are also language-aware
 
 ## Configuration
 

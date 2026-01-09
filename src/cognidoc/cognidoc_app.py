@@ -62,6 +62,45 @@ from .agent import CogniDocAgent, AgentState, create_agent
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
+
+def detect_query_language(query: str) -> str:
+    """
+    Simple heuristic to detect if query is in French or English.
+    Returns 'fr' for French, 'en' for English (default).
+    """
+    # Common French words and patterns
+    french_indicators = [
+        " est ", " sont ", " que ", " qui ", " dans ", " pour ", " avec ",
+        " les ", " des ", " une ", " sur ", " pas ", " plus ", " cette ",
+        " ces ", " vous ", " nous ", " leur ", " quoi ", " comment ",
+        " pourquoi ", " combien ", " quand ", "qu'", "d'", "l'", "n'",
+        "-tu ", "-vous ", "-moi ", "-elle ", "-il ", " je ", " tu ",
+    ]
+    query_lower = query.lower()
+    french_count = sum(1 for ind in french_indicators if ind in query_lower)
+
+    # If 2+ French indicators, it's likely French
+    if french_count >= 2:
+        return "fr"
+    # Check for question marks with French question words
+    if any(q in query_lower for q in ["est-ce", "qu'est", "combien", "pourquoi", "comment"]):
+        return "fr"
+    return "en"
+
+
+def get_clarification_prefix(lang: str) -> str:
+    """Get the clarification prefix in the appropriate language."""
+    if lang == "fr":
+        return "**Clarification requise :**"
+    return "**Clarification needed:**"
+
+
+def get_no_info_message(lang: str) -> str:
+    """Get the 'no information available' message in the appropriate language."""
+    if lang == "fr":
+        return "Je n'ai pas trouvé d'informations pertinentes dans la base documentaire pour répondre à cette question."
+    return "I could not find relevant information in the document base to answer this question."
+
 # Custom CSS for professional styling
 CUSTOM_CSS = """
 /* Global styles */
@@ -476,6 +515,8 @@ def chat_conversation(
             )
 
             agent = get_agent()
+            query_lang = detect_query_language(user_message)
+
             if agent:
                 try:
                     # Run agent with streaming feedback
@@ -487,8 +528,9 @@ def chat_conversation(
                             # Final answer will come from result
                             pass
                         elif state == AgentState.NEEDS_CLARIFICATION:
-                            # Agent needs clarification
-                            history[-1]["content"] = f"**Clarification needed:** {message}"
+                            # Agent needs clarification - use language-appropriate prefix
+                            prefix = get_clarification_prefix(query_lang)
+                            history[-1]["content"] = f"{prefix} {message}"
                             yield convert_history_to_tuples(history)
                             return
                         elif state == AgentState.ERROR:

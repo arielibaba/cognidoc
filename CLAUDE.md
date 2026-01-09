@@ -93,6 +93,9 @@ Documents → PDF Conversion → Images (600 DPI) → YOLO Detection
 | `src/cognidoc/hybrid_retriever.py` | Vector + Graph fusion with query orchestration |
 | `src/cognidoc/knowledge_graph.py` | NetworkX graph with Louvain community detection |
 | `src/cognidoc/query_orchestrator.py` | LLM-based query classification and routing |
+| `src/cognidoc/complexity.py` | Query complexity evaluation for agentic routing |
+| `src/cognidoc/agent.py` | ReAct agent for complex multi-step queries |
+| `src/cognidoc/agent_tools.py` | Tool implementations for agent (9 tools) |
 | `src/cognidoc/schema_wizard.py` | Interactive/auto schema generation for GraphRAG |
 | `src/cognidoc/constants.py` | Central config (paths, thresholds, model names) |
 | `src/cognidoc/utils/llm_client.py` | Singleton LLM client (Gemini default) |
@@ -108,6 +111,20 @@ Query types determine vector/graph weight balance:
 - **PROCEDURAL**: 80% vector, 20% graph
 
 Skip logic: if weight < 15%, that retriever is skipped entirely.
+
+### Agentic RAG
+
+Complex queries trigger the agent path (`complexity.py` evaluates this):
+- **ANALYTICAL/COMPARATIVE** queries automatically use agent
+- **Database meta-questions** (e.g., "combien de documents?") force agent path
+- Score threshold: 0.55 triggers agent, 0.35 triggers enhanced retrieval
+
+Agent tools (`agent_tools.py`):
+- `retrieve_vector`, `retrieve_graph`, `lookup_entity`, `compare_entities`
+- `database_stats` - for meta-questions about the knowledge base
+- `synthesize`, `verify_claim`, `ask_clarification`, `final_answer`
+
+Language rules are enforced in prompts to ensure responses match query language (French/English).
 
 ## Configuration
 

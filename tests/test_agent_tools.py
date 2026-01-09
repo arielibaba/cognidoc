@@ -37,6 +37,7 @@ class TestToolName:
             "verify_claim",
             "ask_clarification",
             "final_answer",
+            "database_stats",
         ]
         actual = [t.value for t in ToolName]
         assert set(expected) == set(actual)

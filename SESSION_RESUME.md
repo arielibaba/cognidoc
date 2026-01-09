@@ -1,156 +1,132 @@
-# Session CogniDoc - 8 janvier 2026
+# Session CogniDoc - 9 janvier 2026
 
 ## Résumé
 
-Implémentation d'un système RAG agentique conditionnel avec boucle ReAct.
+Corrections majeures pour le routage agent, la détection de langue, et les questions méta sur la base de données.
 
 ## Tâches complétées cette session
 
 | Tâche | Fichier | Description |
 |-------|---------|-------------|
-| Bug NameError 'LLM' | `hybrid_retriever.py:145` | Remplacé `LLM` par `DEFAULT_LLM_MODEL` |
-| Tests providers | `tests/test_providers.py` | +10 nouveaux tests (32 au total) |
-| LLM par défaut Gemini | `constants.py` | `DEFAULT_LLM_MODEL = gemini-2.0-flash` |
-| **Agentic RAG** | 4 nouveaux fichiers | Système agent conditionnel complet |
+| **Fix patterns meta-questions** | `complexity.py` | Patterns plus flexibles pour "combien de documents", typos inclus |
+| **Fix language consistency** | `prompts/*.md` | Règles de langue dans tous les prompts (rewrite, final_answer, agent) |
+| **DatabaseStatsTool** | `agent_tools.py` | Nouvel outil pour répondre aux méta-questions sur la base |
+| **Language detection** | `cognidoc_app.py` | Détection automatique FR/EN avec préfixes de clarification |
+| **Tests E2E** | `tests/test_e2e_language_and_count.py` | 10 nouveaux tests pour patterns et langue |
+| **Fix Gemini SDK** | `pyproject.toml` | Ajout dépendance `google-genai` dans extras |
+| **Fix helpers TypeError** | `helpers.py` | Gestion format multimodal Gradio (list/None) |
+| **Fix reranking provider** | `advanced_rag.py` | Utilisation `llm_chat()` au lieu de `ollama.Client()` |
 
-## Architecture Agentic RAG
+## Modifications clés
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        USER QUERY                                │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                 ┌────────────────────────┐
-                 │  Query Classification  │
-                 │  + Complexity Score    │
-                 └────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │ score < 0.55                  │ score >= 0.55
-              ▼                               ▼
-    ┌──────────────────┐           ┌──────────────────┐
-    │   FAST PATH      │           │   AGENT PATH     │
-    │   Standard RAG   │           │   ReAct Loop     │
-    │   (~80% queries) │           │   (~20% queries) │
-    └──────────────────┘           └──────────────────┘
-```
+### 1. Patterns DATABASE_META_PATTERNS (`complexity.py`)
 
-## Nouveaux modules
-
-### 1. `complexity.py` - Évaluation complexité (25 tests)
+Patterns plus robustes pour détecter les questions sur la base :
 
 ```python
-from cognidoc.complexity import should_use_agent
-
-use_agent, score = should_use_agent(query, routing, rewritten)
-# score.score: 0.0-1.0
-# score.level: SIMPLE | MODERATE | COMPLEX | AMBIGUOUS
+DATABASE_META_PATTERNS = [
+    # French patterns - flexible matching
+    r"\bcombien de doc",      # "combien de documents", typos
+    r"\bcombien.{0,20}base\b", # "combien...base" avec 20 chars max
+    r"\bbase.{0,15}comprend",  # "cette base comprend", "la base comprend-elle"
+    r"\bbase.{0,15}contient",  # "la base contient"
+    ...
+]
 ```
 
-Signaux évalués:
-- Query type (ANALYTICAL, COMPARATIVE → agent)
-- Nombre d'entités (≥3 → complex)
-- Sous-questions (≥3 → complex)
-- Mots-clés complexes (pourquoi, compare, analyse...)
-- Faible confidence routing
+### 2. DatabaseStatsTool (`agent_tools.py`)
 
-### 2. `agent_tools.py` - 8 outils (33 tests)
-
-| Outil | Description |
-|-------|-------------|
-| `RETRIEVE_VECTOR` | Recherche sémantique |
-| `RETRIEVE_GRAPH` | Parcours knowledge graph |
-| `LOOKUP_ENTITY` | Info entité spécifique |
-| `COMPARE_ENTITIES` | Comparaison structurée |
-| `SYNTHESIZE` | Fusion de contextes |
-| `VERIFY_CLAIM` | Vérification factuelle |
-| `ASK_CLARIFICATION` | Demander précision |
-| `FINAL_ANSWER` | Réponse finale |
-
-### 3. `agent.py` - CogniDocAgent ReAct (27 tests)
+Nouvel outil (9e outil) pour répondre aux questions sur la base :
 
 ```python
-from cognidoc.agent import create_agent
-
-agent = create_agent(retriever, max_steps=7)
-result = agent.run("Compare Gemini et GPT-4")
-print(result.answer)  # Réponse multi-étapes
-print(result.steps)   # Trace du raisonnement
+class DatabaseStatsTool(BaseTool):
+    name = ToolName.DATABASE_STATS
+    # Retourne: total_documents, total_chunks, graph_nodes, graph_edges
 ```
 
-Boucle ReAct:
-1. **THINK** - Analyser, décider action
-2. **ACT** - Exécuter outil
-3. **OBSERVE** - Traiter résultat
-4. **REFLECT** - Évaluer si objectif atteint
+### 3. Détection de langue (`cognidoc_app.py`)
+
+```python
+def detect_query_language(query: str) -> str:
+    """Détecte FR ou EN basé sur indicateurs linguistiques."""
+    french_indicators = [" est ", " sont ", " que ", ...]
+    ...
+
+def get_clarification_prefix(lang: str) -> str:
+    if lang == "fr":
+        return "**Clarification requise :**"
+    return "**Clarification needed:**"
+```
+
+### 4. Règles de langue dans les prompts
+
+Tous les prompts incluent maintenant :
+
+```markdown
+## Language Rules
+- ALWAYS respond in the SAME LANGUAGE as the user's question.
+- If the user asks in French, respond in French.
+- If the user asks in English, respond in English.
+```
+
+## Tests (43+ tests passent)
+
+| Module | Tests |
+|--------|-------|
+| `test_agent_tools.py` | 33 |
+| `test_e2e_language_and_count.py` | 10 |
+| **Total validé** | **43+** |
 
 ## Commandes CLI
 
 ```bash
-# Avec agent (défaut)
-python -m cognidoc.cognidoc_app
+# Lancer l'app (avec agent activé)
+uv run python -m cognidoc.cognidoc_app
 
-# Sans agent (fast path uniquement)
-python -m cognidoc.cognidoc_app --no-agent
-
-# Sans reranking + sans agent (le plus rapide)
-python -m cognidoc.cognidoc_app --no-rerank --no-agent
+# Sans reranking (plus rapide)
+uv run python -m cognidoc.cognidoc_app --no-rerank
 
 # Tests
-python -m pytest tests/ -v  # 117 tests
+uv run python -m pytest tests/ -v
 ```
 
-## Configuration par défaut
+## Configuration
 
 ```
 LLM:       gemini-2.0-flash (Gemini)
 Embedding: qwen3-embedding:0.6b (Ollama)
 Agent:     Activé (seuil complexité: 0.55)
+DatabaseStatsTool: Activé pour meta-questions
 ```
 
-## Tests unitaires (117 tests)
-
-| Module | Tests |
-|--------|-------|
-| `test_complexity.py` | 25 |
-| `test_agent_tools.py` | 33 |
-| `test_agent.py` | 27 |
-| `test_providers.py` | 32 |
-| **Total** | **117** |
-
-## Structure du package
+## Structure mise à jour
 
 ```
 src/cognidoc/
-├── __init__.py
-├── api.py               # Classe CogniDoc principale
-├── cli.py               # Interface CLI
-├── cognidoc_app.py      # Interface Gradio + intégration agent
-├── complexity.py        # (NEW) Évaluation complexité query
-├── agent.py             # (NEW) CogniDocAgent ReAct
-├── agent_tools.py       # (NEW) 8 outils pour l'agent
-├── hybrid_retriever.py  # Retriever hybride
-├── constants.py         # DEFAULT_LLM_MODEL = gemini-2.0-flash
-└── ...
+├── complexity.py        # DATABASE_META_PATTERNS améliorés
+├── agent_tools.py       # 9 outils (NEW: database_stats)
+├── agent.py             # Règles de langue dans SYSTEM_PROMPT
+├── cognidoc_app.py      # detect_query_language(), get_clarification_prefix()
+├── helpers.py           # Fix TypeError format multimodal
+└── prompts/
+    ├── system_prompt_rewrite_query.md      # Language Preservation rules
+    └── system_prompt_generate_final_answer.md # Language Rules
 
 tests/
-├── test_complexity.py   # (NEW) 25 tests
-├── test_agent_tools.py  # (NEW) 33 tests
-├── test_agent.py        # (NEW) 27 tests
-└── test_providers.py    # 32 tests
+├── test_agent_tools.py              # 33 tests
+└── test_e2e_language_and_count.py   # 10 tests (NEW)
 ```
 
-## Commits cette session
+## Bugs corrigés
 
-```
-3606bb8 - Update SESSION_RESUME.md with session summary
-5c77ae4 - Fix hybrid retriever bug and add provider tests
-```
+1. **Agent path non déclenché** - Patterns trop restrictifs pour "combien de documents"
+2. **Réponses en anglais** - Règles de langue manquantes dans prompts
+3. **TypeError helpers.py** - Format multimodal Gradio non géré
+4. **Reranking 404** - Utilisait ollama.Client() avec modèle Gemini
+5. **Gemini SDK manquant** - google-genai non installé dans venv
 
-## Prochaines améliorations possibles
+## Améliorations futures
 
-1. **UI feedback agent** - Afficher les étapes de raisonnement en temps réel
+1. **Streaming agent** - Afficher les étapes de raisonnement en temps réel
 2. **Caching agent** - Mettre en cache les résultats des outils
-3. **Agent memory** - Persistance du contexte entre sessions
-4. **Métriques agent** - Dashboard des performances agent vs fast path
+3. **Support langues additionnelles** - Espagnol, Allemand, etc.
