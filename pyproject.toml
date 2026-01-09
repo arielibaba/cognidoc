@@ -51,6 +51,7 @@ dependencies = [
 # Gradio UI
 ui = [
     "gradio>=4.0",
+    "plotly>=5.0",
 ]
 
 # YOLO detection (optional - falls back to simple extraction)
