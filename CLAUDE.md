@@ -19,6 +19,10 @@ CogniDoc is a Hybrid RAG (Vector + GraphRAG) document assistant that converts mu
 make install          # Create venv and install dependencies
 make sync             # Sync environment with lock file
 
+# IMPORTANT: If path contains spaces, use UV_LINK_MODE=copy
+UV_LINK_MODE=copy uv sync --all-extras
+UV_LINK_MODE=copy uv pip install -e ".[all,dev]"
+
 # Code quality
 make format           # Format with black
 make lint             # Run pylint
@@ -359,3 +363,22 @@ The schema wizard runs automatically during ingestion when no `config/graph_sche
 Key options:
 - `doc.ingest(skip_schema_wizard=True)` - Use existing schema without prompts
 - `config/graph_schema_generic.yaml` - Template for manual schema creation
+
+## Tests
+
+```bash
+# Run all tests (127 tests)
+.venv/bin/python -m pytest tests/ -v
+
+# Or with uv (if path has no spaces)
+uv run pytest tests/ -v
+```
+
+| Module | Tests |
+|--------|-------|
+| `test_agent.py` | 27 |
+| `test_agent_tools.py` | 33 |
+| `test_complexity.py` | 24 |
+| `test_e2e_language_and_count.py` | 10 |
+| `test_providers.py` | 33 |
+| **Total** | **127** |
