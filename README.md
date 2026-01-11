@@ -319,52 +319,76 @@ your-project/
 
 ## Getting Started with a New Project
 
-### Step 1: Clone and Install
+### Step 1: Install CogniDoc
 
 ```bash
-# Clone CogniDoc
-git clone https://github.com/arielibaba/cognidoc.git
-cd cognidoc
+# Install via pip (recommended)
+pip install "cognidoc[all] @ git+https://github.com/arielibaba/cognidoc.git"
 
-# Install dependencies (use UV_LINK_MODE=copy if path contains spaces)
-UV_LINK_MODE=copy uv sync --all-extras
+# Or with uv
+uv pip install "cognidoc[all] @ git+https://github.com/arielibaba/cognidoc.git"
 ```
 
-### Step 2: Configure Environment
+### Step 2: Create Your Project
 
 ```bash
-# Copy the example configuration
-cp .env.example .env
+# Create a new project folder
+mkdir my-doc-assistant
+cd my-doc-assistant
 
-# Edit .env and add your API key
-# GOOGLE_API_KEY=your-gemini-api-key
-```
-
-### Step 3: Add Your Documents
-
-```bash
 # Create the sources directory
 mkdir -p data/sources
 
-# Copy your documents
+# Add your documents
 cp /path/to/your/documents/* data/sources/
-
 # Supported formats: PDF, DOCX, PPTX, XLSX, TXT, MD, images
 ```
 
-### Step 4: Run Ingestion
+### Step 3: Configure Environment
+
+Create a `.env` file in your project folder:
 
 ```bash
-# Full pipeline (first time)
-UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline
+# .env
+GOOGLE_API_KEY=your-gemini-api-key
 
-# Faster ingestion (skip GraphRAG)
-UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline --skip-graph
+# Optional: customize settings
+DEFAULT_LLM_MODEL=gemini-2.5-flash
+TOP_K_RERANKED_PARENTS=5
+```
 
-# Performance options for M2/M3 Macs
-UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline \
-    --yolo-batch-size 2 \
-    --entity-max-concurrent 4
+### Step 4: Run via Python
+
+```python
+from cognidoc import CogniDoc
+
+# Initialize and ingest documents
+doc = CogniDoc(llm_provider="gemini", embedding_provider="ollama")
+doc.ingest("./data/sources/")  # First time: schema wizard will guide you
+
+# Query your documents
+result = doc.query("What are the main topics?")
+print(result.answer)
+print(result.sources)
+
+# Launch web interface
+doc.launch_ui(port=7860)  # Open http://localhost:7860
+```
+
+### Alternative: Run via CLI
+
+```bash
+# Initialize project structure
+cognidoc init
+
+# Ingest documents
+cognidoc ingest ./data/sources --llm gemini --embedding ollama
+
+# Launch web interface
+cognidoc serve --port 7860
+
+# Or query directly
+cognidoc query "What are the main findings?"
 ```
 
 **Ingestion time estimates:**
@@ -375,44 +399,11 @@ UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline \
 | 50 pages | ~10 min | ~30 min |
 | 500 pages | ~1h | ~3h |
 
-### Step 5: Launch Web Interface
-
-```bash
-# Start the chat interface
-UV_LINK_MODE=copy uv run python -m cognidoc.cognidoc_app
-
-# Options
-UV_LINK_MODE=copy uv run python -m cognidoc.cognidoc_app --no-rerank    # Faster responses
-UV_LINK_MODE=copy uv run python -m cognidoc.cognidoc_app --share        # Public link
-```
-
-Open http://localhost:7860 in your browser.
-
-### Step 6: Query via Python (Optional)
+### Adding New Documents Later
 
 ```python
-from cognidoc import CogniDoc
-
-doc = CogniDoc(llm_provider="gemini", embedding_provider="ollama")
-doc.ingest(skip_schema_wizard=True)  # Use existing schema
-
-result = doc.query("What are the main topics?")
-print(result.answer)
-print(result.sources)  # List of source references
-```
-
-### Resume After Adding New Documents
-
-```bash
-# Re-run ingestion (only new documents will be processed)
-UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline
-
-# Force re-embedding all documents
-UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline --force-reembed
-
-# Skip specific stages to resume from a checkpoint
-UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline \
-    --skip-conversion --skip-pdf --skip-yolo
+# Just add files to data/sources/ and re-run ingest
+doc.ingest("./data/sources/", skip_schema_wizard=True)
 ```
 
 ---
@@ -422,6 +413,11 @@ UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline \
 ### Environment Variables (.env)
 
 ```bash
+# API Keys
+GOOGLE_API_KEY=your-key         # Required for Gemini
+OPENAI_API_KEY=your-key         # Required for OpenAI
+ANTHROPIC_API_KEY=your-key      # Required for Anthropic
+
 # LLM Configuration
 DEFAULT_LLM_PROVIDER=gemini           # gemini, ollama, openai, anthropic
 DEFAULT_LLM_MODEL=gemini-2.5-flash    # Model name
@@ -439,10 +435,67 @@ COMPLEXITY_THRESHOLD=0.55             # Score threshold for agent activation
 YOLO_CONFIDENCE_THRESHOLD=0.2         # Detection sensitivity
 ```
 
+### Python API Options
+
+```python
+from cognidoc import CogniDoc
+
+doc = CogniDoc(
+    llm_provider="gemini",        # gemini, ollama, openai, anthropic
+    embedding_provider="ollama",  # ollama, gemini, openai
+    use_yolo=True,                # Enable YOLO detection
+    use_graph=True,               # Enable GraphRAG
+    use_reranking=True,           # Enable LLM reranking
+    top_k=10,                     # Documents to retrieve
+    rerank_top_k=5,               # Documents after reranking
+)
+
+# Ingest with options
+doc.ingest(
+    "./data/sources/",
+    skip_schema_wizard=False,     # Run schema wizard
+)
+
+# Launch UI with options
+doc.launch_ui(
+    port=7860,
+    share=False,                  # Create public link
+)
+```
+
 ### CLI Options
 
 ```bash
-# Ingestion pipeline
+# cognidoc ingest options
+cognidoc ingest ./docs \
+    --llm gemini \
+    --embedding ollama \
+    --skip-graph \                # Skip GraphRAG
+    --skip-yolo                   # Skip YOLO detection
+
+# cognidoc serve options
+cognidoc serve \
+    --port 7860 \
+    --share \                     # Create public link
+    --no-rerank                   # Disable reranking (faster)
+```
+
+### Development Mode (from cloned repo)
+
+If you're developing CogniDoc or need the latest unreleased features:
+
+```bash
+git clone https://github.com/arielibaba/cognidoc.git
+cd cognidoc
+UV_LINK_MODE=copy uv sync --all-extras
+
+# Run pipeline directly
+UV_LINK_MODE=copy uv run python -m cognidoc.run_ingestion_pipeline
+
+# Run web interface
+UV_LINK_MODE=copy uv run python -m cognidoc.cognidoc_app
+
+# Pipeline options
 --skip-conversion      # Skip non-PDF to PDF conversion
 --skip-pdf             # Skip PDF to image conversion
 --skip-yolo            # Skip YOLO detection
@@ -454,11 +507,9 @@ YOLO_CONFIDENCE_THRESHOLD=0.2         # Detection sensitivity
 --skip-graph           # Skip knowledge graph building
 --force-reembed        # Re-embed all documents
 
-# Performance tuning
---yolo-batch-size N      # YOLO batch size (default: 2)
---no-yolo-batching       # Disable YOLO batching
---entity-max-concurrent N # Concurrent entity extractions (default: 4)
---no-async-extraction    # Disable async extraction
+# Performance tuning (M2/M3 Macs)
+--yolo-batch-size 2        # YOLO batch size
+--entity-max-concurrent 4  # Concurrent LLM calls
 ```
 
 ---
