@@ -25,7 +25,7 @@ project:
   source_dir: /Users/arielibaba/Documents/projets perso/advanced-hybrid-rag/src/
 llm:
   provider: gemini
-  model: gemini-2.0-flash
+  model: gemini-2.5-flash
   temperature: 0.1
   max_tokens: 4096
   base_url: null
@@ -45,11 +45,11 @@ embedding:
   embedding_dim: 0
   batch_size: 32
 analysis:
-  architecture_model: gemini-2.0-flash
+  architecture_model: gemini-2.5-flash
   architecture_provider: gemini
-  community_model: gemini-2.0-flash
+  community_model: gemini-2.5-flash
   community_provider: gemini
-  entity_model: gemini-2.0-flash
+  entity_model: gemini-2.5-flash
   entity_provider: gemini
   temperature: 0.1
   max_tokens: 8192
@@ -58,9 +58,9 @@ analysis:
   checkpoint_path: ./.docai/analysis_checkpoint.json
   checkpoint_interval: 5
 query:
-  classifier_model: gemini-2.0-flash
+  classifier_model: gemini-2.5-flash
   classifier_provider: gemini
-  synthesis_model: gemini-2.0-flash
+  synthesis_model: gemini-2.5-flash
   synthesis_provider: gemini
   temperature: 0.3
   max_tokens: 4096

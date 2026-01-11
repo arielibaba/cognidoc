@@ -576,7 +576,7 @@ def create_llm_provider(config: LLMConfig) -> BaseLLMProvider:
 def get_default_generation_provider() -> BaseLLMProvider:
     """Get the default generation provider (Gemini)."""
     provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
-    model = os.getenv("DEFAULT_LLM_MODEL", "gemini-2.0-flash")
+    model = os.getenv("DEFAULT_LLM_MODEL", "gemini-2.5-flash")
 
     return create_llm_provider(LLMConfig(
         provider=LLMProvider(provider),
@@ -589,7 +589,7 @@ def get_default_generation_provider() -> BaseLLMProvider:
 def get_default_vision_provider() -> BaseLLMProvider:
     """Get the default vision provider (Gemini)."""
     provider = os.getenv("DEFAULT_VISION_PROVIDER", "gemini").lower()
-    model = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.0-flash")
+    model = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.5-flash")
 
     return create_llm_provider(LLMConfig(
         provider=LLMProvider(provider),

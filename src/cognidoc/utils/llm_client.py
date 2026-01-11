@@ -59,13 +59,13 @@ def set_llm_provider(provider: str, model: str = None) -> BaseLLMProvider:
     global _llm_client
 
     default_models = {
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-2.5-flash",
         "ollama": "granite3.3:8b",
         "openai": "gpt-4o-mini",
         "anthropic": "claude-3-haiku-20240307",
     }
 
-    model = model or default_models.get(provider, "gemini-2.0-flash")
+    model = model or default_models.get(provider, "gemini-2.5-flash")
 
     _llm_client = create_llm_provider(LLMConfig(
         provider=LLMProvider(provider),
@@ -145,6 +145,7 @@ def llm_stream(
 async def llm_chat_async(
     messages: List[Dict[str, str]],
     temperature: Optional[float] = None,
+    json_mode: bool = False,
 ) -> str:
     """
     Async version of llm_chat for parallel execution.
@@ -152,6 +153,7 @@ async def llm_chat_async(
     Args:
         messages: List of {"role": ..., "content": ...} dicts
         temperature: Override default temperature
+        json_mode: Force JSON output (supported by Gemini, OpenAI, Ollama)
 
     Returns:
         Response text from LLM
@@ -159,7 +161,7 @@ async def llm_chat_async(
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
         _executor,
-        lambda: llm_chat(messages, temperature)
+        lambda: llm_chat(messages, temperature, json_mode)
     )
 
 

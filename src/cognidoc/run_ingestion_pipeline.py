@@ -64,7 +64,7 @@ from .chunk_text_data import chunk_text_data
 from .chunk_table_data import chunk_table_data
 from .create_embeddings import create_embeddings
 from .build_indexes import build_indexes
-from .extract_entities import extract_from_chunks_dir, save_extraction_results
+from .extract_entities import extract_from_chunks_dir, run_extraction_async, save_extraction_results
 from .knowledge_graph import build_knowledge_graph
 from .graph_config import get_graph_config
 
@@ -151,6 +151,29 @@ def parse_args():
         default=None,
         help="Path to custom graph schema configuration"
     )
+    # Performance optimization arguments
+    parser.add_argument(
+        "--yolo-batch-size",
+        type=int,
+        default=2,
+        help="YOLO batch size for detection (default: 2, recommended 2-3 for M2/M3 16GB)"
+    )
+    parser.add_argument(
+        "--no-yolo-batching",
+        action="store_true",
+        help="Disable YOLO batch processing (use sequential mode)"
+    )
+    parser.add_argument(
+        "--entity-max-concurrent",
+        type=int,
+        default=4,
+        help="Max concurrent entity extractions (default: 4, recommended 4-6 for Gemini API)"
+    )
+    parser.add_argument(
+        "--no-async-extraction",
+        action="store_true",
+        help="Disable async entity extraction (use sequential mode)"
+    )
     return parser.parse_args()
 
 
@@ -169,6 +192,10 @@ async def run_ingestion_pipeline_async(
     skip_indexing: bool = False,
     skip_graph: bool = False,
     graph_config_path: str = None,
+    yolo_batch_size: int = 2,
+    use_yolo_batching: bool = True,
+    entity_max_concurrent: int = 4,
+    use_async_extraction: bool = True,
 ) -> dict:
     """
     Run the full ingestion pipeline.
@@ -187,6 +214,10 @@ async def run_ingestion_pipeline_async(
         use_cache: Use embedding cache
         skip_indexing: Skip vector index building
         skip_graph: Skip knowledge graph building
+        yolo_batch_size: YOLO batch size (default: 2)
+        use_yolo_batching: Enable YOLO batch processing (default: True)
+        entity_max_concurrent: Max concurrent entity extractions (default: 4)
+        use_async_extraction: Enable async entity extraction (default: True)
         graph_config_path: Path to custom graph configuration
 
     Returns:
@@ -256,7 +287,8 @@ async def run_ingestion_pipeline_async(
     if not skip_yolo:
         pipeline_timer.stage("yolo_detection")
         try:
-            logger.info("Running YOLO detection...")
+            batch_mode = "batch" if use_yolo_batching else "sequential"
+            logger.info(f"Running YOLO detection ({batch_mode} mode, batch_size={yolo_batch_size})...")
             yolo_stats = extract_objects_from_image(
                 IMAGE_DIR,
                 DETECTION_DIR,
@@ -265,6 +297,8 @@ async def run_ingestion_pipeline_async(
                 YOLO_IOU_THRESHOLD,
                 high_quality=True,
                 enable_fallback=True,
+                batch_size=yolo_batch_size,
+                use_batching=use_yolo_batching,
             )
             stats["yolo_detection"] = yolo_stats
             logger.info("YOLO detection completed")
@@ -412,7 +446,8 @@ async def run_ingestion_pipeline_async(
     if not skip_graph:
         pipeline_timer.stage("graph_extraction")
         try:
-            logger.info("Extracting entities and relationships...")
+            extraction_mode = "async" if use_async_extraction else "sequential"
+            logger.info(f"Extracting entities and relationships ({extraction_mode} mode, max_concurrent={entity_max_concurrent})...")
 
             # Load graph config
             if graph_config_path:
@@ -422,11 +457,22 @@ async def run_ingestion_pipeline_async(
                 graph_config = get_graph_config()
 
             # Extract entities and relationships from chunks
-            extraction_results = extract_from_chunks_dir(
-                chunks_dir=CHUNKS_DIR,
-                config=graph_config,
-                include_parent_chunks=False,
-            )
+            if use_async_extraction:
+                # Use async extraction for improved throughput with cloud LLM providers
+                extraction_results = run_extraction_async(
+                    chunks_dir=CHUNKS_DIR,
+                    config=graph_config,
+                    include_parent_chunks=False,
+                    max_concurrent=entity_max_concurrent,
+                    show_progress=True,
+                )
+            else:
+                # Use sequential extraction (original behavior)
+                extraction_results = extract_from_chunks_dir(
+                    chunks_dir=CHUNKS_DIR,
+                    config=graph_config,
+                    include_parent_chunks=False,
+                )
 
             total_entities = sum(len(r.entities) for r in extraction_results)
             total_relationships = sum(len(r.relationships) for r in extraction_results)
@@ -434,6 +480,8 @@ async def run_ingestion_pipeline_async(
                 "chunks_processed": len(extraction_results),
                 "entities_extracted": total_entities,
                 "relationships_extracted": total_relationships,
+                "mode": extraction_mode,
+                "max_concurrent": entity_max_concurrent if use_async_extraction else 1,
             }
             logger.info(
                 f"Extraction completed: {total_entities} entities, "
@@ -497,6 +545,11 @@ def main():
         skip_indexing=args.skip_indexing,
         skip_graph=args.skip_graph,
         graph_config_path=args.graph_config,
+        # Performance optimization parameters
+        yolo_batch_size=args.yolo_batch_size,
+        use_yolo_batching=not args.no_yolo_batching,
+        entity_max_concurrent=args.entity_max_concurrent,
+        use_async_extraction=not args.no_async_extraction,
     ))
 
 

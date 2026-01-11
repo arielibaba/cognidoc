@@ -251,7 +251,7 @@ def get_embedding_provider(name: str, model: str = None) -> BaseEmbeddingProvide
 
 ```python
 DEFAULT_LLM_MODELS = {
-    "gemini": "gemini-2.0-flash",
+    "gemini": "gemini-2.5-flash",
     "openai": "gpt-4o-mini",
     "anthropic": "claude-3-haiku-20240307",
     "ollama": "granite3.3:8b",

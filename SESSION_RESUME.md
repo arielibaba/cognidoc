@@ -129,7 +129,7 @@ uv run python -m pytest tests/ -v
 ## Configuration
 
 ```
-LLM:       gemini-2.0-flash (Gemini)
+LLM:       gemini-2.5-flash (Gemini)
 Embedding: qwen3-embedding:0.6b (Ollama)
 Agent:     Activé (seuil complexité: 0.55)
 DatabaseStatsTool: Activé pour meta-questions

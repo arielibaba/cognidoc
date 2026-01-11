@@ -3,8 +3,12 @@ Entity and relationship extraction module for GraphRAG.
 
 Uses LLM to extract structured entities and relationships from text chunks
 based on the graph schema configuration.
+
+Supports async extraction with configurable concurrency for improved throughput
+when using cloud LLM providers (Gemini, OpenAI, etc.).
 """
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field, asdict
@@ -12,9 +16,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from tqdm import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
+
 from .graph_config import get_graph_config, GraphConfig
 from .constants import CHUNKS_DIR, PROCESSED_DIR
-from .utils.llm_client import llm_chat
+from .utils.llm_client import llm_chat, llm_chat_async
 from .utils.logger import logger
 
 
@@ -510,6 +517,349 @@ def extract_from_chunks_dir(
 
     logger.info(f"Extraction complete: {len(results)} chunks processed")
     return results
+
+
+# =============================================================================
+# ASYNC EXTRACTION FUNCTIONS
+# =============================================================================
+
+
+async def extract_entities_from_text_async(
+    text: str,
+    chunk_id: str,
+    config: Optional[GraphConfig] = None,
+) -> List[Entity]:
+    """
+    Async version of extract_entities_from_text.
+
+    Uses llm_chat_async for non-blocking LLM calls, enabling concurrent
+    extraction across multiple chunks.
+
+    Args:
+        text: Text to extract entities from
+        chunk_id: ID of the source chunk
+        config: Graph configuration (uses global if not provided)
+
+    Returns:
+        List of extracted entities
+    """
+    if config is None:
+        config = get_graph_config()
+
+    prompt = build_entity_extraction_prompt(text, config)
+
+    try:
+        result_text = await llm_chat_async(
+            messages=[
+                {"role": "system", "content": "You are a JSON entity extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=config.extraction.extraction_temperature,
+            json_mode=True,
+        )
+        result = extract_json_from_response(result_text, key="entities")
+
+        entities = []
+        for e in result.get("entities", []):
+            # Filter by confidence
+            confidence = float(e.get("confidence", 1.0))
+            if confidence < config.extraction.min_confidence:
+                continue
+
+            entity = Entity(
+                name=e.get("name", "").strip(),
+                type=e.get("type", "").strip(),
+                description=e.get("description", "").strip(),
+                confidence=confidence,
+                source_chunk=chunk_id,
+            )
+            if entity.name and entity.type:
+                entities.append(entity)
+
+        # Limit to max entities
+        return entities[:config.extraction.max_entities_per_chunk]
+
+    except Exception as e:
+        logger.error(f"Async entity extraction failed for {chunk_id}: {e}")
+        return []
+
+
+async def extract_relationships_from_text_async(
+    text: str,
+    entities: List[Entity],
+    chunk_id: str,
+    config: Optional[GraphConfig] = None,
+) -> List[Relationship]:
+    """
+    Async version of extract_relationships_from_text.
+
+    Uses llm_chat_async for non-blocking LLM calls.
+
+    Args:
+        text: Text to extract relationships from
+        entities: Entities already extracted from the text
+        chunk_id: ID of the source chunk
+        config: Graph configuration (uses global if not provided)
+
+    Returns:
+        List of extracted relationships
+    """
+    if not entities:
+        return []
+
+    if config is None:
+        config = get_graph_config()
+
+    prompt = build_relationship_extraction_prompt(text, entities, config)
+
+    try:
+        result_text = await llm_chat_async(
+            messages=[
+                {"role": "system", "content": "You are a JSON relationship extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=config.extraction.extraction_temperature,
+            json_mode=True,
+        )
+        result = extract_json_from_response(result_text, key="relationships")
+
+        # Build entity name set for validation
+        entity_names = {e.name.lower() for e in entities}
+
+        relationships = []
+        for r in result.get("relationships", []):
+            # Filter by confidence
+            confidence = float(r.get("confidence", 1.0))
+            if confidence < config.extraction.min_confidence:
+                continue
+
+            source = r.get("source", "").strip()
+            target = r.get("target", "").strip()
+
+            # Validate entities exist
+            if source.lower() not in entity_names or target.lower() not in entity_names:
+                continue
+
+            rel = Relationship(
+                source_entity=source,
+                target_entity=target,
+                relationship_type=r.get("type", "RELATED_TO").strip(),
+                description=r.get("description", "").strip(),
+                confidence=confidence,
+                source_chunk=chunk_id,
+            )
+            relationships.append(rel)
+
+        # Limit to max relationships
+        return relationships[:config.extraction.max_relationships_per_chunk]
+
+    except Exception as e:
+        logger.error(f"Async relationship extraction failed for {chunk_id}: {e}")
+        return []
+
+
+async def extract_from_chunk_async(
+    text: str,
+    chunk_id: str,
+    config: Optional[GraphConfig] = None,
+) -> ExtractionResult:
+    """
+    Async version of extract_from_chunk.
+
+    Extracts entities and relationships from a single chunk using async LLM calls.
+
+    Args:
+        text: Chunk text
+        chunk_id: Chunk identifier
+        config: Graph configuration
+
+    Returns:
+        ExtractionResult with entities and relationships
+    """
+    logger.debug(f"Async extracting from chunk: {chunk_id}")
+
+    # Extract entities first
+    entities = await extract_entities_from_text_async(text, chunk_id, config)
+
+    # Then extract relationships using found entities
+    relationships = await extract_relationships_from_text_async(text, entities, chunk_id, config)
+
+    return ExtractionResult(
+        chunk_id=chunk_id,
+        chunk_text=text,
+        entities=entities,
+        relationships=relationships,
+    )
+
+
+async def extract_from_chunks_dir_async(
+    chunks_dir: str = None,
+    config: Optional[GraphConfig] = None,
+    include_parent_chunks: bool = False,
+    max_concurrent: int = 4,
+    show_progress: bool = True,
+) -> List[ExtractionResult]:
+    """
+    Async version of extract_from_chunks_dir with concurrent extraction.
+
+    Processes multiple chunks concurrently using a semaphore to control
+    the number of simultaneous LLM calls. This significantly improves
+    throughput when using cloud LLM providers like Gemini.
+
+    Args:
+        chunks_dir: Directory containing chunk files
+        config: Graph configuration
+        include_parent_chunks: Whether to process parent chunks (default: False)
+        max_concurrent: Maximum number of concurrent extractions (default: 4)
+                       Recommended: 4-6 for Gemini API, 1-2 for local Ollama
+        show_progress: Show progress bar (default: True)
+
+    Returns:
+        List of extraction results
+    """
+    if chunks_dir is None:
+        chunks_dir = CHUNKS_DIR
+
+    chunks_path = Path(chunks_dir)
+    if not chunks_path.exists():
+        logger.warning(f"Chunks directory not found: {chunks_dir}")
+        return []
+
+    # Collect all chunk files to process
+    chunk_files = []
+    for chunk_file in sorted(chunks_path.rglob("*.txt")):
+        # Skip parent chunks unless explicitly requested
+        if not include_parent_chunks:
+            if "_parent_chunk_" in chunk_file.name and "_child_chunk_" not in chunk_file.name:
+                continue
+        chunk_files.append(chunk_file)
+
+    if not chunk_files:
+        logger.warning(f"No chunk files found in {chunks_dir}")
+        return []
+
+    logger.info(f"Starting async extraction for {len(chunk_files)} chunks (max_concurrent={max_concurrent})")
+
+    # Semaphore to limit concurrent extractions
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def process_chunk(chunk_file: Path) -> Optional[ExtractionResult]:
+        """Process a single chunk with semaphore control."""
+        async with semaphore:
+            try:
+                text = chunk_file.read_text(encoding="utf-8")
+                if not text.strip():
+                    return None
+
+                result = await extract_from_chunk_async(
+                    text=text,
+                    chunk_id=chunk_file.stem,
+                    config=config,
+                )
+
+                logger.debug(
+                    f"Processed {chunk_file.name}: "
+                    f"{len(result.entities)} entities, "
+                    f"{len(result.relationships)} relationships"
+                )
+                return result
+
+            except Exception as e:
+                logger.error(f"Error processing {chunk_file.name}: {e}")
+                return None
+
+    # Create tasks for all chunks
+    tasks = [process_chunk(cf) for cf in chunk_files]
+
+    # Run all tasks concurrently with optional progress bar
+    if show_progress:
+        results_raw = await async_tqdm.gather(
+            *tasks,
+            desc="Entity extraction",
+            unit="chunk",
+        )
+    else:
+        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Filter out None results and exceptions
+    results = []
+    errors = 0
+    for r in results_raw:
+        if isinstance(r, Exception):
+            logger.error(f"Chunk extraction failed: {r}")
+            errors += 1
+        elif r is not None:
+            results.append(r)
+
+    total_entities = sum(len(r.entities) for r in results)
+    total_relationships = sum(len(r.relationships) for r in results)
+
+    logger.info(
+        f"Async extraction complete: {len(results)} chunks processed, "
+        f"{total_entities} entities, {total_relationships} relationships, "
+        f"{errors} errors"
+    )
+    return results
+
+
+def run_extraction_async(
+    chunks_dir: str = None,
+    config: Optional[GraphConfig] = None,
+    include_parent_chunks: bool = False,
+    max_concurrent: int = 4,
+    show_progress: bool = True,
+) -> List[ExtractionResult]:
+    """
+    Synchronous wrapper for async extraction.
+
+    Convenience function that handles the async event loop setup,
+    making it easy to call from synchronous code.
+
+    Args:
+        chunks_dir: Directory containing chunk files
+        config: Graph configuration
+        include_parent_chunks: Whether to process parent chunks (default: False)
+        max_concurrent: Maximum number of concurrent extractions (default: 4)
+        show_progress: Show progress bar (default: True)
+
+    Returns:
+        List of extraction results
+
+    Example:
+        # Instead of:
+        # results = extract_from_chunks_dir(chunks_dir)  # Sequential, slow
+
+        # Use:
+        results = run_extraction_async(chunks_dir, max_concurrent=4)  # 2-4x faster
+    """
+    try:
+        # Check if we're already in an async context
+        loop = asyncio.get_running_loop()
+        # We're in an async context, use ThreadPoolExecutor to avoid conflicts
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                asyncio.run,
+                extract_from_chunks_dir_async(
+                    chunks_dir=chunks_dir,
+                    config=config,
+                    include_parent_chunks=include_parent_chunks,
+                    max_concurrent=max_concurrent,
+                    show_progress=show_progress,
+                )
+            )
+            return future.result()
+    except RuntimeError:
+        # No running event loop, safe to use asyncio.run
+        return asyncio.run(
+            extract_from_chunks_dir_async(
+                chunks_dir=chunks_dir,
+                config=config,
+                include_parent_chunks=include_parent_chunks,
+                max_concurrent=max_concurrent,
+                show_progress=show_progress,
+            )
+        )
 
 
 def save_extraction_results(

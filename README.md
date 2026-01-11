@@ -58,7 +58,7 @@ CogniDoc supports flexible provider mixing:
 
 | Provider | LLM | Embeddings | Requires |
 |----------|-----|------------|----------|
-| **Gemini** | `gemini-2.0-flash` | `text-embedding-004` | `GEMINI_API_KEY` |
+| **Gemini** | `gemini-2.5-flash` | `text-embedding-004` | `GEMINI_API_KEY` |
 | **OpenAI** | `gpt-4o-mini` | `text-embedding-3-small` | `OPENAI_API_KEY` |
 | **Anthropic** | `claude-3-haiku` | - | `ANTHROPIC_API_KEY` |
 | **Ollama** | `granite3.3:8b` | `qwen3-embedding:0.6b` | Local server |
