@@ -1067,3 +1067,87 @@ Toggle dans le header pour basculer entre mode clair et sombre :
 14. ~~**MODEL_SPECS** - Paramètres officiels des providers~~ ✅ Fait
 15. ~~**MEMORY_WINDOW dynamique** - Adapté au context_window du LLM~~ ✅ Fait
 16. ~~**Dark mode** - Toggle clair/sombre dans l'interface~~ ✅ Fait
+17. ~~**Documentation YOLO model** - Clarifier le requirement du modèle~~ ✅ Fait
+18. ~~**Cohérence paths documentation/code** - data/sources partout~~ ✅ Fait
+
+## Améliorations implémentées (session 9)
+
+### 1. Documentation CLAUDE.md améliorée
+
+- Ajout d'exemples d'exécution de tests individuels
+- Correction des paths de modules (`src.xxx` → `cognidoc.xxx`)
+- Ajout section "Source Layout" expliquant la structure du package
+- Réorganisation section Commands avec sous-sections claires
+
+### 2. Documentation YOLO Model
+
+Clarification que le modèle YOLO (~109 MB) n'est **pas inclus** dans le repo :
+
+```
+models/YOLOv11/yolov11x_best.pt  # Requis pour YOLO, sinon fallback
+```
+
+**Comportement:**
+- Modèle présent → YOLO detection activée
+- Modèle absent → Fallback extraction simple page-par-page
+- `--skip-yolo` → Désactiver explicitement
+
+### 3. Structure projet mise à jour
+
+Ajout de `models/` et `config/` dans la documentation :
+
+```
+your-project/
+├── .env
+├── data/sources/           # Documents source
+├── models/YOLOv11/         # Modèle YOLO (optionnel)
+├── config/graph_schema.yaml
+└── data/                   # Généré après ingestion
+```
+
+### 4. Clarification Setup Wizards
+
+| Commande | Type | Description |
+|----------|------|-------------|
+| `python -m cognidoc.setup` | **Interactif** | Wizard complet (providers, API keys, ingestion) |
+| `cognidoc init --schema` | Non-interactif | Copie templates seulement |
+| Schema Wizard | **Auto** | Se lance pendant `ingest()` si pas de schema |
+
+### 5. Fix cohérence paths `data/sources`
+
+**Documentation (README.md, CLAUDE.md):**
+- `./documents` → `./data/sources`
+- `./docs` → `./data/sources`
+
+**Code:**
+- `cli.py`: Crée `data/sources` au lieu de `data/pdfs`
+- `cli.py`: Messages "Next steps" corrigés
+- `api.py`: Docstring corrigée
+
+### 6. Table CONTEXT_WINDOW / MEMORY_WINDOW
+
+| Model | CONTEXT_WINDOW | MEMORY_WINDOW (50%) |
+|-------|----------------|---------------------|
+| Gemini 2.5 Flash | 1,048,576 (1M) | 524,288 |
+| GPT-4o | 128,000 | 64,000 |
+| Claude Sonnet 4 | 200,000 | 100,000 |
+| Granite 3.3:8b | 128,000 | 64,000 |
+
+### 7. Commits session 9
+
+| Hash | Description |
+|------|-------------|
+| `3560bf8` | Improve CLAUDE.md with correct module paths and test examples |
+| `e96aa30` | Document YOLO model requirement in README and CLAUDE.md |
+| `306ee1b` | Add models/ directory to project structure documentation |
+| `395068a` | Add CONTEXT_WINDOW and MEMORY_WINDOW values table to CLAUDE.md |
+| `526feda` | Clarify setup wizards and CLI commands in documentation |
+| `aed47e9` | Fix inconsistent document paths in documentation |
+| `8ce25b9` | Fix inconsistent source paths in code (data/pdfs -> data/sources) |
+
+### 8. Tests vérifiés
+
+```bash
+# 148 passed, 2 skipped in 29.33s
+pytest tests/ -v
+```
