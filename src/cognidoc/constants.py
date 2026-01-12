@@ -81,8 +81,269 @@ ANTHROPIC_VISION_MODEL = os.getenv("ANTHROPIC_VISION_MODEL", "claude-sonnet-4-20
 # Default Ollama model for local processing tasks (entity extraction, table summarization)
 OLLAMA_DEFAULT_MODEL = OLLAMA_LLM_MODEL
 
-# Default LLM model for the application (Gemini 2.0 Flash)
+# Default LLM model for the application (Gemini 2.5 Flash)
 DEFAULT_LLM_MODEL = GEMINI_LLM_MODEL
+
+# =============================================================================
+# Model Specifications (Official Provider Values)
+# =============================================================================
+# Each model has its official context window, max output tokens, and defaults.
+# Values sourced from official documentation (as of January 2026).
+
+MODEL_SPECS = {
+    # -------------------------------------------------------------------------
+    # Gemini Models (Google)
+    # -------------------------------------------------------------------------
+    "gemini-2.5-flash": {
+        "provider": "gemini",
+        "context_window": 1_048_576,      # 1M tokens
+        "max_output_tokens": 65_536,      # 65K with thinking, 8K standard
+        "default_temperature": 1.0,
+        "default_top_p": 0.95,
+        "default_top_k": 40,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "gemini-2.5-pro": {
+        "provider": "gemini",
+        "context_window": 1_048_576,      # 1M tokens
+        "max_output_tokens": 65_536,
+        "default_temperature": 1.0,
+        "default_top_p": 0.95,
+        "default_top_k": 40,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "gemini-2.0-flash": {
+        "provider": "gemini",
+        "context_window": 1_048_576,      # 1M tokens
+        "max_output_tokens": 8_192,
+        "default_temperature": 1.0,
+        "default_top_p": 0.95,
+        "default_top_k": 40,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+
+    # -------------------------------------------------------------------------
+    # OpenAI Models
+    # -------------------------------------------------------------------------
+    "gpt-4o": {
+        "provider": "openai",
+        "context_window": 128_000,
+        "max_output_tokens": 16_384,
+        "default_temperature": 1.0,
+        "default_top_p": 1.0,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "gpt-4o-mini": {
+        "provider": "openai",
+        "context_window": 128_000,
+        "max_output_tokens": 16_384,
+        "default_temperature": 1.0,
+        "default_top_p": 1.0,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "gpt-4-turbo": {
+        "provider": "openai",
+        "context_window": 128_000,
+        "max_output_tokens": 4_096,
+        "default_temperature": 1.0,
+        "default_top_p": 1.0,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+
+    # -------------------------------------------------------------------------
+    # Anthropic Models (Claude)
+    # -------------------------------------------------------------------------
+    "claude-sonnet-4-20250514": {
+        "provider": "anthropic",
+        "context_window": 200_000,
+        "max_output_tokens": 64_000,      # Extended thinking mode
+        "default_temperature": 1.0,
+        "default_top_p": 0.999,
+        "supports_vision": True,
+        "supports_json_mode": False,      # Via prompt instruction only
+        "supports_streaming": True,
+    },
+    "claude-opus-4-20250514": {
+        "provider": "anthropic",
+        "context_window": 200_000,
+        "max_output_tokens": 64_000,
+        "default_temperature": 1.0,
+        "default_top_p": 0.999,
+        "supports_vision": True,
+        "supports_json_mode": False,
+        "supports_streaming": True,
+    },
+    "claude-3-5-sonnet-20241022": {
+        "provider": "anthropic",
+        "context_window": 200_000,
+        "max_output_tokens": 8_192,
+        "default_temperature": 1.0,
+        "default_top_p": 0.999,
+        "supports_vision": True,
+        "supports_json_mode": False,
+        "supports_streaming": True,
+    },
+    "claude-3-haiku-20240307": {
+        "provider": "anthropic",
+        "context_window": 200_000,
+        "max_output_tokens": 4_096,
+        "default_temperature": 1.0,
+        "default_top_p": 0.999,
+        "supports_vision": True,
+        "supports_json_mode": False,
+        "supports_streaming": True,
+    },
+
+    # -------------------------------------------------------------------------
+    # Ollama Models (Local)
+    # -------------------------------------------------------------------------
+    "granite3.3:8b": {
+        "provider": "ollama",
+        "context_window": 128_000,
+        "max_output_tokens": 8_192,
+        "default_temperature": 0.7,
+        "default_top_p": 0.9,
+        "supports_vision": False,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "qwen3-vl:8b-instruct": {
+        "provider": "ollama",
+        "context_window": 32_768,
+        "max_output_tokens": 4_096,
+        "default_temperature": 0.7,
+        "default_top_p": 0.9,
+        "supports_vision": True,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "llama3.3:70b": {
+        "provider": "ollama",
+        "context_window": 128_000,
+        "max_output_tokens": 8_192,
+        "default_temperature": 0.7,
+        "default_top_p": 0.9,
+        "supports_vision": False,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+    "mistral:7b": {
+        "provider": "ollama",
+        "context_window": 32_768,
+        "max_output_tokens": 4_096,
+        "default_temperature": 0.7,
+        "default_top_p": 0.9,
+        "supports_vision": False,
+        "supports_json_mode": True,
+        "supports_streaming": True,
+    },
+}
+
+# Embedding model specifications
+EMBEDDING_MODEL_SPECS = {
+    "qwen3-embedding:0.6b": {
+        "provider": "ollama",
+        "context_window": 8_192,
+        "embedding_dimension": 1_024,
+    },
+    "qwen3-embedding:4b": {
+        "provider": "ollama",
+        "context_window": 8_192,
+        "embedding_dimension": 2_560,
+    },
+    "nomic-embed-text": {
+        "provider": "ollama",
+        "context_window": 8_192,
+        "embedding_dimension": 768,
+    },
+    "text-embedding-3-small": {
+        "provider": "openai",
+        "context_window": 8_191,
+        "embedding_dimension": 1_536,
+    },
+    "text-embedding-3-large": {
+        "provider": "openai",
+        "context_window": 8_191,
+        "embedding_dimension": 3_072,
+    },
+    "text-embedding-004": {
+        "provider": "gemini",
+        "context_window": 2_048,
+        "embedding_dimension": 768,
+    },
+}
+
+# Default specs for unknown models (fallback)
+DEFAULT_MODEL_SPECS = {
+    "context_window": 32_768,
+    "max_output_tokens": 4_096,
+    "default_temperature": 0.7,
+    "default_top_p": 0.9,
+    "supports_vision": False,
+    "supports_json_mode": False,
+    "supports_streaming": True,
+}
+
+DEFAULT_EMBEDDING_SPECS = {
+    "context_window": 8_192,
+    "embedding_dimension": 1_024,
+}
+
+
+def get_model_specs(model_name: str) -> dict:
+    """
+    Get specifications for a model.
+
+    Args:
+        model_name: Name of the model (e.g., "gemini-2.5-flash", "gpt-4o")
+
+    Returns:
+        Dict with model specifications. Falls back to DEFAULT_MODEL_SPECS if unknown.
+    """
+    # Try exact match first
+    if model_name in MODEL_SPECS:
+        return {**DEFAULT_MODEL_SPECS, **MODEL_SPECS[model_name]}
+
+    # Try prefix match (e.g., "gemini-2.5-flash-latest" -> "gemini-2.5-flash")
+    for known_model in MODEL_SPECS:
+        if model_name.startswith(known_model) or known_model.startswith(model_name.split(":")[0]):
+            return {**DEFAULT_MODEL_SPECS, **MODEL_SPECS[known_model]}
+
+    return DEFAULT_MODEL_SPECS.copy()
+
+
+def get_embedding_specs(model_name: str) -> dict:
+    """
+    Get specifications for an embedding model.
+
+    Args:
+        model_name: Name of the embedding model
+
+    Returns:
+        Dict with embedding model specifications.
+    """
+    if model_name in EMBEDDING_MODEL_SPECS:
+        return {**DEFAULT_EMBEDDING_SPECS, **EMBEDDING_MODEL_SPECS[model_name]}
+
+    # Try prefix match for Ollama models with tags
+    for known_model in EMBEDDING_MODEL_SPECS:
+        if model_name.startswith(known_model.split(":")[0]):
+            return {**DEFAULT_EMBEDDING_SPECS, **EMBEDDING_MODEL_SPECS[known_model]}
+
+    return DEFAULT_EMBEDDING_SPECS.copy()
+
 
 # =============================================================================
 # Generation Parameters
@@ -95,7 +356,8 @@ TOP_P_IMAGE_DESC = float(os.getenv("VISION_TOP_P", "0.85"))
 TEMPERATURE_GENERATION = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 TOP_P_GENERATION = float(os.getenv("LLM_TOP_P", "0.85"))
 
-# Context Windows
+# Context Windows (now derived from model specs, but kept for backward compatibility)
+# Use get_model_specs(model_name)["context_window"] for model-specific values
 CONTEXT_WINDOW = int(float(os.getenv("CONTEXT_WINDOW", "128000")))
 MEMORY_WINDOW = int(float(os.getenv("MEMORY_WINDOW", str(CONTEXT_WINDOW * 0.5))))
 

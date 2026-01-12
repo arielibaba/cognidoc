@@ -47,14 +47,14 @@ def reset_llm_client() -> None:
 
 def set_llm_provider(provider: str, model: str = None) -> BaseLLMProvider:
     """
-    Set a specific LLM provider.
+    Set a specific LLM provider with auto-loaded model specs.
 
     Args:
         provider: Provider name ("gemini", "ollama", "openai", "anthropic")
         model: Model name (optional, uses default for provider)
 
     Returns:
-        Configured BaseLLMProvider
+        Configured BaseLLMProvider with model specs applied
     """
     global _llm_client
 
@@ -67,9 +67,10 @@ def set_llm_provider(provider: str, model: str = None) -> BaseLLMProvider:
 
     model = model or default_models.get(provider, "gemini-2.5-flash")
 
-    _llm_client = create_llm_provider(LLMConfig(
-        provider=LLMProvider(provider),
+    # Use from_model to auto-load specs
+    _llm_client = create_llm_provider(LLMConfig.from_model(
         model=model,
+        provider=provider,
     ))
     logger.info(f"LLM client set to: {provider}/{model}")
     return _llm_client
@@ -231,13 +232,17 @@ def run_parallel_sync(
 
 
 def get_provider_info() -> Dict[str, Any]:
-    """Get information about the current LLM provider."""
+    """Get information about the current LLM provider including model specs."""
     client = get_llm_client()
     return {
         "provider": client.config.provider.value,
         "model": client.config.model,
         "temperature": client.config.temperature,
         "top_p": client.config.top_p,
+        "max_tokens": client.config.max_tokens,
+        "context_window": client.config.context_window,
+        "supports_vision": client.config.supports_vision,
+        "supports_streaming": client.config.supports_streaming,
     }
 
 

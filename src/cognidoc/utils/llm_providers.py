@@ -40,17 +40,88 @@ class LLMProvider(str, Enum):
 
 @dataclass
 class LLMConfig:
-    """Configuration for LLM providers."""
+    """Configuration for LLM providers.
+
+    Can be created manually or using from_model() to auto-load specs.
+    """
     provider: LLMProvider
     model: str
     temperature: float = 0.7
     top_p: float = 0.85
     max_tokens: Optional[int] = None
+    context_window: Optional[int] = None  # Max input tokens
     timeout: float = 180.0
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     json_mode: bool = False  # Force JSON output (supported by Gemini, OpenAI)
+    supports_vision: bool = False
+    supports_streaming: bool = True
     extra_params: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_model(
+        cls,
+        model: str,
+        provider: Optional[str] = None,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: float = 180.0,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        json_mode: bool = False,
+    ) -> "LLMConfig":
+        """
+        Create LLMConfig from model name, auto-loading specs from MODEL_SPECS.
+
+        Args:
+            model: Model name (e.g., "gemini-2.5-flash", "gpt-4o")
+            provider: Override provider (auto-detected from specs if not provided)
+            temperature: Override default temperature
+            top_p: Override default top_p
+            max_tokens: Override max output tokens
+            timeout: Request timeout
+            api_key: API key for the provider
+            base_url: Custom base URL (for Ollama or proxies)
+            json_mode: Force JSON output
+
+        Returns:
+            LLMConfig with model specs applied
+        """
+        from ..constants import get_model_specs
+
+        specs = get_model_specs(model)
+
+        # Determine provider
+        if provider:
+            llm_provider = LLMProvider(provider.lower())
+        elif "provider" in specs:
+            llm_provider = LLMProvider(specs["provider"])
+        else:
+            # Guess from model name
+            if "gemini" in model.lower():
+                llm_provider = LLMProvider.GEMINI
+            elif "gpt" in model.lower():
+                llm_provider = LLMProvider.OPENAI
+            elif "claude" in model.lower():
+                llm_provider = LLMProvider.ANTHROPIC
+            else:
+                llm_provider = LLMProvider.OLLAMA
+
+        return cls(
+            provider=llm_provider,
+            model=model,
+            temperature=temperature if temperature is not None else specs.get("default_temperature", 0.7),
+            top_p=top_p if top_p is not None else specs.get("default_top_p", 0.9),
+            max_tokens=max_tokens if max_tokens is not None else specs.get("max_output_tokens"),
+            context_window=specs.get("context_window"),
+            timeout=timeout,
+            api_key=api_key,
+            base_url=base_url,
+            json_mode=json_mode,
+            supports_vision=specs.get("supports_vision", False),
+            supports_streaming=specs.get("supports_streaming", True),
+        )
 
 
 @dataclass
@@ -574,29 +645,33 @@ def create_llm_provider(config: LLMConfig) -> BaseLLMProvider:
 
 # Convenience functions for common configurations
 def get_default_generation_provider() -> BaseLLMProvider:
-    """Get the default generation provider (Gemini)."""
+    """Get the default generation provider with auto-loaded model specs."""
     provider = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
     model = os.getenv("DEFAULT_LLM_MODEL", "gemini-2.5-flash")
 
-    return create_llm_provider(LLMConfig(
-        provider=LLMProvider(provider),
+    # Use from_model to auto-load specs, but allow env overrides
+    config = LLMConfig.from_model(
         model=model,
-        temperature=float(os.getenv("LLM_TEMPERATURE", "0.7")),
-        top_p=float(os.getenv("LLM_TOP_P", "0.85")),
-    ))
+        provider=provider,
+        temperature=float(os.getenv("LLM_TEMPERATURE")) if os.getenv("LLM_TEMPERATURE") else None,
+        top_p=float(os.getenv("LLM_TOP_P")) if os.getenv("LLM_TOP_P") else None,
+    )
+    return create_llm_provider(config)
 
 
 def get_default_vision_provider() -> BaseLLMProvider:
-    """Get the default vision provider (Gemini)."""
+    """Get the default vision provider with auto-loaded model specs."""
     provider = os.getenv("DEFAULT_VISION_PROVIDER", "gemini").lower()
     model = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.5-flash")
 
-    return create_llm_provider(LLMConfig(
-        provider=LLMProvider(provider),
+    # Use from_model to auto-load specs, with lower temperature for vision
+    config = LLMConfig.from_model(
         model=model,
+        provider=provider,
         temperature=float(os.getenv("VISION_TEMPERATURE", "0.2")),
-        top_p=float(os.getenv("VISION_TOP_P", "0.85")),
-    ))
+        top_p=float(os.getenv("VISION_TOP_P")) if os.getenv("VISION_TOP_P") else None,
+    )
+    return create_llm_provider(config)
 
 
 __all__ = [
