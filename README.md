@@ -130,7 +130,7 @@ cognidoc serve --port 7860 --share
 - **Multi-Language**: Automatic French/English/Spanish/German detection with consistent responses
 - **Dark Mode**: Toggle in header with system preference detection and localStorage persistence
 - **Multi-Format**: PDF, DOCX, PPTX, XLSX, HTML, Markdown, images
-- **YOLO Detection**: Automatic table/image/text region detection (optional)
+- **YOLO Detection**: Automatic table/image/text region detection (optional, requires model file)
 - **Conversation Memory**: Context-aware follow-up questions
 - **Tool Caching**: TTL-based caching reduces latency for repeated queries
 - **Real-time Progress**: Visual streaming of agent reasoning (🤔⚡👁️💭)
@@ -635,6 +635,23 @@ UV_LINK_MODE=copy uv run python -m cognidoc.cognidoc_app
 
 - [Ollama](https://ollama.ai/) for local inference
 - [LibreOffice](https://www.libreoffice.org/) for Office conversion
+
+### YOLO Model (optional)
+
+YOLO detection requires a trained model file. Without it, the system falls back to simple page-level extraction.
+
+```bash
+# Place your YOLOv11 model trained for document layout detection at:
+models/YOLOv11/yolov11x_best.pt
+
+# Expected classes: text, table, picture, caption, etc.
+# Model is NOT included in the repository (~109 MB)
+```
+
+**Options:**
+- Train your own YOLOv11 model on document layout datasets (DocLayNet, PubLayNet)
+- Use a pre-trained document layout model from Ultralytics or Hugging Face
+- Skip YOLO entirely with `--skip-yolo` or `use_yolo=False` (uses simple extraction)
 
 ### Ollama Models (if using local)
 

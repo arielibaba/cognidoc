@@ -418,6 +418,17 @@ ollama pull ibm/granite-docling:258m-bf16   # Document parsing
 ollama pull qwen3-vl:8b-instruct            # Vision (optional)
 ```
 
+### YOLO Model (optional)
+
+YOLO detection requires a trained model file at `models/YOLOv11/yolov11x_best.pt`. This file is **not included** in the repository (~109 MB, gitignored).
+
+**Behavior:**
+- Model present → YOLO detection enabled (text/table/image regions)
+- Model absent → Fallback to simple page-level extraction
+- `--skip-yolo` or `use_yolo=False` → Explicitly disable YOLO
+
+**To enable YOLO:** Provide a YOLOv11 model trained for document layout detection (DocLayNet/PubLayNet classes: text, table, picture, caption, etc.).
+
 ## Data Directories
 
 | Directory | Content |
