@@ -27,26 +27,47 @@ UV_LINK_MODE=copy uv pip install -e ".[all,dev]"
 make format           # Format with black
 make lint             # Run pylint
 make refactor         # Format + lint
+```
 
-# Quick test via Python API
-python -c "
-from cognidoc import CogniDoc
-doc = CogniDoc(llm_provider='gemini', embedding_provider='ollama')
-doc.ingest(skip_schema_wizard=True)  # Use existing schema
-result = doc.query('Your question here')
-print(result.answer)
-"
+### First-Time Setup
 
-# First-time setup (interactive wizard)
+```bash
+# Interactive wizard (recommended) - guides through provider setup, API keys, ingestion
 python -m cognidoc.setup
+```
 
-# Run ingestion pipeline directly
+### CLI Commands (`cognidoc`)
+
+```bash
+cognidoc init --schema --prompts   # Copy templates (non-interactive)
+cognidoc ingest ./docs --llm gemini --embedding ollama
+cognidoc query "What is X?"
+cognidoc serve --port 7860 --share
+cognidoc info                      # Show configuration
+```
+
+**Note:** `cognidoc init` only copies template files. For interactive setup, use `python -m cognidoc.setup`.
+
+### Direct Module Execution
+
+```bash
+# Run ingestion pipeline directly (more options)
 python -m cognidoc.run_ingestion_pipeline --vision-provider ollama
 
 # Launch chat interface
 python -m cognidoc.cognidoc_app
 python -m cognidoc.cognidoc_app --no-rerank    # Faster, skip LLM reranking
 python -m cognidoc.cognidoc_app --share        # Create public link
+```
+
+### Quick Test via Python API
+
+```python
+from cognidoc import CogniDoc
+doc = CogniDoc(llm_provider='gemini', embedding_provider='ollama')
+doc.ingest(skip_schema_wizard=True)  # Use existing schema
+result = doc.query('Your question here')
+print(result.answer)
 ```
 
 ### Pipeline Skip Flags
@@ -447,15 +468,27 @@ YOLO detection requires a trained model file at `models/YOLOv11/yolov11x_best.pt
 | `data/vector_store/` | Qdrant database |
 | `data/cache/` | Embedding cache (SQLite) |
 
-## Schema Wizard
+## Setup Wizards
 
-The schema wizard runs automatically during ingestion when no `config/graph_schema.yaml` exists:
+### Interactive Setup Wizard (`python -m cognidoc.setup`)
+
+Full guided setup for first-time users:
+1. LLM provider selection (Gemini, OpenAI, Anthropic, Ollama)
+2. API key validation
+3. Embedding provider configuration
+4. Document detection and ingestion
+5. Web interface launch
+
+### Schema Wizard (GraphRAG)
+
+Runs **automatically during ingestion** when no `config/graph_schema.yaml` exists:
 
 1. **Interactive mode** (requires `questionary`): Prompts for domain type, language, and whether to auto-generate
 2. **Auto-generation**: Samples documents from `data/sources/` and uses LLM to identify entity/relationship types
 
 Key options:
 - `doc.ingest(skip_schema_wizard=True)` - Use existing schema without prompts
+- `cognidoc init --schema` - Copy template schema (non-interactive)
 - `config/graph_schema_generic.yaml` - Template for manual schema creation
 
 ## Tests

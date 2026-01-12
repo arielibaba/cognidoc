@@ -108,17 +108,15 @@ doc.launch_ui(port=7860, share=True)
 ### CLI
 
 ```bash
-# Initialize project (copy templates)
-cognidoc init --schema --prompts
+# Interactive setup wizard (recommended for first-time setup)
+python -m cognidoc.setup
 
-# Ingest documents
+# Or use individual commands:
+cognidoc init --schema --prompts    # Copy templates only (non-interactive)
 cognidoc ingest ./documents --llm gemini --embedding ollama
-
-# Query
 cognidoc query "Summarize the key findings"
-
-# Launch web UI
 cognidoc serve --port 7860 --share
+cognidoc info                       # Show current configuration
 ```
 
 ---
@@ -379,9 +377,26 @@ During agent execution:
 
 ---
 
-## Schema Wizard
+## Setup & Configuration
 
-On first ingestion, an interactive wizard helps configure GraphRAG:
+### Interactive Setup Wizard
+
+For first-time setup, use the interactive wizard:
+
+```bash
+python -m cognidoc.setup
+```
+
+This wizard guides you through:
+1. LLM provider selection (Gemini, OpenAI, Anthropic, Ollama)
+2. API key validation
+3. Embedding provider configuration
+4. Document detection and ingestion
+5. Web interface launch
+
+### Schema Wizard (GraphRAG)
+
+During ingestion, if no `config/graph_schema.yaml` exists, the Schema Wizard runs automatically:
 
 ```
 ╭──────────────────────────────────────────────────────────────╮
@@ -400,8 +415,9 @@ On first ingestion, an interactive wizard helps configure GraphRAG:
 ```
 
 **Options:**
-- `doc.ingest("./docs/")` - Wizard runs automatically
+- `doc.ingest("./docs/")` - Schema Wizard runs if no schema exists
 - `doc.ingest("./docs/", skip_schema_wizard=True)` - Use existing schema
+- `cognidoc init --schema` - Copy template schema (non-interactive)
 - Manual: Edit `config/graph_schema.yaml`
 
 ---
@@ -495,11 +511,21 @@ print(result.sources)
 doc.launch_ui(port=7860)  # Open http://localhost:7860
 ```
 
-### Alternative: Run via CLI
+### Alternative: Interactive Setup Wizard
+
+The easiest way to get started:
 
 ```bash
-# Initialize project structure
-cognidoc init
+python -m cognidoc.setup
+```
+
+This interactive wizard handles everything: provider selection, API key setup, document ingestion, and launches the UI.
+
+### Alternative: Run via CLI (manual)
+
+```bash
+# Initialize project structure (copies templates, non-interactive)
+cognidoc init --schema
 
 # Ingest documents
 cognidoc ingest ./data/sources --llm gemini --embedding ollama
