@@ -128,6 +128,7 @@ cognidoc serve --port 7860 --share
 - **Hybrid RAG**: Combines vector similarity search with knowledge graph traversal
 - **Agentic RAG**: Multi-step reasoning agent with 9 specialized tools
 - **Multi-Language**: Automatic French/English/Spanish/German detection with consistent responses
+- **Dark Mode**: Toggle in header with system preference detection and localStorage persistence
 - **Multi-Format**: PDF, DOCX, PPTX, XLSX, HTML, Markdown, images
 - **YOLO Detection**: Automatic table/image/text region detection (optional)
 - **Conversation Memory**: Context-aware follow-up questions

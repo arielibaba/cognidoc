@@ -1027,13 +1027,24 @@ def get_memory_window() -> int:
 # Claude Sonnet 4 (200K context) → 100K memory window
 ```
 
-### 9. Commits session 8
+### 9. Dark mode (`cognidoc_app.py`)
+
+Toggle dans le header pour basculer entre mode clair et sombre :
+
+- Bouton 🌙/☀️ dans le header
+- Détection automatique de la préférence système
+- Persistance du choix dans `localStorage`
+- ~240 lignes de CSS pour le dark mode
+
+### 10. Commits session 8
 
 | Hash | Description |
 |------|-------------|
 | `541886d` | Add Spanish and German language support |
 | `83951bc` | Add MODEL_SPECS with official provider parameters |
 | `6b10105` | Make MEMORY_WINDOW dynamic based on LLM context_window |
+| `72e852e` | Update documentation with ES/DE, MODEL_SPECS, MEMORY_WINDOW |
+| `e765f00` | Add dark mode toggle to web interface |
 
 ## Améliorations futures
 
@@ -1052,3 +1063,4 @@ def get_memory_window() -> int:
 13. ~~**Documentation API REST**~~ ✅ Fait
 14. ~~**MODEL_SPECS** - Paramètres officiels des providers~~ ✅ Fait
 15. ~~**MEMORY_WINDOW dynamique** - Adapté au context_window du LLM~~ ✅ Fait
+16. ~~**Dark mode** - Toggle clair/sombre dans l'interface~~ ✅ Fait
