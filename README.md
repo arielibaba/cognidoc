@@ -410,9 +410,14 @@ On first ingestion, an interactive wizard helps configure GraphRAG:
 
 ```
 your-project/
+├── .env                    # API keys and configuration
 ├── data/
 │   └── sources/            # Your source files (PDF, DOCX, PPTX, etc.)
-├── .env                    # API keys and configuration
+├── models/                 # Optional: YOLO model for document detection
+│   └── YOLOv11/
+│       └── yolov11x_best.pt  # YOLOv11 trained model (~109 MB)
+├── config/                 # Created after first ingestion
+│   └── graph_schema.yaml   # GraphRAG schema (auto-generated or manual)
 └── data/                   # Created automatically after ingestion
     ├── pdfs/               # Converted PDFs
     ├── images/             # Page images (600 DPI)
@@ -452,6 +457,11 @@ mkdir -p data/sources
 # Add your documents
 cp /path/to/your/documents/* data/sources/
 # Supported formats: PDF, DOCX, PPTX, XLSX, TXT, MD, images
+
+# Optional: Add YOLO model for better document detection
+mkdir -p models/YOLOv11
+cp /path/to/yolov11x_best.pt models/YOLOv11/
+# Without this model, CogniDoc uses simple page-level extraction
 ```
 
 ### Step 3: Configure Environment

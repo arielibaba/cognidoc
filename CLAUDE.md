@@ -429,10 +429,12 @@ YOLO detection requires a trained model file at `models/YOLOv11/yolov11x_best.pt
 
 **To enable YOLO:** Provide a YOLOv11 model trained for document layout detection (DocLayNet/PubLayNet classes: text, table, picture, caption, etc.).
 
-## Data Directories
+## Project Directories
 
 | Directory | Content |
 |-----------|---------|
+| `models/YOLOv11/` | YOLO model file (`yolov11x_best.pt`, optional, ~109 MB) |
+| `config/` | GraphRAG schema (`graph_schema.yaml`) |
 | `data/sources/` | Input documents (any format, including subfolders) |
 | `data/pdfs/` | Converted PDFs |
 | `data/images/` | 600 DPI page images |
