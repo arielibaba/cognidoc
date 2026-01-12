@@ -381,18 +381,25 @@ Key options:
 ## Tests
 
 ```bash
-# Run all tests (127 tests)
+# Run all unit tests (127 tests)
 .venv/bin/python -m pytest tests/ -v
 
 # Or with uv (if path has no spaces)
 uv run pytest tests/ -v
+
+# Run E2E tests only (~30s)
+pytest tests/test_e2e_pipeline.py -v
+
+# Run full E2E with ingestion (~2-5 min)
+pytest tests/test_e2e_pipeline.py -v --run-slow
 ```
 
-| Module | Tests |
-|--------|-------|
-| `test_agent.py` | 27 |
-| `test_agent_tools.py` | 33 |
-| `test_complexity.py` | 24 |
-| `test_e2e_language_and_count.py` | 10 |
-| `test_providers.py` | 33 |
-| **Total** | **127** |
+| Module | Tests | Description |
+|--------|-------|-------------|
+| `test_agent.py` | 27 | Agent ReAct loop |
+| `test_agent_tools.py` | 33 | Tool implementations |
+| `test_complexity.py` | 24 | Query complexity evaluation |
+| `test_e2e_language_and_count.py` | 10 | Language detection, document count |
+| `test_e2e_pipeline.py` | 9 | E2E pipeline (7 fast + 2 slow) |
+| `test_providers.py` | 33 | LLM/Embedding providers |
+| **Total** | **136** |

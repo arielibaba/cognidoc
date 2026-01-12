@@ -790,6 +790,65 @@ YOLO batching: 1 image en 1.17s ✅
 Entity extraction async: 2 chunks en parallèle ✅
 ```
 
+## Améliorations implémentées (session 7)
+
+### 1. Suite de tests E2E pytest (`tests/test_e2e_pipeline.py`)
+
+Création d'une suite de tests E2E réutilisable pour les futures mises à jour :
+
+```python
+# Structure des tests
+class TestE2EQueryOnly:           # Tests rapides sur indexes existants (~30s)
+class TestE2ETestDocumentContent: # Validation du document fixture
+class TestE2EFullPipeline:        # Tests complets avec ingestion (@slow)
+class TestE2EEdgeCases:           # Cas limites et gestion d'erreurs
+```
+
+**Commandes:**
+```bash
+# Tests rapides E2E (~30s)
+pytest tests/test_e2e_pipeline.py -v
+
+# Tests complets avec ingestion (~2-5 min)
+pytest tests/test_e2e_pipeline.py -v --run-slow
+```
+
+### 2. Configuration pytest (`tests/conftest.py`)
+
+```python
+def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: marks tests as slow")
+
+def pytest_addoption(parser):
+    parser.addoption("--run-slow", action="store_true", default=False)
+```
+
+### 3. Document fixture (`tests/fixtures/test_article.md`)
+
+Article de test sur l'IA en médecine (français) utilisable pour les tests E2E.
+
+### 4. Nettoyage fichiers obsolètes
+
+Suppression des anciens fichiers de test :
+- `test_advanced_rag.py`
+- `test_e2e 2.py`
+- `test_e2e/` directory
+- `test_e2e_script.py`
+
+### 5. Commits session 7
+
+| Hash | Description |
+|------|-------------|
+| `3435f36` | Add proper pytest E2E test suite for future updates |
+
+### 6. Tests vérifiés
+
+```bash
+# 9 tests E2E (7 passed, 2 skipped)
+pytest tests/test_e2e_pipeline.py -v
+# Temps: ~29 secondes
+```
+
 ## Améliorations futures
 
 1. **Support langues additionnelles** - Espagnol, Allemand, etc.
@@ -803,3 +862,4 @@ Entity extraction async: 2 chunks en parallèle ✅
 9. ~~**Entity extraction async** - Queue LLM avec workers~~ ✅ Fait
 10. **Pipeline streaming** - Démarrer chunking pendant extraction (risqué sur 16GB)
 11. ~~**Fix document count vs chunk count**~~ ✅ Fait
+12. ~~**Tests E2E réutilisables**~~ ✅ Fait

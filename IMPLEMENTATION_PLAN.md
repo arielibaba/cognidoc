@@ -524,7 +524,8 @@ class CogniDocConfig:
 - [x] Tests unitaires providers (33 tests)
 - [x] Tests intégration pipeline
 - [x] Cleanup et refactoring
-- [x] **127 tests passent**
+- [x] **136 tests passent** (dont 9 E2E)
+- [x] **BONUS:** Suite E2E pytest réutilisable (`tests/test_e2e_pipeline.py`)
 
 ## Exemples d'Utilisation Finale
 
@@ -592,8 +593,9 @@ Toutes les étapes du plan ont été implémentées avec succès. Le package Cog
 - **Multi-provider** (Gemini, OpenAI, Anthropic, Ollama)
 - **YOLO optionnel** avec fallback automatique
 - **CLI complète** avec toutes les commandes
-- **127 tests** validés
+- **136 tests** validés (dont 9 E2E)
 - **Optimisé** (YOLO batching, async entity extraction, parallel PDF conversion)
+- **Suite E2E réutilisable** pour validation des futures mises à jour
 
 ### Optimisations ajoutées (au-delà du plan initial)
 

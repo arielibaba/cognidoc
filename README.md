@@ -542,7 +542,11 @@ ollama pull qwen3-vl:8b-instruct   # Vision (optional)
 make install   # Setup with uv
 make format    # Format with black
 make lint      # Run pylint
-make test      # Run tests (127 tests)
+make test      # Run tests (136 tests)
+
+# E2E tests
+pytest tests/test_e2e_pipeline.py -v           # Fast (~30s)
+pytest tests/test_e2e_pipeline.py -v --run-slow  # Full pipeline (~2-5 min)
 ```
 
 ---
