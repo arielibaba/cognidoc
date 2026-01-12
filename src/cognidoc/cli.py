@@ -99,7 +99,7 @@ def cmd_init(args):
     print(f"Initializing CogniDoc project in {target_dir.absolute()}")
 
     # Create directories
-    (target_dir / "data" / "pdfs").mkdir(parents=True, exist_ok=True)
+    (target_dir / "data" / "sources").mkdir(parents=True, exist_ok=True)
     (target_dir / "config").mkdir(parents=True, exist_ok=True)
 
     # Copy schema template if requested
@@ -132,9 +132,9 @@ def cmd_init(args):
         print(f"  Created: .env.example")
 
     print("\nProject initialized! Next steps:")
-    print("  1. Copy your documents to data/pdfs/")
+    print("  1. Copy your documents to data/sources/")
     print("  2. Copy .env.example to .env and add your API keys")
-    print("  3. Run: cognidoc ingest data/pdfs/")
+    print("  3. Run: cognidoc ingest ./data/sources")
     print("  4. Run: cognidoc serve")
 
 

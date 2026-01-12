@@ -286,14 +286,14 @@ class CogniDoc:
         """
         Ingest documents from path(s).
 
-        The pipeline processes documents in the data/pdfs directory by default.
-        If source is specified, files will be copied to data/pdfs first.
+        The pipeline processes documents in the data/sources directory by default.
+        If source is specified, files will be copied to data/sources first.
 
         On first ingestion with graph enabled, a schema wizard will guide you through
         creating a custom graph schema. Use skip_schema_wizard=True to skip this.
 
         Args:
-            source: Path to document(s) or directory (optional, uses data/pdfs if None)
+            source: Path to document(s) or directory (optional, uses data/sources if None)
             skip_conversion: Skip non-PDF to PDF conversion
             skip_pdf: Skip PDF to image conversion
             skip_yolo: Skip YOLO detection (use simple extraction)
