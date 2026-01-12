@@ -383,7 +383,7 @@ MODEL_SPECS = {
 config = LLMConfig.from_model("gemini-2.5-flash")  # Loads all specs automatically
 ```
 
-### Dynamic MEMORY_WINDOW (`src/helpers.py`)
+### Dynamic MEMORY_WINDOW (`src/cognidoc/helpers.py`)
 
 Conversation memory adapts to the LLM's context window:
 
@@ -392,12 +392,14 @@ def get_memory_window() -> int:
     """Returns 50% of the model's context_window."""
     client = get_llm_client()
     return int(client.config.context_window * 0.5)  # Dynamic!
-
-# Examples:
-# Gemini 2.5 Flash (1M context) → 524K memory window
-# GPT-4o (128K context) → 64K memory window
-# Claude Sonnet 4 (200K context) → 100K memory window
 ```
+
+| Model | CONTEXT_WINDOW | MEMORY_WINDOW (50%) |
+|-------|----------------|---------------------|
+| Gemini 2.5 Flash | 1,048,576 (1M) | 524,288 |
+| GPT-4o | 128,000 | 64,000 |
+| Claude Sonnet 4 | 200,000 | 100,000 |
+| Granite 3.3:8b | 128,000 | 64,000 |
 
 ### Other Config Files
 
