@@ -28,8 +28,25 @@ from .constants import (
     USER_PROMPT_EXPAND_QUERY,
 )
 from .utils.rag_utils import Document, KeywordIndex
-from .utils.llm_client import llm_chat, llm_stream
+from .utils.llm_client import llm_chat, llm_stream, get_llm_client
 from .utils.logger import logger
+
+
+def get_memory_window() -> int:
+    """
+    Get the memory window size based on the current LLM's context window.
+
+    Returns 50% of the model's context_window, or falls back to MEMORY_WINDOW constant.
+    """
+    try:
+        client = get_llm_client()
+        if client.config.context_window:
+            # Use 50% of the model's context window for conversation memory
+            return int(client.config.context_window * 0.5)
+    except Exception:
+        pass
+    # Fallback to static constant
+    return MEMORY_WINDOW
 
 
 def clear_pytorch_cache():
@@ -238,8 +255,14 @@ def retrieve_from_keyword_index(index: KeywordIndex, key: str, value: Any) -> Li
     return index.search_by_metadata(key, value)
 
 
-def limit_chat_history(history: List[dict], max_tokens: int = MEMORY_WINDOW) -> List[dict]:
-    """Truncates chat history to fit within a maximum token limit."""
+def limit_chat_history(history: List[dict], max_tokens: int = None) -> List[dict]:
+    """Truncates chat history to fit within a maximum token limit.
+
+    Uses the current LLM's context_window to calculate the limit dynamically.
+    Falls back to MEMORY_WINDOW constant if no LLM is configured.
+    """
+    if max_tokens is None:
+        max_tokens = get_memory_window()
     total_tokens = 0
     truncated = []
     for msg in reversed(history):

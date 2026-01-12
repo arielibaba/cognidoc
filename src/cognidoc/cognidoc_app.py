@@ -33,7 +33,6 @@ from .constants import (
     EMBED_MODEL,
     TEMPERATURE_GENERATION,
     TOP_P_GENERATION,
-    MEMORY_WINDOW,
     SYSTEM_PROMPT_GENERATE_FINAL_ANSWER,
     USER_PROMPT_GENERATE_FINAL_ANSWER,
     ENABLE_RERANKING,
@@ -583,7 +582,7 @@ def chat_conversation(
         history = flat
 
     history.append({"role": "user", "content": user_message})
-    history = limit_chat_history(history, max_tokens=MEMORY_WINDOW)
+    history = limit_chat_history(history)  # Uses dynamic memory window based on LLM's context_window
     conv_history = "".join(f"{m['role'].capitalize()}: {m['content']}\n" for m in history)
 
     # Parallel query rewriting and classification (uses unified LLM client)
