@@ -257,7 +257,7 @@ Agent tools (`agent_tools.py`):
                          Loop to THINK
 ```
 
-Language rules are enforced in prompts to ensure responses match query language (French/English).
+Language rules are enforced in prompts to ensure responses match query language (French/English/Spanish/German).
 
 ### Performance Optimizations
 
@@ -354,6 +354,38 @@ All settings overridable via `.env`:
 - `TOP_K_RERANKED_PARENTS`: 5
 - `HYBRID_DENSE_WEIGHT`: 0.6 (dense vs BM25 balance)
 
+### MODEL_SPECS (`src/constants.py`)
+
+Official provider parameters for all supported models:
+
+```python
+MODEL_SPECS = {
+    "gemini-2.5-flash": {"context_window": 1_048_576, "max_output_tokens": 65_536, ...},
+    "gpt-4o": {"context_window": 128_000, "max_output_tokens": 16_384, ...},
+    "claude-sonnet-4-20250514": {"context_window": 200_000, "max_output_tokens": 64_000, ...},
+    "granite3.3:8b": {"context_window": 128_000, "max_output_tokens": 8_192, ...},
+}
+
+# Auto-load specs via LLMConfig.from_model()
+config = LLMConfig.from_model("gemini-2.5-flash")  # Loads all specs automatically
+```
+
+### Dynamic MEMORY_WINDOW (`src/helpers.py`)
+
+Conversation memory adapts to the LLM's context window:
+
+```python
+def get_memory_window() -> int:
+    """Returns 50% of the model's context_window."""
+    client = get_llm_client()
+    return int(client.config.context_window * 0.5)  # Dynamic!
+
+# Examples:
+# Gemini 2.5 Flash (1M context) → 524K memory window
+# GPT-4o (128K context) → 64K memory window
+# Claude Sonnet 4 (200K context) → 100K memory window
+```
+
 ### Other Config Files
 
 - `config/graph_schema.yaml` - Entity types, relationship types, routing strategy
@@ -401,7 +433,7 @@ Key options:
 ## Tests
 
 ```bash
-# Run all tests (134 passed, 2 skipped)
+# Run all tests (148 passed, 2 skipped)
 .venv/bin/python -m pytest tests/ -v
 
 # Or with uv (if path has no spaces)
@@ -420,8 +452,8 @@ pytest tests/test_00_e2e_pipeline.py -v --run-slow
 | `test_agent.py` | 27 | Agent ReAct loop |
 | `test_agent_tools.py` | 33 | Tool implementations |
 | `test_complexity.py` | 24 | Query complexity evaluation |
-| `test_e2e_language_and_count.py` | 10 | Language detection, document count |
+| `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE), document count |
 | `test_providers.py` | 33 | LLM/Embedding providers |
-| **Total** | **136** (134 passed, 2 skipped) |
+| **Total** | **150** (148 passed, 2 skipped) |
 
 **Note:** E2E tests are named `test_00_*` to run first alphabetically. Qdrant embedded only allows one client per storage folder, so E2E tests must acquire the lock before other tests.

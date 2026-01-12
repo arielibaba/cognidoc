@@ -127,7 +127,7 @@ cognidoc serve --port 7860 --share
 
 - **Hybrid RAG**: Combines vector similarity search with knowledge graph traversal
 - **Agentic RAG**: Multi-step reasoning agent with 9 specialized tools
-- **Multi-Language**: Automatic French/English detection with consistent responses
+- **Multi-Language**: Automatic French/English/Spanish/German detection with consistent responses
 - **Multi-Format**: PDF, DOCX, PPTX, XLSX, HTML, Markdown, images
 - **YOLO Detection**: Automatic table/image/text region detection (optional)
 - **Conversation Memory**: Context-aware follow-up questions
@@ -651,7 +651,7 @@ ollama pull qwen3-vl:8b-instruct   # Vision (optional)
 make install   # Setup with uv
 make format    # Format with black
 make lint      # Run pylint
-make test      # Run tests (136 tests)
+make test      # Run tests (150 tests)
 
 # E2E tests
 pytest tests/test_00_e2e_pipeline.py -v           # Fast (~30s)

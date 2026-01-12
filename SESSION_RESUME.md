@@ -970,10 +970,70 @@ Mise à jour de 4 fichiers de prompts avec règles ES/DE :
 ### 6. Tests vérifiés
 
 ```bash
-# 148 tests passent (14 nouveaux tests ES/DE)
+# 150 tests passent (14 nouveaux tests ES/DE)
 pytest tests/ -v
 # 148 passed, 2 skipped in ~28s
 ```
+
+### 7. MODEL_SPECS avec paramètres officiels (`constants.py`)
+
+Ajout d'un dictionnaire centralisé avec les paramètres officiels des providers :
+
+```python
+MODEL_SPECS = {
+    "gemini-2.5-flash": {
+        "provider": "gemini",
+        "context_window": 1_048_576,      # 1M tokens
+        "max_output_tokens": 65_536,
+        "default_temperature": 1.0,
+        "default_top_p": 0.95,
+        "supports_vision": True,
+        "supports_json_mode": True,
+    },
+    "gpt-4o": {
+        "context_window": 128_000,
+        "max_output_tokens": 16_384,
+        ...
+    },
+    "claude-sonnet-4-20250514": {
+        "context_window": 200_000,
+        "max_output_tokens": 64_000,
+        ...
+    },
+    # + Anthropic, Ollama models
+}
+```
+
+**Avantages:**
+- Paramètres officiels des providers (pas de valeurs arbitraires)
+- `LLMConfig.from_model("gemini-2.5-flash")` charge automatiquement les specs
+- Fallback gracieux pour modèles inconnus
+
+### 8. MEMORY_WINDOW dynamique (`helpers.py`)
+
+La mémoire de conversation s'adapte maintenant au modèle LLM :
+
+```python
+def get_memory_window() -> int:
+    """Returns 50% of the model's context_window."""
+    client = get_llm_client()
+    if client.config.context_window:
+        return int(client.config.context_window * 0.5)
+    return MEMORY_WINDOW  # Fallback: 64K
+
+# Exemples:
+# Gemini 2.5 Flash (1M context) → 524K memory window
+# GPT-4o (128K context) → 64K memory window
+# Claude Sonnet 4 (200K context) → 100K memory window
+```
+
+### 9. Commits session 8
+
+| Hash | Description |
+|------|-------------|
+| `541886d` | Add Spanish and German language support |
+| `83951bc` | Add MODEL_SPECS with official provider parameters |
+| `6b10105` | Make MEMORY_WINDOW dynamic based on LLM context_window |
 
 ## Améliorations futures
 
@@ -990,3 +1050,5 @@ pytest tests/ -v
 11. ~~**Fix document count vs chunk count**~~ ✅ Fait
 12. ~~**Tests E2E réutilisables**~~ ✅ Fait
 13. ~~**Documentation API REST**~~ ✅ Fait
+14. ~~**MODEL_SPECS** - Paramètres officiels des providers~~ ✅ Fait
+15. ~~**MEMORY_WINDOW dynamique** - Adapté au context_window du LLM~~ ✅ Fait

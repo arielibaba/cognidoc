@@ -592,11 +592,14 @@ Toutes les étapes du plan ont été implémentées avec succès. Le package Cog
 
 - **Installable via pip** depuis GitHub
 - **Multi-provider** (Gemini, OpenAI, Anthropic, Ollama)
+- **Multi-langue** (FR/EN/ES/DE) avec détection automatique
 - **YOLO optionnel** avec fallback automatique
 - **CLI complète** avec toutes les commandes
-- **136 tests** validés (dont 9 E2E)
+- **150 tests** validés (dont 9 E2E)
 - **Optimisé** (YOLO batching, async entity extraction, parallel PDF conversion)
 - **Suite E2E réutilisable** pour validation des futures mises à jour
+- **MODEL_SPECS** avec paramètres officiels par provider
+- **MEMORY_WINDOW dynamique** basé sur le context_window du LLM
 
 ### Optimisations ajoutées (au-delà du plan initial)
 
@@ -608,3 +611,6 @@ Toutes les étapes du plan ont été implémentées avec succès. Le package Cog
 | Batched async embeddings | `create_embeddings.py` | ~5x |
 | Persistent tool cache | `utils/tool_cache.py` | Latence réduite |
 | Performance metrics | `utils/metrics.py` | Dashboard intégré |
+| MODEL_SPECS | `constants.py` | Paramètres officiels |
+| Dynamic MEMORY_WINDOW | `helpers.py` | Mémoire adaptative |
+| Multi-language ES/DE | `cognidoc_app.py`, `complexity.py` | Support 4 langues |
