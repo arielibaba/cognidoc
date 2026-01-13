@@ -234,9 +234,11 @@ async def create_image_descriptions_async(
     # Filter by PDF stems if provided
     if image_filter:
         original_count = len(images)
+        # Detections are named {prefix}_page_{n}_Picture_{idx}.jpg where prefix may include
+        # subdirectory encoding: {subdir}__{stem}_page_{n}_Picture_{idx}.jpg
         images = [
             p for p in images
-            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+            if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
         logger.info(f"Filtered to {len(images)} picture images (from {original_count}) matching filter")
 

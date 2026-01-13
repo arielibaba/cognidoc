@@ -574,10 +574,12 @@ def extract_objects_from_image(
     # Filter by PDF stems if provided
     if image_filter:
         original_count = len(image_paths)
-        # Images are named {pdf_stem}_page_{n}.png
+        # Images are named {prefix}_page_{n}.png where prefix may include
+        # subdirectory encoding: {subdir}__{stem}_page_{n}.png
+        # So we check if {stem}_page_ appears anywhere in the filename
         image_paths = [
             p for p in image_paths
-            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+            if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
         logger.info(f"Filtered to {len(image_paths)} images (from {original_count}) matching filter")
 

@@ -196,9 +196,11 @@ def parse_image_with_table(
     # Filter by PDF stems if provided
     if image_filter:
         original_count = len(table_images)
+        # Detections are named {prefix}_page_{n}_Table_{idx}.jpg where prefix may include
+        # subdirectory encoding: {subdir}__{stem}_page_{n}_Table_{idx}.jpg
         table_images = [
             p for p in table_images
-            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+            if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
         logger.info(f"Filtered to {len(table_images)} table images (from {original_count}) matching filter")
     logger.info(f"Found {len(table_images)} table images to process")

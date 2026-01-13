@@ -195,9 +195,11 @@ def parse_image_with_text(
     # Filter by PDF stems if provided
     if image_filter:
         original_count = len(text_images)
+        # Detections are named {prefix}_page_{n}_Text.jpg where prefix may include
+        # subdirectory encoding: {subdir}__{stem}_page_{n}_Text.jpg
         text_images = [
             p for p in text_images
-            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+            if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
         logger.info(f"Filtered to {len(text_images)} text images (from {original_count}) matching filter")
     logger.info(f"Found {len(text_images)} text images to process")
