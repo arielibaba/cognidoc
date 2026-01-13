@@ -8,14 +8,17 @@ No LlamaIndex dependencies - uses direct Ollama calls.
 import json
 import re
 import torch
-import tiktoken
 from PIL import Image, ImageStat
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
 import markdown
 from bs4 import BeautifulSoup
 from httpx import ReadTimeout
+
+# Lazy tiktoken loading with caching
+_tiktoken_encoding: Optional[Any] = None
+_tiktoken_available: Optional[bool] = None
 
 if TYPE_CHECKING:
     import ollama
@@ -184,9 +187,30 @@ def clean_up_text(text: str) -> str:
 
 
 def get_token_count(input_text: str) -> int:
-    """Returns the number of tokens for the input text."""
-    encoding = tiktoken.get_encoding("cl100k_base")
-    return len(encoding.encode(input_text))
+    """
+    Returns the number of tokens for the input text.
+
+    Uses tiktoken with cl100k_base encoding. Falls back to word-based
+    estimation if tiktoken is unavailable (approximately 1.3 tokens per word).
+    """
+    global _tiktoken_encoding, _tiktoken_available
+
+    # Try tiktoken first
+    if _tiktoken_available is None:
+        try:
+            import tiktoken
+            _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+            _tiktoken_available = True
+        except Exception as e:
+            logger.warning(f"tiktoken unavailable, using word-based estimation: {e}")
+            _tiktoken_available = False
+
+    if _tiktoken_available and _tiktoken_encoding is not None:
+        return len(_tiktoken_encoding.encode(input_text))
+
+    # Fallback: approximate token count based on words (1.3 tokens per word average)
+    word_count = len(input_text.split())
+    return int(word_count * 1.3)
 
 
 def load_embeddings_with_associated_documents(
