@@ -71,6 +71,233 @@ from .graph_config import get_graph_config
 import ollama
 
 
+def format_ingestion_report(stats: dict, timing: dict) -> str:
+    """
+    Format a comprehensive ingestion report as a table.
+
+    Args:
+        stats: Pipeline statistics dictionary
+        timing: Timing information from PipelineTimer
+
+    Returns:
+        Formatted report string
+    """
+    lines = []
+    lines.append("")
+    lines.append("=" * 70)
+    lines.append("                    INGESTION REPORT")
+    lines.append("=" * 70)
+
+    # ========== DOCUMENTS SECTION ==========
+    doc_stats = stats.get("document_conversion", {})
+    pdf_stats = stats.get("pdf_conversion", {})
+
+    lines.append("")
+    lines.append("┌" + "─" * 68 + "┐")
+    lines.append("│" + " DOCUMENTS ".center(68) + "│")
+    lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
+
+    total_files = doc_stats.get("total_files", 0)
+    pdfs_copied = doc_stats.get("pdfs_copied", 0)
+    converted = doc_stats.get("converted", 0)
+    images_copied = doc_stats.get("images_copied", 0)
+    skipped = doc_stats.get("skipped_existing", 0)
+    failed = doc_stats.get("failed", 0)
+
+    lines.append(f"│ {'Files processed':<32} │ {total_files:>31} │")
+    lines.append(f"│ {'  PDFs copied':<32} │ {pdfs_copied:>31} │")
+    lines.append(f"│ {'  Documents converted':<32} │ {converted:>31} │")
+    lines.append(f"│ {'  Images copied':<32} │ {images_copied:>31} │")
+    lines.append(f"│ {'  Already processed (skipped)':<32} │ {skipped:>31} │")
+    lines.append(f"│ {'  Failed':<32} │ {failed:>31} │")
+
+    # PDF to image conversion
+    total_pdfs = pdf_stats.get("total", 0)
+    total_pages = pdf_stats.get("pages", 0)
+    if total_pdfs > 0 or total_pages > 0:
+        lines.append("├" + "─" * 34 + "┼" + "─" * 33 + "┤")
+        lines.append(f"│ {'PDFs converted to images':<32} │ {total_pdfs:>31} │")
+        lines.append(f"│ {'Total pages generated':<32} │ {total_pages:>31} │")
+
+    lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
+
+    # ========== YOLO DETECTION SECTION ==========
+    yolo_stats = stats.get("yolo_detection", {})
+    if yolo_stats:
+        lines.append("")
+        lines.append("┌" + "─" * 68 + "┐")
+        lines.append("│" + " YOLO DETECTION ".center(68) + "│")
+        lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
+
+        images_processed = yolo_stats.get("images", 0)
+        text_regions = yolo_stats.get("text", 0)
+        table_regions = yolo_stats.get("tables", 0)
+        picture_regions = yolo_stats.get("pictures", 0)
+        fallbacks = yolo_stats.get("fallbacks", 0)
+        errors = yolo_stats.get("errors", 0)
+
+        lines.append(f"│ {'Images processed':<32} │ {images_processed:>31} │")
+        lines.append(f"│ {'Text regions detected':<32} │ {text_regions:>31} │")
+        lines.append(f"│ {'Table regions detected':<32} │ {table_regions:>31} │")
+        lines.append(f"│ {'Picture regions detected':<32} │ {picture_regions:>31} │")
+        if fallbacks > 0:
+            lines.append(f"│ {'Fallbacks (full page)':<32} │ {fallbacks:>31} │")
+        if errors > 0:
+            lines.append(f"│ {'Errors':<32} │ {errors:>31} │")
+
+        lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
+
+    # ========== CONTENT EXTRACTION SECTION ==========
+    text_stats = stats.get("text_extraction", {})
+    table_stats = stats.get("table_extraction", {})
+    desc_stats = stats.get("image_description", {})
+
+    has_extraction = any([text_stats, table_stats, desc_stats])
+    if has_extraction:
+        lines.append("")
+        lines.append("┌" + "─" * 68 + "┐")
+        lines.append("│" + " CONTENT EXTRACTION ".center(68) + "│")
+        lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
+
+        text_processed = text_stats.get("processed", 0)
+        text_skipped = text_stats.get("skipped", 0)
+        text_errors = text_stats.get("errors", 0)
+
+        table_processed = table_stats.get("processed", 0)
+        table_skipped = table_stats.get("skipped", 0)
+        table_errors = table_stats.get("errors", 0)
+
+        desc_total = desc_stats.get("total_images", 0)
+        desc_described = desc_stats.get("described", 0)
+        desc_skipped = desc_stats.get("skipped_irrelevant", 0)
+
+        lines.append(f"│ {'Text regions extracted':<32} │ {text_processed:>31} │")
+        if text_skipped > 0:
+            lines.append(f"│ {'  (skipped existing)':<32} │ {text_skipped:>31} │")
+        lines.append(f"│ {'Tables extracted':<32} │ {table_processed:>31} │")
+        if table_skipped > 0:
+            lines.append(f"│ {'  (skipped existing)':<32} │ {table_skipped:>31} │")
+        if desc_total > 0:
+            lines.append(f"│ {'Images described':<32} │ {desc_described:>31} │")
+            if desc_skipped > 0:
+                lines.append(f"│ {'  (skipped irrelevant)':<32} │ {desc_skipped:>31} │")
+
+        total_errors = text_errors + table_errors + desc_stats.get("errors", 0)
+        if total_errors > 0:
+            lines.append(f"│ {'Errors':<32} │ {total_errors:>31} │")
+
+        lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
+
+    # ========== CHUNKING & EMBEDDINGS SECTION ==========
+    embed_stats = stats.get("embeddings", {})
+    if embed_stats:
+        lines.append("")
+        lines.append("┌" + "─" * 68 + "┐")
+        lines.append("│" + " CHUNKING & EMBEDDINGS ".center(68) + "│")
+        lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
+
+        total_chunks = embed_stats.get("total_chunks", 0)
+        from_cache = embed_stats.get("from_cache", 0)
+        newly_embedded = embed_stats.get("newly_embedded", 0)
+        cached_after = embed_stats.get("cached_embeddings_after", 0)
+
+        lines.append(f"│ {'Total chunks':<32} │ {total_chunks:>31} │")
+        if from_cache > 0 or newly_embedded > 0:
+            lines.append(f"│ {'  From cache':<32} │ {from_cache:>31} │")
+            lines.append(f"│ {'  Newly embedded':<32} │ {newly_embedded:>31} │")
+        if cached_after > 0:
+            lines.append(f"│ {'Embeddings in cache':<32} │ {cached_after:>31} │")
+
+        lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
+
+    # ========== GRAPHRAG SECTION ==========
+    graph_extract = stats.get("graph_extraction", {})
+    graph_build = stats.get("graph_building", {})
+
+    has_graph = graph_extract or (graph_build and graph_build.get("status") != "failed")
+    if has_graph:
+        lines.append("")
+        lines.append("┌" + "─" * 68 + "┐")
+        lines.append("│" + " KNOWLEDGE GRAPH (GraphRAG) ".center(68) + "│")
+        lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
+
+        chunks_processed = graph_extract.get("chunks_processed", 0)
+        entities_extracted = graph_extract.get("entities_extracted", 0)
+        relationships_extracted = graph_extract.get("relationships_extracted", 0)
+
+        total_nodes = graph_build.get("total_nodes", 0)
+        total_edges = graph_build.get("total_edges", 0)
+        total_communities = graph_build.get("total_communities", 0)
+
+        lines.append(f"│ {'Chunks processed':<32} │ {chunks_processed:>31} │")
+        lines.append(f"│ {'Entities extracted':<32} │ {entities_extracted:>31} │")
+        lines.append(f"│ {'Relationships extracted':<32} │ {relationships_extracted:>31} │")
+        lines.append("├" + "─" * 34 + "┼" + "─" * 33 + "┤")
+        lines.append(f"│ {'Graph nodes (after merge)':<32} │ {total_nodes:>31} │")
+        lines.append(f"│ {'Graph edges':<32} │ {total_edges:>31} │")
+        lines.append(f"│ {'Communities detected':<32} │ {total_communities:>31} │")
+
+        # Node types breakdown
+        node_types = graph_build.get("node_types", {})
+        if node_types:
+            lines.append("├" + "─" * 34 + "┼" + "─" * 33 + "┤")
+            lines.append(f"│ {'Entity types:':<32} │ {'':<31} │")
+            for node_type, count in sorted(node_types.items(), key=lambda x: -x[1]):
+                lines.append(f"│ {'  ' + node_type:<32} │ {count:>31} │")
+
+        lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
+
+    # ========== TIMING SECTION ==========
+    stages = timing.get("stages", {})
+    total_time = timing.get("total_seconds", 0)
+
+    if stages:
+        lines.append("")
+        lines.append("┌" + "─" * 68 + "┐")
+        lines.append("│" + " TIMING ".center(68) + "│")
+        lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
+
+        # Map stage names to readable labels
+        stage_labels = {
+            "clear_cache": "Clear cache",
+            "document_conversion": "Document conversion",
+            "pdf_conversion": "PDF to images",
+            "yolo_detection": "YOLO detection",
+            "content_extraction": "Content extraction",
+            "image_description": "Image descriptions",
+            "text_chunking": "Text chunking",
+            "table_chunking": "Table chunking",
+            "embedding_generation": "Embedding generation",
+            "index_building": "Index building",
+            "graph_extraction": "Entity extraction",
+            "graph_building": "Graph building",
+        }
+
+        for stage, duration in stages.items():
+            if duration > 0.01:  # Only show stages that took more than 0.01s
+                label = stage_labels.get(stage, stage)
+                duration_str = f"{duration:.2f}s"
+                lines.append(f"│ {label:<32} │ {duration_str:>31} │")
+
+        lines.append("├" + "─" * 34 + "┼" + "─" * 33 + "┤")
+
+        # Format total time nicely
+        if total_time >= 60:
+            minutes = int(total_time // 60)
+            seconds = total_time % 60
+            total_str = f"{minutes}m {seconds:.1f}s ({total_time:.2f}s)"
+        else:
+            total_str = f"{total_time:.2f}s"
+
+        lines.append(f"│ {'TOTAL':<32} │ {total_str:>31} │")
+        lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
+
+    lines.append("")
+    lines.append("=" * 70)
+
+    return "\n".join(lines)
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -289,8 +516,9 @@ async def run_ingestion_pipeline_async(
         pipeline_timer.stage("pdf_conversion")
         try:
             logger.info("Converting PDFs to images...")
-            convert_pdf_to_image(PDF_DIR, IMAGE_DIR, pdf_filter=pdf_filter)
-            logger.info("PDF conversion completed")
+            pdf_stats = convert_pdf_to_image(PDF_DIR, IMAGE_DIR, pdf_filter=pdf_filter)
+            stats["pdf_conversion"] = pdf_stats
+            logger.info(f"PDF conversion completed: {pdf_stats.get('success', 0)} PDFs, {pdf_stats.get('pages', 0)} pages")
         except Exception as e:
             logger.error(f"PDF conversion failed: {e}")
             raise
@@ -535,11 +763,9 @@ async def run_ingestion_pipeline_async(
     # End pipeline
     pipeline_summary = pipeline_timer.end()
 
-    logger.info("""
-    ============================================
-    INGESTION PIPELINE COMPLETED SUCCESSFULLY
-    ============================================
-    """)
+    # Generate and display ingestion report
+    report = format_ingestion_report(stats, pipeline_summary)
+    print(report)
 
     return stats
 
