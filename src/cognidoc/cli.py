@@ -188,15 +188,16 @@ def _create_env_template(path: Path):
     """Create a .env template file."""
     template = """# CogniDoc Configuration
 
-# Provider selection
-DEFAULT_LLM_PROVIDER=gemini
-COGNIDOC_EMBEDDING_PROVIDER=ollama
-COGNIDOC_DATA_DIR=./data
-
 # API Keys (add your keys here)
 GOOGLE_API_KEY=
-OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
+
+# LLM Configuration
+DEFAULT_LLM_PROVIDER=gemini
+DEFAULT_LLM_MODEL=gemini-2.5-flash
+
+# Embedding Configuration
+COGNIDOC_EMBEDDING_PROVIDER=ollama
+COGNIDOC_EMBEDDING_MODEL=qwen3-embedding:0.6b
 
 # Ollama (if using local inference)
 OLLAMA_HOST=http://localhost:11434

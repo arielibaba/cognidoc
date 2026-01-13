@@ -1220,10 +1220,33 @@ BASE_DIR = DATA_DIR  # Backward compatibility alias
 | `ffceb60` | Fix path inconsistencies in README.md |
 | `547588d` | Fix configuration inconsistencies in documentation and CLI |
 | `aaa22a5` | Update CLAUDE.md with correct paths and DATA_DIR documentation |
+| `2b31e86` | Fix path resolution: separate PROJECT_DIR and DATA_DIR |
+
+### Fix final des chemins (commit 2b31e86)
+
+Le problème `COGNIDOC_DATA_DIR=./data` causait des chemins doublés (`data/data/sources`).
+
+**Solution:** Séparation des variables:
+
+| Variable | Défaut | Usage |
+|----------|--------|-------|
+| `PROJECT_DIR` | `cwd()` | Racine projet (models/, config/) |
+| `DATA_DIR` | `PROJECT_DIR/data` | Données (sources/, pdfs/, etc.) |
+
+### Variables .env corrigées
+
+| Variable | Statut |
+|----------|--------|
+| `COGNIDOC_EMBEDDING_PROVIDER` | ✓ Correct |
+| `COGNIDOC_EMBEDDING_MODEL` | ✓ Correct |
+| `DEFAULT_EMBEDDING_PROVIDER` | ✗ N'existe pas |
+| `DEFAULT_EMBEDDING_MODEL` | ✗ N'existe pas |
+| `COMPLEXITY_THRESHOLD` | ✗ N'existe pas |
+| `COGNIDOC_DATA_DIR` | Optionnel (défaut = ./data) |
 
 ### Tests vérifiés
 
 ```bash
-# 148 passed, 2 skipped in 31.76s
+# 148 passed, 2 skipped in 30.05s
 pytest tests/ -v
 ```

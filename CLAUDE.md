@@ -380,13 +380,16 @@ See README.md "API Integration" section for detailed examples with curl, request
 
 ### Path Resolution (`src/cognidoc/constants.py`)
 
-CogniDoc uses the **current working directory** for data paths:
+CogniDoc uses the **current working directory** as project root:
 
-| Variable | Points to | Purpose |
-|----------|-----------|---------|
-| `DATA_DIR` | `Path.cwd()` | User data (configurable via `COGNIDOC_DATA_DIR`) |
-| `PACKAGE_DIR` | Package installation | Embedded resources (prompts) |
-| `BASE_DIR` | Alias for `DATA_DIR` | Backward compatibility |
+| Variable | Default | Env Override | Purpose |
+|----------|---------|--------------|---------|
+| `PROJECT_DIR` | `cwd()` | `COGNIDOC_PROJECT_DIR` | Project root (models/, config/) |
+| `DATA_DIR` | `PROJECT_DIR/data` | `COGNIDOC_DATA_DIR` | Data folder (sources/, pdfs/, etc.) |
+| `PACKAGE_DIR` | Package install | - | Embedded resources (prompts) |
+| `BASE_DIR` | = `PROJECT_DIR` | - | Backward compatibility |
+
+**Important:** If `COGNIDOC_DATA_DIR` is set, it should point to the data folder directly (containing `sources/`, `pdfs/`, etc.), not the project root.
 
 This allows CogniDoc to work correctly when installed as a package and used in a new project.
 
