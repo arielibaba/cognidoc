@@ -196,17 +196,19 @@ def format_ingestion_report(stats: dict, timing: dict) -> str:
         lines.append("│" + " CHUNKING & EMBEDDINGS ".center(68) + "│")
         lines.append("├" + "─" * 34 + "┬" + "─" * 33 + "┤")
 
-        total_chunks = embed_stats.get("total_chunks", 0)
-        from_cache = embed_stats.get("from_cache", 0)
-        newly_embedded = embed_stats.get("newly_embedded", 0)
-        cached_after = embed_stats.get("cached_embeddings_after", 0)
+        # Keys from create_embeddings: total_files, cached, to_embed, embedded, skipped_parent, skipped_short, errors
+        total_files = embed_stats.get("total_files", 0)
+        from_cache = embed_stats.get("cached", 0)
+        to_embed = embed_stats.get("to_embed", 0)
+        newly_embedded = embed_stats.get("embedded", 0)
+        skipped_parent = embed_stats.get("skipped_parent", 0)
+        total_chunks = from_cache + to_embed  # Total child chunks processed
 
-        lines.append(f"│ {'Total chunks':<32} │ {total_chunks:>31} │")
-        if from_cache > 0 or newly_embedded > 0:
-            lines.append(f"│ {'  From cache':<32} │ {from_cache:>31} │")
-            lines.append(f"│ {'  Newly embedded':<32} │ {newly_embedded:>31} │")
-        if cached_after > 0:
-            lines.append(f"│ {'Embeddings in cache':<32} │ {cached_after:>31} │")
+        lines.append(f"│ {'Child chunks processed':<32} │ {total_chunks:>31} │")
+        lines.append(f"│ {'  From cache':<32} │ {from_cache:>31} │")
+        lines.append(f"│ {'  Newly embedded':<32} │ {newly_embedded:>31} │")
+        if skipped_parent > 0:
+            lines.append(f"│ {'Parent chunks (not embedded)':<32} │ {skipped_parent:>31} │")
 
         lines.append("└" + "─" * 34 + "┴" + "─" * 33 + "┘")
 
