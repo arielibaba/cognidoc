@@ -163,6 +163,7 @@ def parse_image_with_table(
     model: str = None,
     system_prompt: str = None,
     user_prompt: str = None,
+    image_filter: list = None,
 ) -> dict:
     """
     Process all table images in a directory.
@@ -174,6 +175,8 @@ def parse_image_with_table(
         model: Model name (uses provider default if not specified)
         system_prompt: System prompt for extraction
         user_prompt: User prompt for extraction
+        image_filter: Optional list of PDF stems to filter images by.
+                     Detections are named {pdf_stem}_page_{n}_Table_{idx}.jpg.
 
     Returns:
         Statistics dictionary
@@ -189,6 +192,15 @@ def parse_image_with_table(
 
     # Find table images (YOLO-detected table regions)
     table_images = list(image_dir.glob("*_Table_*.jpg"))
+
+    # Filter by PDF stems if provided
+    if image_filter:
+        original_count = len(table_images)
+        table_images = [
+            p for p in table_images
+            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+        ]
+        logger.info(f"Filtered to {len(table_images)} table images (from {original_count}) matching filter")
     logger.info(f"Found {len(table_images)} table images to process")
 
     for image_path in table_images:

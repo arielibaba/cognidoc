@@ -527,7 +527,8 @@ def extract_objects_from_image(
     high_quality: bool = True,
     enable_fallback: bool = True,
     batch_size: int = 2,
-    use_batching: bool = True
+    use_batching: bool = True,
+    image_filter: list = None,
 ) -> Dict[str, int]:
     """
     Process all images in a directory with YOLO detection.
@@ -546,6 +547,9 @@ def extract_objects_from_image(
         batch_size: Number of images to process per GPU call (default: 2)
                    Recommended: 2-3 for M2/M3 16GB, 4-6 for systems with more VRAM
         use_batching: Enable batch processing (default: True)
+        image_filter: Optional list of PDF stems to filter images by.
+                     Images are named {pdf_stem}_page_{n}.png, so only images
+                     whose name starts with one of the stems will be processed.
 
     Returns:
         Statistics dictionary with counts
@@ -566,6 +570,16 @@ def extract_objects_from_image(
         p for p in input_path.glob("*")
         if p.suffix.lower() in [".jpg", ".jpeg", ".png"]
     ]
+
+    # Filter by PDF stems if provided
+    if image_filter:
+        original_count = len(image_paths)
+        # Images are named {pdf_stem}_page_{n}.png
+        image_paths = [
+            p for p in image_paths
+            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+        ]
+        logger.info(f"Filtered to {len(image_paths)} images (from {original_count}) matching filter")
 
     if not image_paths:
         logger.warning(f"No images found in {input_dir}")

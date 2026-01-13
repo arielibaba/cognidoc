@@ -127,6 +127,7 @@ async def create_image_descriptions_async(
     top_p: float = 0.85,
     max_concurrency: int = 5,
     max_retries: int = 3,
+    image_filter: list = None,
     # Legacy parameters for backward compatibility
     ollama_client=None,
     model_options: dict = None,
@@ -145,6 +146,8 @@ async def create_image_descriptions_async(
         top_p: Top-p sampling parameter
         max_concurrency: Maximum concurrent requests
         max_retries: Number of retry attempts per image
+        image_filter: Optional list of PDF stems to filter images by.
+                     Detections are named {pdf_stem}_page_{n}_Picture_{idx}.jpg.
         ollama_client: Legacy Ollama client (for backward compatibility)
         model_options: Legacy model options (for backward compatibility)
 
@@ -227,6 +230,16 @@ async def create_image_descriptions_async(
     # Find and filter images
     pipeline_timer.stage("finding_images")
     images = list(image_dir.glob("*_Picture_*.jpg"))
+
+    # Filter by PDF stems if provided
+    if image_filter:
+        original_count = len(images)
+        images = [
+            p for p in images
+            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+        ]
+        logger.info(f"Filtered to {len(images)} picture images (from {original_count}) matching filter")
+
     stats["total_images"] = len(images)
 
     # Filter by relevance

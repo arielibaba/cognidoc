@@ -162,6 +162,7 @@ def parse_image_with_text(
     model: str = None,
     system_prompt: str = None,
     user_prompt: str = None,
+    image_filter: list = None,
 ) -> dict:
     """
     Process all text images in a directory.
@@ -173,6 +174,8 @@ def parse_image_with_text(
         model: Model name (uses provider default if not specified)
         system_prompt: System prompt for extraction
         user_prompt: User prompt for extraction
+        image_filter: Optional list of PDF stems to filter images by.
+                     Detections are named {pdf_stem}_page_{n}_Text.jpg.
 
     Returns:
         Statistics dictionary
@@ -188,6 +191,15 @@ def parse_image_with_text(
 
     # Find text images (YOLO-detected text regions)
     text_images = list(image_dir.glob("*_Text.jpg"))
+
+    # Filter by PDF stems if provided
+    if image_filter:
+        original_count = len(text_images)
+        text_images = [
+            p for p in text_images
+            if any(p.stem.startswith(f"{stem}_page_") for stem in image_filter)
+        ]
+        logger.info(f"Filtered to {len(text_images)} text images (from {original_count}) matching filter")
     logger.info(f"Found {len(text_images)} text images to process")
 
     for image_path in text_images:

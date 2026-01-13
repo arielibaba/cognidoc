@@ -248,7 +248,15 @@ async def run_ingestion_pipeline_async(
     clear_pytorch_cache()
 
     # Track PDF stems for filtering in subsequent stages
+    # Compute pdf_filter directly from source_files to ensure filtering works
+    # even when conversion is skipped or files are already processed
     pdf_filter = None
+    if source_files:
+        # Extract stems from source files - for PDFs use stem directly,
+        # for other formats the converted PDF will have the same stem
+        pdf_filter = [Path(f).stem for f in source_files if Path(f).is_file()]
+        if pdf_filter:
+            logger.info(f"Will filter subsequent stages to {len(pdf_filter)} file(s): {pdf_filter}")
 
     # 2. Process source documents (copy PDFs, copy images, convert documents)
     if not skip_conversion:
@@ -262,10 +270,6 @@ async def run_ingestion_pipeline_async(
                 source_files=source_files,  # Limit to specific files if provided
             )
             stats["document_conversion"] = conversion_stats
-            # If specific files were processed, use their stems as filter for PDF conversion
-            if source_files and conversion_stats.get("processed_pdf_stems"):
-                pdf_filter = conversion_stats["processed_pdf_stems"]
-                logger.info(f"Will filter PDF conversion to {len(pdf_filter)} file(s)")
             logger.info(
                 f"Document processing completed: {conversion_stats['pdfs_copied']} PDFs copied, "
                 f"{conversion_stats['images_copied']} images copied, "
@@ -309,6 +313,7 @@ async def run_ingestion_pipeline_async(
                 enable_fallback=True,
                 batch_size=yolo_batch_size,
                 use_batching=use_yolo_batching,
+                image_filter=pdf_filter,  # Filter to specific files if provided
             )
             stats["yolo_detection"] = yolo_stats
             logger.info("YOLO detection completed")
@@ -327,6 +332,7 @@ async def run_ingestion_pipeline_async(
                 image_dir=DETECTION_DIR,
                 output_dir=PROCESSED_DIR,
                 provider=extraction_provider,
+                image_filter=pdf_filter,  # Filter to specific files if provided
             )
             stats["text_extraction"] = text_stats
 
@@ -335,6 +341,7 @@ async def run_ingestion_pipeline_async(
                 image_dir=DETECTION_DIR,
                 output_dir=PROCESSED_DIR,
                 provider=extraction_provider,
+                image_filter=pdf_filter,  # Filter to specific files if provided
             )
             stats["table_extraction"] = table_stats
             logger.info("Content extraction completed")
@@ -360,6 +367,7 @@ async def run_ingestion_pipeline_async(
                 provider=vision_provider,
                 max_concurrency=5,
                 max_retries=3,
+                image_filter=pdf_filter,  # Filter to specific files if provided
             )
             stats["image_description"] = desc_stats
             logger.info("Image description completed")
