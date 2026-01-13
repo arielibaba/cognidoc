@@ -1250,3 +1250,105 @@ Le problème `COGNIDOC_DATA_DIR=./data` causait des chemins doublés (`data/data
 # 148 passed, 2 skipped in 30.05s
 pytest tests/ -v
 ```
+
+---
+
+## Session 11 - 13 janvier 2026
+
+### 1. Rapport d'ingestion complet (`run_ingestion_pipeline.py`)
+
+Ajout d'un rapport détaillé affiché à la fin de chaque ingestion :
+
+```
+======================================================================
+                    INGESTION REPORT
+======================================================================
+
+┌────────────────────────────────────────────────────────────────────┐
+│                             DOCUMENTS                              │
+├──────────────────────────────────┬─────────────────────────────────┤
+│ Files processed                  │                               1 │
+│   Documents converted            │                               1 │
+│ PDFs converted to images         │                               1 │
+│ Total pages generated            │                               2 │
+└──────────────────────────────────┴─────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────┐
+│                           YOLO DETECTION                           │
+├──────────────────────────────────┬─────────────────────────────────┤
+│ Images processed                 │                               2 │
+│ Text regions detected            │                               2 │
+│ Table regions detected           │                               0 │
+│ Picture regions detected         │                               0 │
+└──────────────────────────────────┴─────────────────────────────────┘
+
+... (Content Extraction, Chunking & Embeddings, GraphRAG, Timing)
+```
+
+**Sections du rapport:**
+- **DOCUMENTS**: Fichiers traités, PDFs copiés, documents convertis, pages générées
+- **YOLO DETECTION**: Images traitées, régions texte/table/picture détectées
+- **CONTENT EXTRACTION**: Régions texte extraites, tables extraites, images décrites
+- **CHUNKING & EMBEDDINGS**: Child chunks, from cache, newly embedded, parent chunks
+- **KNOWLEDGE GRAPH**: Chunks traités, entités, relations, nœuds, arêtes, communautés, types d'entités
+- **TIMING**: Durée de chaque étape avec total formaté
+
+### 2. Fix tiktoken duplicate plugin
+
+**Problème:** Erreur `ValueError: Duplicate encoding name gpt2 in tiktoken plugin tiktoken_ext.openai_public` empêchant le chunking.
+
+**Cause:** Fichier dupliqué `openai_public 2.py` dans le répertoire `tiktoken_ext/` du venv.
+
+**Solution:** Suppression du fichier dupliqué.
+
+```bash
+rm ".venv/lib/python3.12/site-packages/tiktoken_ext/openai_public 2.py"
+```
+
+### 3. Fix stats embeddings dans le rapport
+
+**Problème:** Le rapport affichait 0 chunks alors que des chunks étaient créés.
+
+**Cause:** Mauvaises clés utilisées pour accéder aux stats de `create_embeddings()`.
+
+**Solution:** Correction des clés dans `format_ingestion_report()`:
+
+```python
+# Avant (incorrect)
+total_chunks = embed_stats.get("total_chunks", 0)
+from_cache = embed_stats.get("from_cache", 0)
+
+# Après (correct)
+from_cache = embed_stats.get("cached", 0)
+to_embed = embed_stats.get("to_embed", 0)
+newly_embedded = embed_stats.get("embedded", 0)
+total_chunks = from_cache + to_embed
+```
+
+### 4. Fichiers modifiés
+
+| Fichier | Modifications |
+|---------|---------------|
+| `src/cognidoc/run_ingestion_pipeline.py` | `format_ingestion_report()` function + integration at pipeline end |
+| `src/cognidoc/run_ingestion_pipeline.py` | Capture des stats PDF conversion |
+
+### 5. Commits session 11
+
+| Hash | Description |
+|------|-------------|
+| `fa2b1fd` | Add comprehensive ingestion report at pipeline end |
+| `0bca983` | Fix tiktoken duplicate plugin and embedding stats in report |
+
+### 6. Tests vérifiés
+
+```bash
+# Tests sur test_article.md et test_document.txt
+# Pipeline complet avec GraphRAG: ✅
+# Rapport affiché correctement: ✅
+# App lancée et requête testée: ✅
+```
+
+**Exemple test_document.txt:**
+- 1 document → 1 page → 5 child chunks
+- GraphRAG: 40 entités → 31 nœuds, 22 arêtes, 14 communautés
+- Temps total: 1m 37.7s

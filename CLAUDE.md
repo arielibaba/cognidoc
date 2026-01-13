@@ -117,6 +117,14 @@ Documents → PDF Conversion → Images (600 DPI) → YOLO Detection
                                             Hybrid Retriever
 ```
 
+**Ingestion Report:** At pipeline completion, a comprehensive report is displayed showing:
+- Documents processed, PDFs converted, pages generated
+- YOLO detection stats (text/table/picture regions)
+- Content extraction results
+- Chunking & embeddings (child chunks, cache hits, parent chunks)
+- GraphRAG stats (entities, relationships, nodes, edges, communities)
+- Timing breakdown for each stage
+
 ### Query Processing Flow
 
 ```

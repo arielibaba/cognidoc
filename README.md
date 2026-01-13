@@ -133,6 +133,7 @@ cognidoc info                       # Show current configuration
 - **Tool Caching**: TTL-based caching reduces latency for repeated queries
 - **Real-time Progress**: Visual streaming of agent reasoning (🤔⚡👁️💭)
 - **Clickable References**: Response citations link directly to source PDFs
+- **Ingestion Report**: Comprehensive summary at pipeline end (documents, YOLO, chunks, GraphRAG, timing)
 
 ---
 
