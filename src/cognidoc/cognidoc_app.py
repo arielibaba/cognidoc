@@ -157,6 +157,16 @@ def get_no_info_message(lang: str) -> str:
     }
     return messages.get(lang, "I could not find relevant information in the document base to answer this question.")
 
+
+# Prefixes used by the LLM to indicate "no information found" (for reference detection)
+NO_INFO_PREFIXES = (
+    "je n'ai pas trouvé d'informations",
+    "i could not find relevant information",
+    "no he encontrado información",
+    "ich habe keine relevanten informationen",
+    "no relevant details",
+)
+
 # Custom CSS for professional styling
 CUSTOM_CSS = """
 /* Global styles */
@@ -1102,9 +1112,10 @@ def chat_conversation(
 
     t6 = time.perf_counter()
 
-    # Add references
+    # Add references (only if the response is not a "no info" message)
     final = history[-1]["content"].strip()
-    if not final.lower().startswith("no relevant details"):
+    is_no_info = any(final.lower().startswith(prefix) for prefix in NO_INFO_PREFIXES)
+    if not is_no_info:
         final += "\n\n---\n**References:**\n" + "\n".join(refs)
 
     # #15: Citation verification (optional)
