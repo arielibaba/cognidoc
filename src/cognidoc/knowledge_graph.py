@@ -301,7 +301,11 @@ class KnowledgeGraph:
             logger.error(f"Community detection failed: {e}")
             return 0
 
-    def generate_community_summaries(self, compute_embeddings: bool = True) -> None:
+    def generate_community_summaries(
+        self,
+        compute_embeddings: bool = True,
+        skip_existing: bool = False,
+    ) -> None:
         """
         Generate summaries and embeddings for each community using LLM.
 
@@ -309,12 +313,22 @@ class KnowledgeGraph:
 
         Args:
             compute_embeddings: Whether to pre-compute embeddings for fast retrieval
+            skip_existing: If True, skip communities that already have a valid summary
+                          (not the default "Community of X related entities" placeholder)
         """
         if not self.communities:
             return
 
+        skipped = 0
+        generated = 0
+
         for community_id, community in self.communities.items():
             if not community.node_ids:
+                continue
+
+            # Skip communities with existing valid summaries
+            if skip_existing and community.summary and not community.summary.startswith("Community of "):
+                skipped += 1
                 continue
 
             # Get nodes in community
@@ -365,11 +379,17 @@ SUMMARY:"""
                     except Exception as embed_err:
                         logger.warning(f"Failed to compute embedding for community {community_id}: {embed_err}")
 
+                generated += 1
                 logger.debug(f"Generated summary for community {community_id}")
 
             except Exception as e:
                 logger.error(f"Failed to generate summary for community {community_id}: {e}")
                 community.summary = f"Community of {len(community.node_ids)} related entities"
+
+        if skip_existing:
+            logger.info(f"Community summaries: {generated} generated, {skipped} skipped (already had valid summary)")
+        else:
+            logger.info(f"Community summaries: {generated} generated")
 
     def get_node_by_name(self, name: str) -> Optional[GraphNode]:
         """Get a node by its name (case-insensitive)."""
