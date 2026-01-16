@@ -8,10 +8,14 @@ Provides:
 - Lost-in-the-middle reordering (#14)
 - Contextual compression (#13)
 - Smart result fusion with deduplication
+- Retrieval cache for identical queries
 """
 
+import hashlib
+import json
 import re
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
@@ -70,6 +74,91 @@ from .utils.logger import logger
 
 # Re-export QueryType for backward compatibility
 __all__ = ["QueryType", "HybridRetriever", "HybridRetrievalResult"]
+
+
+# =============================================================================
+# Retrieval Cache (for identical queries)
+# =============================================================================
+
+class RetrievalCache:
+    """
+    LRU cache for retrieval results.
+
+    Avoids re-executing expensive retrieval for identical queries.
+    Uses in-memory cache with TTL expiration.
+    """
+
+    def __init__(self, max_size: int = 50, ttl_seconds: int = 300):
+        """
+        Initialize retrieval cache.
+
+        Args:
+            max_size: Maximum number of cached results
+            ttl_seconds: Time-to-live in seconds (default 5 minutes)
+        """
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict[str, tuple] = OrderedDict()  # key -> (result, timestamp)
+        self._hits = 0
+        self._misses = 0
+
+    def _make_key(self, query: str, top_k: int, use_reranking: bool) -> str:
+        """Create cache key from query parameters."""
+        key_data = f"{query}|{top_k}|{use_reranking}"
+        return hashlib.md5(key_data.encode()).hexdigest()
+
+    def get(self, query: str, top_k: int, use_reranking: bool) -> Optional["HybridRetrievalResult"]:
+        """Get cached result if valid."""
+        key = self._make_key(query, top_k, use_reranking)
+
+        if key in self._cache:
+            result, timestamp = self._cache[key]
+            elapsed = time.time() - timestamp
+
+            if elapsed < self.ttl_seconds:
+                # Move to end (most recently used)
+                self._cache.move_to_end(key)
+                self._hits += 1
+                logger.debug(f"Retrieval cache HIT (age={elapsed:.1f}s)")
+                return result
+            else:
+                # Expired
+                del self._cache[key]
+
+        self._misses += 1
+        return None
+
+    def put(self, query: str, top_k: int, use_reranking: bool, result: "HybridRetrievalResult") -> None:
+        """Cache a retrieval result."""
+        key = self._make_key(query, top_k, use_reranking)
+
+        # Evict oldest if at capacity
+        if len(self._cache) >= self.max_size:
+            self._cache.popitem(last=False)
+
+        self._cache[key] = (result, time.time())
+
+    def clear(self) -> None:
+        """Clear the cache."""
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+
+    def stats(self) -> Dict[str, Any]:
+        """Return cache statistics."""
+        total = self._hits + self._misses
+        return {
+            "size": len(self._cache),
+            "max_size": self.max_size,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": self._hits / total if total > 0 else 0.0,
+            "ttl_seconds": self.ttl_seconds,
+        }
+
+
+# Global retrieval cache
+_retrieval_cache = RetrievalCache()
 
 
 @dataclass
@@ -220,6 +309,7 @@ class HybridRetriever:
         self._keyword_index: Optional[KeywordIndex] = None
         self._bm25_index: Optional[BM25Index] = None  # #7: BM25 for hybrid search
         self._graph_retriever: Optional[GraphRetriever] = None
+        self._graph_load_attempted: bool = False  # Track lazy loading attempts
 
     def load(self) -> Dict[str, bool]:
         """
@@ -273,22 +363,45 @@ class HybridRetriever:
             except Exception as e:
                 logger.warning(f"Failed to load/build BM25 index: {e}")
 
-        # Load graph retriever
-        try:
-            self._graph_retriever = GraphRetriever(self.graph_path, self.config)
-            if self._graph_retriever.load():
-                status["graph"] = True
-                logger.info("Knowledge graph loaded")
-            else:
-                logger.warning("Knowledge graph is empty or not found")
-        except Exception as e:
-            logger.warning(f"Failed to load knowledge graph: {e}")
+        # Graph retriever is lazy-loaded only when needed
+        # This saves memory and startup time when only vector search is used
+        self._graph_retriever = None
+        self._graph_load_attempted = False
+        status["graph"] = "lazy"
+        logger.info("Knowledge graph set to lazy loading (will load on first graph query)")
 
         return status
 
     def is_loaded(self) -> bool:
         """Check if at least vector index is loaded."""
         return self._vector_index is not None
+
+    def _ensure_graph_loaded(self) -> bool:
+        """
+        Lazy load the knowledge graph on first use.
+
+        Returns:
+            True if graph is loaded and available
+        """
+        if self._graph_retriever is not None:
+            return self._graph_retriever.is_loaded()
+
+        if self._graph_load_attempted:
+            return False
+
+        self._graph_load_attempted = True
+        try:
+            logger.info("Lazy loading knowledge graph...")
+            self._graph_retriever = GraphRetriever(self.graph_path, self.config)
+            if self._graph_retriever.load():
+                logger.info("Knowledge graph loaded successfully")
+                return True
+            else:
+                logger.warning("Knowledge graph is empty or not found")
+                return False
+        except Exception as e:
+            logger.warning(f"Failed to load knowledge graph: {e}")
+            return False
 
     def retrieve(
         self,
@@ -331,6 +444,14 @@ class HybridRetriever:
             model = DEFAULT_LLM_MODEL
         if top_k is None:
             top_k = TOP_K_RETRIEVED_CHILDREN
+
+        # Check retrieval cache for identical queries (skip if metadata filters or pre-computed routing)
+        use_cache = metadata_filters is None and pre_computed_routing is None
+        if use_cache:
+            cached_result = _retrieval_cache.get(query, top_k, use_reranking)
+            if cached_result is not None:
+                cached_result.metadata["from_cache"] = True
+                return cached_result
 
         # Use config defaults if not specified
         if use_hybrid_search is None:
@@ -506,9 +627,15 @@ class HybridRetriever:
         def _do_graph_retrieval():
             """Graph retrieval task (Entity matching + Community summaries)."""
             nonlocal graph_result, graph_confidence
-            if not (analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph):
-                if skip_graph:
-                    logger.info("Graph retrieval skipped by smart routing")
+            if skip_graph:
+                logger.info("Graph retrieval skipped by smart routing")
+                return
+            if not analysis.use_graph:
+                return
+
+            # Lazy load graph on first use
+            if not self._ensure_graph_loaded():
+                logger.debug("Graph not available, skipping graph retrieval")
                 return
 
             t_start = time.perf_counter()
@@ -526,7 +653,7 @@ class HybridRetriever:
 
         # Run both retrievals in parallel if both are needed
         need_vector = analysis.use_vector and self._vector_index and not skip_vector
-        need_graph = analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph
+        need_graph = analysis.use_graph and not skip_graph
 
         if need_vector and need_graph:
             # PARALLEL execution - significant latency reduction
@@ -588,7 +715,7 @@ class HybridRetriever:
         t_total_end = time.perf_counter()
         logger.info(f"Hybrid retrieval completed in {t_total_end - t_total_start:.2f}s")
 
-        return HybridRetrievalResult(
+        result = HybridRetrievalResult(
             query=query,
             query_analysis=analysis,
             vector_results=vector_results,
@@ -612,8 +739,15 @@ class HybridRetriever:
                 "graph_confidence": graph_confidence,
                 "vector_weight": analysis.vector_weight,
                 "graph_weight": analysis.graph_weight,
+                "from_cache": False,
             },
         )
+
+        # Cache result for future identical queries
+        if use_cache:
+            _retrieval_cache.put(query, top_k, use_reranking, result)
+
+        return result
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get statistics for all components."""
@@ -651,3 +785,14 @@ def hybrid_retrieve(
     """
     retriever = get_hybrid_retriever()
     return retriever.retrieve(query, top_k, use_reranking, model)
+
+
+def get_retrieval_cache_stats() -> Dict[str, Any]:
+    """Get retrieval cache statistics."""
+    return _retrieval_cache.stats()
+
+
+def clear_retrieval_cache() -> None:
+    """Clear the retrieval cache."""
+    _retrieval_cache.clear()
+    logger.info("Retrieval cache cleared")

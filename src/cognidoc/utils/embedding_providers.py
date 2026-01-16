@@ -93,7 +93,10 @@ class BaseEmbeddingProvider(ABC):
 
 
 class OllamaEmbeddingProvider(BaseEmbeddingProvider):
-    """Ollama local embedding provider with async batch support."""
+    """Ollama local embedding provider with async batch support and connection pooling."""
+
+    # Shared httpx client for connection reuse (class-level singleton)
+    _shared_async_client = None
 
     def __init__(self, config: EmbeddingConfig):
         super().__init__(config)
@@ -111,6 +114,18 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             raise ImportError(
                 "Ollama package not installed. Install with: pip install cognidoc[ollama]"
             )
+
+    @classmethod
+    def _get_async_client(cls, timeout: float):
+        """Get shared async client with connection pooling."""
+        import httpx
+        if cls._shared_async_client is None:
+            # Create client with connection pooling (keeps connections alive)
+            cls._shared_async_client = httpx.AsyncClient(
+                timeout=timeout,
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            )
+        return cls._shared_async_client
 
     def embed_single(self, text: str) -> List[float]:
         response = self.client.embeddings(model=self.config.model, prompt=text)
@@ -155,6 +170,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
         Uses asyncio to overlap network I/O while Ollama processes sequentially.
         This reduces total time by hiding network latency.
+        Uses connection pooling for better performance.
 
         Args:
             texts: List of texts to embed
@@ -164,23 +180,23 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             List of embeddings in same order as input texts
         """
         import asyncio
-        import httpx
 
         if not texts:
             return []
 
+        # Use shared client with connection pooling
+        client = self._get_async_client(self._timeout)
         semaphore = asyncio.Semaphore(max_concurrent)
         results = [None] * len(texts)
 
         async def embed_one(idx: int, text: str):
             async with semaphore:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    response = await client.post(
-                        f"{self._host}/api/embeddings",
-                        json={"model": self.config.model, "prompt": text}
-                    )
-                    response.raise_for_status()
-                    results[idx] = response.json()["embedding"]
+                response = await client.post(
+                    f"{self._host}/api/embeddings",
+                    json={"model": self.config.model, "prompt": text}
+                )
+                response.raise_for_status()
+                results[idx] = response.json()["embedding"]
 
         await asyncio.gather(*[embed_one(i, t) for i, t in enumerate(texts)])
         return results
