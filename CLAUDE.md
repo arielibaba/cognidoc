@@ -227,12 +227,125 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package. When runni
 ### Query Routing
 
 Query types determine vector/graph weight balance:
-- **FACTUAL**: 70% vector, 30% graph
-- **RELATIONAL**: 20% vector, 80% graph
-- **EXPLORATORY**: 0% vector, 100% graph (skips vector)
-- **PROCEDURAL**: 80% vector, 20% graph
+
+| Query Type | Vector Weight | Graph Weight | Use Case |
+|------------|--------------|--------------|----------|
+| **FACTUAL** | 70% | 30% | Simple fact lookup ("What is X?") |
+| **RELATIONAL** | 20% | 80% | Entity relationships ("How does X relate to Y?") |
+| **EXPLORATORY** | 0% | 100% | Broad topics ("Tell me about X") |
+| **PROCEDURAL** | 80% | 20% | Step-by-step ("How to do X?") |
 
 Skip logic: if weight < 15%, that retriever is skipped entirely.
+
+### Retrieval Architecture Deep Dive
+
+The retrieval system uses a **3-level fusion architecture**:
+
+```
+                              User Query
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │      Query Routing        │
+                    │  (type, skip_vector,      │
+                    │   skip_graph)             │
+                    └─────────────┬─────────────┘
+                                  │
+          ┌───────────────────────┼───────────────────────┐
+          │                       │                       │
+          ▼                       │                       ▼
+┌─────────────────────┐           │           ┌─────────────────────┐
+│  VECTOR RETRIEVAL   │           │           │  GRAPH RETRIEVAL    │
+│  (hybrid_retriever) │           │           │  (graph_retriever)  │
+└─────────┬───────────┘           │           └─────────┬───────────┘
+          │                       │                     │
+    ┌─────┴─────┐                 │           ┌────────┴────────┐
+    │           │                 │           │                 │
+    ▼           ▼                 │           ▼                 ▼
+┌───────┐  ┌───────┐              │    ┌───────────┐    ┌────────────┐
+│ DENSE │  │SPARSE │              │    │  Entity   │    │ Community  │
+│Vector │  │ BM25  │              │    │ Matching  │    │ Summaries  │
+└───┬───┘  └───┬───┘              │    └─────┬─────┘    └─────┬──────┘
+    │          │                  │          │                │
+    └────┬─────┘                  │          └────────┬───────┘
+         │                        │                   │
+         ▼                        │                   ▼
+┌─────────────────┐               │         ┌────────────────┐
+│ LEVEL 1: HYBRID │               │         │ Graph Context  │
+│ FUSION (RRF)    │               │         │ + Entities     │
+│ α=0.6 default   │               │         │ + Relations    │
+└────────┬────────┘               │         └───────┬────────┘
+         │                        │                 │
+         ▼                        │                 │
+┌─────────────────┐               │                 │
+│ Child → Parent  │               │                 │
+│ Deduplication   │               │                 │
+└────────┬────────┘               │                 │
+         │                        │                 │
+         ▼                        │                 │
+┌─────────────────┐               │                 │
+│ Reranking (LLM  │               │                 │
+│ or CrossEncoder)│               │                 │
+│ Top 5 parents   │               │                 │
+└────────┬────────┘               │                 │
+         │                        │                 │
+         └─────────────┬──────────┴─────────────────┘
+                       │
+                       ▼
+             ┌─────────────────────┐
+             │  LEVEL 3: FINAL     │
+             │  FUSION (weighted)  │
+             │  fuse_results()     │
+             └─────────┬───────────┘
+                       │
+                       ▼
+             ┌─────────────────────┐
+             │  Combined Context   │
+             │  for LLM Generation │
+             └─────────────────────┘
+```
+
+#### Three Levels of Fusion
+
+| Level | Components | Method | Configuration |
+|-------|-----------|--------|---------------|
+| **1. Hybrid** | Dense (Vector) + Sparse (BM25) | RRF (Reciprocal Rank Fusion) | `HYBRID_DENSE_WEIGHT=0.6` (α) |
+| **2. Parallel** | Vector Retrieval ∥ Graph Retrieval | Independent execution | Controlled by query routing |
+| **3. Final** | Vector Results + Graph Results | Weighted fusion | Based on query type (see table above) |
+
+#### Hybrid Search Formula (Level 1)
+
+The RRF formula combines dense and sparse rankings:
+
+```
+Score = α × (1/(k + rank_dense)) + (1-α) × (1/(k + rank_sparse))
+
+Where:
+- α = HYBRID_DENSE_WEIGHT (default 0.6 = 60% dense, 40% sparse)
+- k = 60 (RRF constant)
+- rank_dense = position in vector search results
+- rank_sparse = position in BM25 search results
+```
+
+#### Vector Retrieval Flow (Detailed)
+
+```
+Query → Dense Search (Qdrant) ──┐
+                                ├── RRF Fusion → Children (top 10)
+Query → BM25 Search ────────────┘
+                                         │
+                                         ▼
+                              Child → Parent Mapping
+                              (deduplicate by parent)
+                                         │
+                                         ▼
+                              Reranking (LLM or CrossEncoder)
+                              → Parents (top 5)
+```
+
+Key constants:
+- `TOP_K_RETRIEVED_CHILDREN=10`: Initial retrieval count
+- `TOP_K_RERANKED_PARENTS=5`: Final count after reranking
+- `HYBRID_DENSE_WEIGHT=0.6`: Dense vs sparse balance
 
 ### Agentic RAG
 

@@ -191,6 +191,91 @@ User Query → Query Rewriter → Classifier + Complexity Evaluator
 | **EXPLORATORY** | "List all main topics" | 0% | 100% |
 | **PROCEDURAL** | "How to configure X?" | 80% | 20% |
 
+### Retrieval Architecture Deep Dive
+
+The retrieval system uses a **3-level fusion architecture**:
+
+```
+                              User Query
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │      Query Routing        │
+                    └─────────────┬─────────────┘
+                                  │
+          ┌───────────────────────┼───────────────────────┐
+          │                       │                       │
+          ▼                       │                       ▼
+┌─────────────────────┐           │           ┌─────────────────────┐
+│  VECTOR RETRIEVAL   │           │           │  GRAPH RETRIEVAL    │
+└─────────┬───────────┘           │           └─────────┬───────────┘
+          │                       │                     │
+    ┌─────┴─────┐                 │           ┌────────┴────────┐
+    ▼           ▼                 │           ▼                 ▼
+┌───────┐  ┌───────┐              │    ┌───────────┐    ┌────────────┐
+│ DENSE │  │SPARSE │              │    │  Entity   │    │ Community  │
+│Vector │  │ BM25  │              │    │ Matching  │    │ Summaries  │
+└───┬───┘  └───┬───┘              │    └─────┬─────┘    └─────┬──────┘
+    │          │                  │          │                │
+    └────┬─────┘                  │          └────────┬───────┘
+         │                        │                   │
+         ▼                        │                   ▼
+┌─────────────────┐               │         ┌────────────────┐
+│ LEVEL 1: HYBRID │               │         │ Graph Context  │
+│ FUSION (RRF)    │               │         │ + Entities     │
+│ α=0.6 default   │               │         └───────┬────────┘
+└────────┬────────┘               │                 │
+         │                        │                 │
+         ▼                        │                 │
+┌─────────────────┐               │                 │
+│ Child → Parent  │               │                 │
+│ + Reranking     │               │                 │
+└────────┬────────┘               │                 │
+         │                        │                 │
+         └─────────────┬──────────┴─────────────────┘
+                       │
+                       ▼
+             ┌─────────────────────┐
+             │  LEVEL 3: FINAL     │
+             │  FUSION (weighted   │
+             │  by query type)     │
+             └─────────────────────┘
+```
+
+#### Three Levels of Fusion
+
+| Level | Components | Method | Configuration |
+|-------|-----------|--------|---------------|
+| **1. Hybrid** | Dense (Vector) + Sparse (BM25) | RRF (Reciprocal Rank Fusion) | `HYBRID_DENSE_WEIGHT=0.6` |
+| **2. Parallel** | Vector Retrieval ∥ Graph Retrieval | Independent execution | Query routing decides skips |
+| **3. Final** | Vector Results + Graph Results | Weighted fusion | Based on query type (table above) |
+
+#### Hybrid Search Formula (Level 1)
+
+```
+Score = α × 1/(60 + rank_dense) + (1-α) × 1/(60 + rank_sparse)
+
+Where α = HYBRID_DENSE_WEIGHT (default 0.6)
+```
+
+#### Vector Retrieval Internal Flow
+
+```
+Query → Dense Search (Qdrant) ──┐
+                                ├── RRF Fusion → Children (top 10)
+Query → BM25 Search ────────────┘
+                                         │
+                                         ▼
+                              Child → Parent Mapping (dedupe)
+                                         │
+                                         ▼
+                              Reranking → Parents (top 5)
+```
+
+**Key constants:**
+- `TOP_K_RETRIEVED_CHILDREN=10`
+- `TOP_K_RERANKED_PARENTS=5`
+- `HYBRID_DENSE_WEIGHT=0.6`
+
 ---
 
 ## Agentic RAG
