@@ -204,7 +204,7 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package. When runni
 | `src/cognidoc/api.py` | Main CogniDoc class (public API) |
 | `src/cognidoc/run_ingestion_pipeline.py` | Async pipeline orchestrator |
 | `src/cognidoc/cognidoc_app.py` | Gradio chat with FastAPI static file serving |
-| `src/cognidoc/hybrid_retriever.py` | Vector + Graph fusion with query orchestration |
+| `src/cognidoc/hybrid_retriever.py` | Vector + Graph fusion with query orchestration and caching |
 | `src/cognidoc/knowledge_graph.py` | NetworkX graph with Louvain community detection |
 | `src/cognidoc/query_orchestrator.py` | LLM-based query classification and routing |
 | `src/cognidoc/complexity.py` | Query complexity evaluation for agentic routing |
@@ -216,7 +216,7 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package. When runni
 | `src/cognidoc/utils/llm_client.py` | Singleton LLM client (Gemini default) |
 | `src/cognidoc/utils/llm_providers.py` | Multi-provider abstraction layer |
 | `src/cognidoc/utils/rag_utils.py` | Document, VectorIndex, KeywordIndex classes |
-| `src/cognidoc/utils/embedding_providers.py` | Embedding providers with async batch support |
+| `src/cognidoc/utils/embedding_providers.py` | Embedding providers with async batch and connection pooling |
 | `src/cognidoc/utils/tool_cache.py` | Persistent SQLite cache for tool results |
 | `src/cognidoc/utils/metrics.py` | Performance metrics with SQLite storage |
 | `src/cognidoc/create_embeddings.py` | Batched async embedding generation |
@@ -438,6 +438,27 @@ create_embeddings(chunks_dir, embeddings_dir, batch_size=32, max_concurrent=4)
 - `max_concurrent=4` for embeddings (overlaps network I/O)
 - `yolo_batch_size=2` for YOLO detection (batch inference)
 - `entity_max_concurrent=4` for async entity extraction
+
+**Query-Time Optimizations:**
+
+| Optimization | Module | Impact |
+|--------------|--------|--------|
+| Parallel Retrieval | `hybrid_retriever.py` | Vector + Graph run concurrently via `ThreadPoolExecutor` |
+| Retrieval Cache | `hybrid_retriever.py` | LRU cache (50 entries, 5min TTL) for identical queries |
+| Lazy Graph Loading | `hybrid_retriever.py` | Graph loaded only on first graph query |
+| Query Embedding Cache | `utils/rag_utils.py` | Avoids recomputing same query embedding |
+| HNSW Index | `utils/rag_utils.py` | Faster approximate vector search (m=16, ef=100) |
+| HTTP Connection Pooling | `utils/embedding_providers.py` | Shared `httpx.AsyncClient` for Ollama embeddings |
+
+```python
+# Retrieval cache API
+from cognidoc.hybrid_retriever import get_retrieval_cache_stats, clear_retrieval_cache
+
+stats = get_retrieval_cache_stats()
+# {'size': 5, 'hits': 12, 'misses': 8, 'hit_rate': 0.6, 'ttl_seconds': 300}
+
+clear_retrieval_cache()  # Clear cache manually
+```
 
 **Tool Result Caching** (`agent_tools.py`):
 ```python
