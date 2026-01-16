@@ -11,6 +11,8 @@ Provides:
 """
 
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -340,6 +342,8 @@ class HybridRetriever:
         if use_compression is None:
             use_compression = ENABLE_CONTEXTUAL_COMPRESSION
 
+        t_total_start = time.perf_counter()
+
         # Smart routing with orchestrator
         if pre_computed_routing is not None:
             # Use pre-computed routing (from parallel rewrite+classify)
@@ -364,16 +368,28 @@ class HybridRetriever:
             analysis = analyze_query(query, self.config)
             routing = None
 
-        # Initialize results
+        t_routing_end = time.perf_counter()
+
+        # Determine what to skip
+        skip_vector = routing.skip_vector if routing else False
+        skip_graph = routing.skip_graph if routing else False
+
+        # =======================================================================
+        # PARALLEL RETRIEVAL: Vector and Graph run concurrently
+        # This significantly reduces latency by overlapping slow operations
+        # =======================================================================
         vector_results = []
         graph_result = None
         vector_confidence = 0.0
         graph_confidence = 0.0
 
-        # Vector retrieval (with optional BM25 hybrid)
-        # Skip if routing says so
-        skip_vector = routing.skip_vector if routing else False
-        if analysis.use_vector and self._vector_index and not skip_vector:
+        def _do_vector_retrieval():
+            """Vector retrieval task (Dense + BM25 + Parent + Rerank)."""
+            nonlocal vector_results, vector_confidence
+            if not (analysis.use_vector and self._vector_index and not skip_vector):
+                return
+
+            t_start = time.perf_counter()
             try:
                 # Dense vector search
                 dense_results = self._vector_index.search(query, top_k=top_k)
@@ -476,32 +492,60 @@ class HybridRetriever:
                     if parent_results:
                         vector_results = parent_results
 
+                # Calculate confidence
+                if vector_results:
+                    avg_score = sum(nws.score for nws in vector_results) / len(vector_results)
+                    vector_confidence = min(1.0, avg_score)
+
+                t_elapsed = time.perf_counter() - t_start
+                logger.debug(f"Vector retrieval: {len(vector_results)} results in {t_elapsed:.2f}s")
+
             except Exception as e:
                 logger.error(f"Vector retrieval failed: {e}")
 
-        # Calculate vector confidence
-        if vector_results:
-            avg_score = sum(nws.score for nws in vector_results) / len(vector_results)
-            vector_confidence = min(1.0, avg_score)
-        else:
-            vector_confidence = 0.0
+        def _do_graph_retrieval():
+            """Graph retrieval task (Entity matching + Community summaries)."""
+            nonlocal graph_result, graph_confidence
+            if not (analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph):
+                if skip_graph:
+                    logger.info("Graph retrieval skipped by smart routing")
+                return
 
-        # Graph retrieval
-        # Skip if routing says so
-        skip_graph = routing.skip_graph if routing else False
-        if analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph:
+            t_start = time.perf_counter()
             try:
                 graph_result = self._graph_retriever.retrieve(query)
                 graph_confidence = graph_result.confidence
+                t_elapsed = time.perf_counter() - t_start
                 logger.debug(
                     f"Graph retrieval: {len(graph_result.entities)} entities, "
-                    f"confidence={graph_result.confidence:.2f}"
+                    f"confidence={graph_result.confidence:.2f}, time={t_elapsed:.2f}s"
                 )
             except Exception as e:
                 logger.error(f"Graph retrieval failed: {e}")
                 graph_confidence = 0.0
-        elif skip_graph:
-            logger.info("Graph retrieval skipped by smart routing")
+
+        # Run both retrievals in parallel if both are needed
+        need_vector = analysis.use_vector and self._vector_index and not skip_vector
+        need_graph = analysis.use_graph and self._graph_retriever and self._graph_retriever.is_loaded() and not skip_graph
+
+        if need_vector and need_graph:
+            # PARALLEL execution - significant latency reduction
+            logger.debug("Running vector and graph retrieval in parallel")
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(_do_vector_retrieval),
+                    executor.submit(_do_graph_retrieval),
+                ]
+                # Wait for both to complete
+                for future in as_completed(futures):
+                    try:
+                        future.result()  # Raises exception if task failed
+                    except Exception as e:
+                        logger.error(f"Parallel retrieval task failed: {e}")
+        else:
+            # Sequential execution - only one retrieval needed
+            _do_vector_retrieval()
+            _do_graph_retrieval()
 
         # Confidence-based fallback adjustment
         if routing and (vector_confidence > 0 or graph_confidence > 0):
@@ -540,6 +584,9 @@ class HybridRetriever:
                     logger.debug(f"Applied contextual compression: {len(compressed_texts)} segments")
             except Exception as e:
                 logger.warning(f"Contextual compression failed: {e}")
+
+        t_total_end = time.perf_counter()
+        logger.info(f"Hybrid retrieval completed in {t_total_end - t_total_start:.2f}s")
 
         return HybridRetrievalResult(
             query=query,
