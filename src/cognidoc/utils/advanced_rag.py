@@ -11,7 +11,9 @@ Implements:
 
 import re
 import math
+import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
@@ -372,17 +374,20 @@ def compress_context(
     documents: List[Any],
     model: str = None,  # Deprecated, uses configured LLM provider
     max_tokens_per_doc: int = 200,
+    max_workers: int = 4,
 ) -> List[str]:
     """
     Compress documents to extract only query-relevant information.
 
     Reduces token usage while maintaining relevant context.
+    Uses parallel LLM calls for improved performance.
 
     Args:
         query: The user's query
         documents: List of documents to compress
         model: Deprecated, uses configured LLM provider (Gemini by default)
         max_tokens_per_doc: Target max tokens per compressed doc
+        max_workers: Maximum parallel LLM calls (default: 4)
 
     Returns:
         List of compressed document texts
@@ -390,15 +395,15 @@ def compress_context(
     if not documents:
         return []
 
-    compressed = []
+    t_start = time.perf_counter()
 
-    for doc in documents:
+    def _compress_single(doc_idx: int, doc: Any) -> Tuple[int, Optional[str]]:
+        """Compress a single document. Returns (index, compressed_text or None)."""
         text = doc.text if hasattr(doc, 'text') else str(doc)
 
         # Skip if already short
         if len(text.split()) < max_tokens_per_doc:
-            compressed.append(text)
-            continue
+            return (doc_idx, text)
 
         prompt = f"""Extract ONLY the parts of this document that are relevant to the query.
 Keep it concise (under {max_tokens_per_doc} words). If nothing is relevant, respond with "NOT_RELEVANT".
@@ -417,14 +422,43 @@ Relevant extract:"""
             ).strip()
 
             if result and result != "NOT_RELEVANT":
-                compressed.append(result)
-            # Skip if not relevant
+                return (doc_idx, result)
+            return (doc_idx, None)  # Not relevant
 
         except Exception as e:
-            logger.warning(f"Compression failed for document: {e}")
+            logger.warning(f"Compression failed for document {doc_idx}: {e}")
             # Fallback: truncate
             words = text.split()[:max_tokens_per_doc]
-            compressed.append(" ".join(words))
+            return (doc_idx, " ".join(words))
+
+    # Run compression in parallel
+    results: Dict[int, Optional[str]] = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_compress_single, idx, doc): idx
+            for idx, doc in enumerate(documents)
+        }
+
+        for future in as_completed(futures):
+            try:
+                doc_idx, compressed_text = future.result()
+                results[doc_idx] = compressed_text
+            except Exception as e:
+                logger.error(f"Compression task failed: {e}")
+
+    # Rebuild list in original order, filtering out None (not relevant)
+    compressed = [
+        results[idx]
+        for idx in sorted(results.keys())
+        if results[idx] is not None
+    ]
+
+    t_elapsed = time.perf_counter() - t_start
+    logger.debug(
+        f"Contextual compression: {len(documents)} docs -> {len(compressed)} relevant "
+        f"in {t_elapsed:.2f}s (parallel, {max_workers} workers)"
+    )
 
     return compressed
 
