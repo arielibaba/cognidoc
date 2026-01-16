@@ -1419,6 +1419,15 @@ _qdrant_result_cache.clear()
 | Hash | Description |
 |------|-------------|
 | `1c88a9d` | Add 6 safe performance optimizations |
+| `84d5663` | Update documentation with session 12 |
+| `3f37f11` | Update README.md with query-time optimizations |
+
+### Test sur projet réel (cognidoc-theologie-morale)
+
+- **17,265 documents** indexés
+- **18,817 entités** dans le graphe
+- **1,694 communautés** détectées
+- Toutes les optimisations fonctionnent correctement
 
 ### Notes
 
