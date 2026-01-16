@@ -167,6 +167,61 @@ NO_INFO_PREFIXES = (
     "no relevant details",
 )
 
+
+def format_sources_html(sources: list[dict]) -> str:
+    """
+    Format sources as a clean numbered list (Perplexity/ChatGPT style).
+
+    Args:
+        sources: List of dicts with keys: url, title, folder, page_display
+
+    Returns:
+        HTML string for the sources section
+    """
+    if not sources:
+        return ""
+
+    # Build numbered source list
+    items_html = []
+    for i, src in enumerate(sources, 1):
+        url = src.get("url", "#")
+        title = src.get("title", "Document")
+        folder = src.get("folder", "")
+        page_display = src.get("page_display", "")
+
+        # Build display: folder/title or just title
+        if folder:
+            display_path = f"{folder}/{title}"
+        else:
+            display_path = title
+
+        # Truncate if too long
+        if len(display_path) > 80:
+            display_path = display_path[:77] + "..."
+
+        # Add page info
+        page_suffix = f" · {page_display}" if page_display else ""
+
+        item = f'<div class="source-item-wrapper"><a href="{url}" target="_blank" rel="noopener" class="source-item">[{i}] {display_path}{page_suffix}</a></div>'
+        items_html.append(item)
+
+    # Join with newlines to ensure one source per line
+    sources_list = "\n".join(items_html)
+
+    # Use a spacer div with explicit height for guaranteed visual separation
+    # This ensures the gap before sources is always larger than paragraph gaps
+    html = f'''<div class="sources-spacer"></div>
+<div class="sources-section">
+<div class="sources-divider"></div>
+<div class="sources-title">Sources</div>
+<div class="sources-list">
+{sources_list}
+</div>
+</div>'''
+
+    return html
+
+
 # Custom CSS for professional styling
 CUSTOM_CSS = """
 /* Global styles */
@@ -690,6 +745,75 @@ body.dark-mode th {
 body.dark-mode td {
     border-color: var(--border-color) !important;
 }
+
+/* Sources section styling - Clean numbered list */
+/* Spacer to guarantee larger gap before sources than between paragraphs */
+/* Paragraphs typically have ~1em margin, so we use 3em+ for clear separation */
+.sources-spacer {
+    display: block;
+    height: 3em;
+    min-height: 3em;
+}
+
+.sources-section {
+    margin-top: 0;
+    padding-top: 1em;
+}
+
+.sources-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, #e2e8f0 20%, #e2e8f0 80%, transparent);
+    margin-bottom: 1rem;
+}
+
+.sources-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.75rem;
+}
+
+.sources-list {
+    display: block;
+}
+
+.source-item-wrapper {
+    display: block;
+    margin-bottom: 0.35rem;
+}
+
+.source-item {
+    display: inline;
+    font-size: 0.85rem;
+    color: #475569;
+    text-decoration: none;
+    transition: color 0.15s ease;
+    line-height: 1.6;
+}
+
+.source-item:hover {
+    color: #667eea;
+    text-decoration: none;
+}
+
+/* Dark mode for sources */
+body.dark-mode .sources-divider {
+    background: linear-gradient(to right, transparent, var(--border-color) 20%, var(--border-color) 80%, transparent);
+}
+
+body.dark-mode .sources-title {
+    color: #94a3b8;
+}
+
+body.dark-mode .source-item {
+    color: #94a3b8;
+}
+
+body.dark-mode .source-item:hover {
+    color: #a5b4fc;
+}
 """
 
 
@@ -1052,9 +1176,9 @@ def chat_conversation(
             except (ValueError, TypeError):
                 doc_pages[doc].add(page)
 
-    # Format references with consolidated page numbers and clickable links
-    refs = []
-    for i, (doc, pages) in enumerate(doc_pages.items(), 1):
+    # Format references with consolidated page numbers for styled display
+    sources = []
+    for doc, pages in doc_pages.items():
         # Create PDF file path - URL encoded filename
         # doc may contain path separators for subdirectories (e.g., "projet_A/doc")
         pdf_filename = f"{doc}.pdf"
@@ -1063,25 +1187,44 @@ def chat_conversation(
         # Use /pdfs/ path for FastAPI static file serving
         base_url = f"/pdfs/{encoded_filename}"
 
+        # Extract folder and filename from doc path
+        if "/" in doc:
+            parts = doc.rsplit("/", 1)
+            folder = parts[0]
+            title = parts[1]
+        else:
+            folder = ""
+            title = doc
+
+        # Build page display and URL with page anchor
         if not pages:
-            # No page info - link to document
-            refs.append(f'{i}. <a href="{base_url}" target="_blank" rel="noopener">{doc}</a>')
+            page_display = ""
+            url = base_url
         elif len(pages) == 1:
             page_num = list(pages)[0]
-            refs.append(f'{i}. <a href="{base_url}#page={page_num}" target="_blank" rel="noopener">{doc}</a> - Page {page_num}')
+            page_display = f"p. {page_num}"
+            url = f"{base_url}#page={page_num}"
         else:
-            # Sort pages and create range or list
             sorted_pages = sorted(p for p in pages if isinstance(p, int))
             if sorted_pages:
                 first_page = min(sorted_pages)
-                # Check if consecutive for range format
                 if sorted_pages == list(range(first_page, max(sorted_pages) + 1)):
-                    refs.append(f'{i}. <a href="{base_url}#page={first_page}" target="_blank" rel="noopener">{doc}</a> - Pages {first_page}-{max(sorted_pages)}')
+                    page_display = f"pp. {first_page}-{max(sorted_pages)}"
                 else:
-                    refs.append(f'{i}. <a href="{base_url}#page={first_page}" target="_blank" rel="noopener">{doc}</a> - Pages {", ".join(map(str, sorted_pages))}')
+                    page_display = f"pp. {', '.join(map(str, sorted_pages[:3]))}" + ("..." if len(sorted_pages) > 3 else "")
+                url = f"{base_url}#page={first_page}"
             else:
-                refs.append(f'{i}. <a href="{base_url}" target="_blank" rel="noopener">{doc}</a> - Pages {", ".join(map(str, pages))}')
-        if len(refs) >= TOP_K_REFS:
+                page_display = f"pp. {', '.join(map(str, list(pages)[:3]))}"
+                url = base_url
+
+        sources.append({
+            "url": url,
+            "title": title,
+            "folder": folder,
+            "page_display": page_display
+        })
+
+        if len(sources) >= TOP_K_REFS:
             break
 
     # Load prompts
@@ -1115,8 +1258,8 @@ def chat_conversation(
     # Add references (only if the response is not a "no info" message)
     final = history[-1]["content"].strip()
     is_no_info = any(final.lower().startswith(prefix) for prefix in NO_INFO_PREFIXES)
-    if not is_no_info:
-        final += "\n\n---\n**References:**\n" + "\n".join(refs)
+    if not is_no_info and sources:
+        final += "\n\n" + format_sources_html(sources)
 
     # #15: Citation verification (optional)
     if ENABLE_CITATION_VERIFICATION and reranked:
