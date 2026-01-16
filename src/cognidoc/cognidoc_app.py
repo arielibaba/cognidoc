@@ -1116,7 +1116,12 @@ def chat_conversation(
     # ==========================================================================
 
     # Show processing indicator immediately for better perceived performance
-    history.append({"role": "assistant", "content": "*🔍 Searching knowledge base...*"})
+    # Extended streaming prefetch: show retrieval mode for better user feedback
+    if enable_graph and hybrid_retriever.is_loaded():
+        search_mode = "vector + graph" if routing_decision and not routing_decision.skip_graph else "vector"
+        history.append({"role": "assistant", "content": f"*🔍 Searching knowledge base ({search_mode})...*"})
+    else:
+        history.append({"role": "assistant", "content": "*🔍 Searching knowledge base...*"})
     yield convert_history_to_tuples(history)
 
     # Retrieval (hybrid or vector-only)

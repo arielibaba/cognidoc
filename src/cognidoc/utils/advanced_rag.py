@@ -16,9 +16,27 @@ import time
 from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import json
+
+
+# =============================================================================
+# BM25 Tokenization Cache (module-level for reuse across instances)
+# =============================================================================
+
+@lru_cache(maxsize=1000)
+def _cached_tokenize(text: str) -> tuple:
+    """
+    Cached tokenization for BM25 queries.
+
+    Returns tuple (immutable) for caching compatibility.
+    Same query always produces same tokens - safe to cache.
+    """
+    text_lower = text.lower()
+    tokens = tuple(re.findall(r'\b\w+\b', text_lower))
+    return tokens
 
 from .logger import logger
 from .llm_client import llm_chat
@@ -231,7 +249,8 @@ class BM25Index:
         Returns:
             List of (document, score) tuples sorted by score descending
         """
-        query_tokens = self._tokenize(query)
+        # Use cached tokenization for queries (same query = same tokens)
+        query_tokens = list(_cached_tokenize(query))
 
         scores = []
         for idx in range(self.N):
@@ -479,10 +498,15 @@ def cross_encoder_rerank(
         return (idx, doc, score)
 
     # Score documents in parallel
+    # Adaptive batch size: use min(batch_size, num_docs, cpu_count * 2)
+    # No need for more workers than documents or more than 2x CPU cores
+    import os
+    cpu_count = os.cpu_count() or 4
+    effective_batch_size = min(batch_size, len(documents), cpu_count * 2)
     scored_docs = []
     doc_items = list(enumerate(documents))
 
-    with ThreadPoolExecutor(max_workers=batch_size) as executor:
+    with ThreadPoolExecutor(max_workers=effective_batch_size) as executor:
         futures = {executor.submit(_score_doc, item): item[0] for item in doc_items}
 
         for future in as_completed(futures):

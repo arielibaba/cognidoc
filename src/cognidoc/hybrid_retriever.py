@@ -308,6 +308,7 @@ class HybridRetriever:
         self._vector_index: Optional[VectorIndex] = None
         self._keyword_index: Optional[KeywordIndex] = None
         self._bm25_index: Optional[BM25Index] = None  # #7: BM25 for hybrid search
+        self._bm25_load_attempted: bool = False  # Track lazy loading attempts
         self._graph_retriever: Optional[GraphRetriever] = None
         self._graph_load_attempted: bool = False  # Track lazy loading attempts
 
@@ -342,26 +343,12 @@ class HybridRetriever:
         except Exception as e:
             logger.warning(f"Failed to load keyword index: {e}")
 
-        # Load BM25 index (#7: Hybrid search)
-        if ENABLE_HYBRID_SEARCH:
-            try:
-                if Path(self.bm25_index_path).exists():
-                    self._bm25_index = BM25Index.load(self.bm25_index_path)
-                    status["bm25_index"] = True
-                    logger.info("BM25 index loaded for hybrid search")
-                else:
-                    # Build BM25 index from keyword index documents
-                    if self._keyword_index:
-                        self._bm25_index = BM25Index(k1=BM25_K1, b=BM25_B)
-                        docs = self._keyword_index.get_all_documents()
-                        if docs:
-                            bm25_docs = [{"text": d.text, "metadata": d.metadata} for d in docs]
-                            self._bm25_index.add_documents(bm25_docs)
-                            self._bm25_index.save(self.bm25_index_path)
-                            status["bm25_index"] = True
-                            logger.info(f"Built and saved BM25 index with {len(docs)} documents")
-            except Exception as e:
-                logger.warning(f"Failed to load/build BM25 index: {e}")
+        # BM25 index is lazy-loaded only when hybrid search is actually used
+        # This saves memory and startup time when only dense vector search is used
+        self._bm25_index = None
+        self._bm25_load_attempted = False
+        status["bm25_index"] = "lazy"
+        logger.info("BM25 index set to lazy loading (will load on first hybrid search)")
 
         # Graph retriever is lazy-loaded only when needed
         # This saves memory and startup time when only vector search is used
@@ -401,6 +388,46 @@ class HybridRetriever:
                 return False
         except Exception as e:
             logger.warning(f"Failed to load knowledge graph: {e}")
+            return False
+
+    def _ensure_bm25_loaded(self) -> bool:
+        """
+        Lazy load the BM25 index on first hybrid search.
+
+        Returns:
+            True if BM25 index is loaded and available
+        """
+        if self._bm25_index is not None:
+            return True
+
+        if self._bm25_load_attempted:
+            return False
+
+        if not ENABLE_HYBRID_SEARCH:
+            return False
+
+        self._bm25_load_attempted = True
+        try:
+            if Path(self.bm25_index_path).exists():
+                logger.info("Lazy loading BM25 index...")
+                self._bm25_index = BM25Index.load(self.bm25_index_path)
+                logger.info("BM25 index loaded successfully")
+                return True
+            else:
+                # Build BM25 index from keyword index documents
+                if self._keyword_index:
+                    logger.info("Building BM25 index from keyword documents...")
+                    self._bm25_index = BM25Index(k1=BM25_K1, b=BM25_B)
+                    docs = self._keyword_index.get_all_documents()
+                    if docs:
+                        bm25_docs = [{"text": d.text, "metadata": d.metadata} for d in docs]
+                        self._bm25_index.add_documents(bm25_docs)
+                        self._bm25_index.save(self.bm25_index_path)
+                        logger.info(f"Built and saved BM25 index with {len(docs)} documents")
+                        return True
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to load/build BM25 index: {e}")
             return False
 
     def retrieve(
@@ -455,7 +482,16 @@ class HybridRetriever:
 
         # Use config defaults if not specified
         if use_hybrid_search is None:
+            # Lazy load BM25 only when hybrid search is enabled
+            if ENABLE_HYBRID_SEARCH:
+                self._ensure_bm25_loaded()
             use_hybrid_search = ENABLE_HYBRID_SEARCH and self._bm25_index is not None
+        elif use_hybrid_search:
+            # Explicitly requested hybrid search - ensure BM25 is loaded
+            self._ensure_bm25_loaded()
+            if not self._bm25_index:
+                use_hybrid_search = False
+                logger.warning("Hybrid search requested but BM25 index unavailable")
         if use_cross_encoder is None:
             use_cross_encoder = ENABLE_CROSS_ENCODER
         if use_lost_in_middle is None:

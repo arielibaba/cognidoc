@@ -522,6 +522,7 @@ SUMMARY:"""
         Find entities semantically similar to the query.
 
         Uses pre-computed entity embeddings for fast similarity search.
+        Embeddings are computed lazily on first call if not already available.
 
         Args:
             query: Query text
@@ -533,6 +534,12 @@ SUMMARY:"""
         """
         import numpy as np
         from .utils.rag_utils import get_query_embedding
+
+        # Lazy compute entity embeddings if needed (on first semantic search)
+        entities_with_embeddings = sum(1 for n in self.nodes.values() if n.embedding is not None)
+        if entities_with_embeddings == 0 and len(self.nodes) > 0:
+            logger.info("Lazy loading entity embeddings (first semantic search)...")
+            self.compute_entity_embeddings()
 
         # Get query embedding
         try:
@@ -832,6 +839,7 @@ def build_knowledge_graph(
     generate_summaries: bool = True,
     save_graph: bool = True,
     output_path: str = None,
+    compute_embeddings: bool = False,  # Lazy by default - computed on first semantic search
 ) -> KnowledgeGraph:
     """
     Build a complete knowledge graph from extraction results.
@@ -843,6 +851,8 @@ def build_knowledge_graph(
         generate_summaries: Whether to generate community summaries
         save_graph: Whether to save the graph to disk
         output_path: Custom output path (uses default if not specified)
+        compute_embeddings: Whether to pre-compute entity embeddings (default: False).
+                           When False, embeddings are computed lazily on first semantic search.
 
     Returns:
         Built KnowledgeGraph instance
@@ -861,8 +871,9 @@ def build_knowledge_graph(
         if generate_summaries and kg.config.graph.generate_community_summaries:
             kg.generate_community_summaries()
 
-    # Compute entity embeddings for semantic search
-    kg.compute_entity_embeddings()
+    # Compute entity embeddings for semantic search (optional - lazy by default)
+    if compute_embeddings:
+        kg.compute_entity_embeddings()
 
     # Save if requested
     if save_graph:

@@ -94,6 +94,79 @@ class QueryEmbeddingCache:
 _query_embedding_cache = QueryEmbeddingCache()
 
 
+# =============================================================================
+# Qdrant Query Result Cache (avoids redundant vector searches)
+# =============================================================================
+
+class QdrantResultCache:
+    """
+    LRU cache for Qdrant query results.
+
+    Caches vector search results for the same query+top_k combination.
+    This helps when:
+    - Same query is searched with different routing modes
+    - Agent tools make repeated vector searches
+    - Multiple candidates from rewrite hit the same underlying query
+    """
+
+    def __init__(self, max_size: int = 50, ttl_seconds: int = 300):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self._cache: OrderedDict[str, Tuple[float, List[Dict]]] = OrderedDict()
+        self._hits = 0
+        self._misses = 0
+
+    def _make_key(self, query: str, top_k: int, collection: str) -> str:
+        """Create cache key from query parameters."""
+        return f"{collection}::{top_k}::{query}"
+
+    def get(self, query: str, top_k: int, collection: str) -> Optional[List[Dict]]:
+        """Get cached results or None if expired/missing."""
+        key = self._make_key(query, top_k, collection)
+        if key in self._cache:
+            timestamp, results = self._cache[key]
+            # Check TTL
+            if time.time() - timestamp < self.ttl_seconds:
+                self._cache.move_to_end(key)
+                self._hits += 1
+                return results
+            else:
+                # Expired - remove
+                del self._cache[key]
+        self._misses += 1
+        return None
+
+    def put(self, query: str, top_k: int, collection: str, results: List[Dict]) -> None:
+        """Cache search results."""
+        key = self._make_key(query, top_k, collection)
+
+        # Evict oldest if at capacity
+        if len(self._cache) >= self.max_size:
+            self._cache.popitem(last=False)
+
+        self._cache[key] = (time.time(), results)
+
+    def stats(self) -> Dict[str, Any]:
+        """Return cache statistics."""
+        total = self._hits + self._misses
+        return {
+            "size": len(self._cache),
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": self._hits / total if total > 0 else 0.0,
+        }
+
+    def clear(self) -> None:
+        """Clear the cache."""
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+
+
+# Global Qdrant result cache
+_qdrant_result_cache = QdrantResultCache()
+
+
 @dataclass
 class Document:
     """Simple document with text and metadata."""
@@ -310,6 +383,7 @@ class VectorIndex:
         self,
         query: str,
         top_k: int = 10,
+        use_cache: bool = True,
     ) -> List[NodeWithScore]:
         """
         Search for similar documents.
@@ -317,10 +391,26 @@ class VectorIndex:
         Args:
             query: Search query
             top_k: Number of results to return
+            use_cache: Whether to use result cache (default: True)
 
         Returns:
             List of documents with scores
         """
+        # Check cache first
+        if use_cache:
+            cached = _qdrant_result_cache.get(query, top_k, self.collection_name)
+            if cached is not None:
+                # Reconstruct NodeWithScore from cached data
+                nodes = []
+                for item in cached:
+                    doc = Document(
+                        text=item["text"],
+                        metadata=item["metadata"],
+                        id=item["id"],
+                    )
+                    nodes.append(NodeWithScore(node=doc, score=item["score"]))
+                return nodes
+
         # Get query embedding with task instruction (improves accuracy for Qwen3-Embedding)
         query_vector = get_query_embedding(query)
 
@@ -331,15 +421,27 @@ class VectorIndex:
             limit=top_k,
         )
 
-        # Convert to NodeWithScore
+        # Convert to NodeWithScore and prepare for cache
         nodes = []
+        cache_data = []
         for result in results.points:
-            doc = Document(
-                text=result.payload.get("text", ""),
-                metadata=result.payload.get("metadata", {}),
-                id=str(result.id),
-            )
-            nodes.append(NodeWithScore(node=doc, score=result.score))
+            text = result.payload.get("text", "")
+            metadata = result.payload.get("metadata", {})
+            doc_id = str(result.id)
+            score = result.score
+
+            doc = Document(text=text, metadata=metadata, id=doc_id)
+            nodes.append(NodeWithScore(node=doc, score=score))
+            cache_data.append({
+                "text": text,
+                "metadata": metadata,
+                "id": doc_id,
+                "score": score,
+            })
+
+        # Store in cache
+        if use_cache:
+            _qdrant_result_cache.put(query, top_k, self.collection_name, cache_data)
 
         return nodes
 
