@@ -10,6 +10,7 @@ when using cloud LLM providers (Gemini, OpenAI, etc.).
 
 import asyncio
 import json
+import os
 import re
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -23,6 +24,27 @@ from .graph_config import get_graph_config, GraphConfig
 from .constants import CHUNKS_DIR, PROCESSED_DIR
 from .utils.llm_client import llm_chat, llm_chat_async
 from .utils.logger import logger
+
+
+def get_optimal_concurrency() -> int:
+    """
+    Compute optimal concurrency based on system resources.
+
+    Returns:
+        Recommended max_concurrent value:
+        - For powerful systems (8+ cores): up to 8
+        - For standard systems (4 cores): 4
+        - For limited systems (2 cores): 2
+        - Minimum: 2
+    """
+    try:
+        cpu_count = os.cpu_count() or 4
+        # Use min(8, cpu_count - 1) to leave one core for system
+        # But at least 2 for parallelism benefit
+        optimal = max(2, min(8, cpu_count - 1))
+        return optimal
+    except Exception:
+        return 4  # Safe default
 
 
 @dataclass
@@ -713,7 +735,7 @@ async def extract_from_chunks_dir_async(
     include_parent_chunks: bool = True,
     include_child_chunks: bool = False,
     include_descriptions: bool = True,
-    max_concurrent: int = 4,
+    max_concurrent: int = None,
     show_progress: bool = True,
 ) -> List[ExtractionResult]:
     """
@@ -732,8 +754,9 @@ async def extract_from_chunks_dir_async(
         include_parent_chunks: Whether to process parent chunks (default: True)
         include_child_chunks: Whether to process child chunks (default: False)
         include_descriptions: Whether to process description chunks (default: True)
-        max_concurrent: Maximum number of concurrent extractions (default: 4)
-                       Recommended: 4-6 for Gemini API, 1-2 for local Ollama
+        max_concurrent: Maximum number of concurrent extractions (default: auto)
+                       Auto-detected based on CPU cores. Override for specific needs:
+                       4-8 for Gemini API, 2-4 for local Ollama
         show_progress: Show progress bar (default: True)
 
     Returns:
@@ -767,6 +790,10 @@ async def extract_from_chunks_dir_async(
     if not chunk_files:
         logger.warning(f"No chunk files found in {chunks_dir}")
         return []
+
+    # Use adaptive concurrency if not specified
+    if max_concurrent is None:
+        max_concurrent = get_optimal_concurrency()
 
     logger.info(f"Starting async extraction for {len(chunk_files)} chunks (max_concurrent={max_concurrent})")
 
@@ -838,7 +865,7 @@ def run_extraction_async(
     include_parent_chunks: bool = True,
     include_child_chunks: bool = False,
     include_descriptions: bool = True,
-    max_concurrent: int = 4,
+    max_concurrent: int = None,
     show_progress: bool = True,
 ) -> List[ExtractionResult]:
     """
@@ -856,7 +883,8 @@ def run_extraction_async(
         include_parent_chunks: Whether to process parent chunks (default: True)
         include_child_chunks: Whether to process child chunks (default: False)
         include_descriptions: Whether to process description chunks (default: True)
-        max_concurrent: Maximum number of concurrent extractions (default: 4)
+        max_concurrent: Maximum number of concurrent extractions (default: auto)
+                       Auto-detected based on CPU cores.
         show_progress: Show progress bar (default: True)
 
     Returns:
@@ -867,7 +895,7 @@ def run_extraction_async(
         # results = extract_from_chunks_dir(chunks_dir)  # Sequential, slow
 
         # Use:
-        results = run_extraction_async(chunks_dir, max_concurrent=4)  # 2-4x faster
+        results = run_extraction_async(chunks_dir)  # 2-4x faster with auto concurrency
     """
     try:
         # Check if we're already in an async context

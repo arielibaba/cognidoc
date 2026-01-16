@@ -27,15 +27,15 @@ class PersistentToolCache:
     - TTL value
     """
 
-    # TTL values in seconds per tool type
+    # TTL values in seconds per tool type (tuned for better cache hit rates)
     TTL_CONFIG = {
-        "database_stats": 300,      # 5 minutes - rarely changes
-        "retrieve_vector": 120,     # 2 minutes - search results
-        "retrieve_graph": 120,      # 2 minutes - graph results
-        "lookup_entity": 300,       # 5 minutes - entity data
-        "compare_entities": 180,    # 3 minutes - comparison results
+        "database_stats": 1800,     # 30 minutes - rarely changes during session
+        "retrieve_vector": 300,     # 5 minutes - search results stable for a while
+        "retrieve_graph": 300,      # 5 minutes - graph results stable for a while
+        "lookup_entity": 600,       # 10 minutes - entity data rarely changes
+        "compare_entities": 1800,   # 30 minutes - comparison stable for session
     }
-    DEFAULT_TTL = 60  # 1 minute default
+    DEFAULT_TTL = 120  # 2 minutes default
 
     _instance: Optional["PersistentToolCache"] = None
 

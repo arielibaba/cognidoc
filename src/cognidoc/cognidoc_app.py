@@ -106,6 +106,20 @@ def warmup_models_and_indexes():
     except Exception as e:
         logger.warning(f"  Hybrid retriever warm-up failed: {e}")
 
+    # 4. Warm up reranker model (Ollama keeps model in memory after first call)
+    try:
+        from .constants import CROSS_ENCODER_MODEL
+        import httpx
+        # Single dummy rerank call to load model into Ollama's memory
+        httpx.post(
+            "http://localhost:11434/api/embeddings",
+            json={"model": CROSS_ENCODER_MODEL, "prompt": "warmup"},
+            timeout=30.0,
+        )
+        logger.info(f"  Reranker model ready: {CROSS_ENCODER_MODEL}")
+    except Exception as e:
+        logger.warning(f"  Reranker warm-up failed: {e}")
+
     t_elapsed = time.perf_counter() - t_start
     logger.info(f"Warm-up completed in {t_elapsed:.2f}s")
 
@@ -1101,6 +1115,10 @@ def chat_conversation(
     # FAST PATH: Standard RAG pipeline
     # ==========================================================================
 
+    # Show processing indicator immediately for better perceived performance
+    history.append({"role": "assistant", "content": "*🔍 Searching knowledge base...*"})
+    yield convert_history_to_tuples(history)
+
     # Retrieval (hybrid or vector-only)
     t3 = time.perf_counter()
     graph_context = ""
@@ -1193,6 +1211,10 @@ def chat_conversation(
         retrieval_time=retrieval_time,
         rerank_time=rerank_time,
     )
+
+    # Update progress indicator - retrieval done, now generating
+    history[-1]["content"] = f"*✨ Found {len(reranked)} relevant sources, generating answer...*"
+    yield convert_history_to_tuples(history)
 
     # Build context (combine graph context with document context)
     doc_context = "\n".join(n.node.text for n in reranked)
@@ -1291,8 +1313,7 @@ def chat_conversation(
 
     t5 = time.perf_counter()
 
-    # Stream response
-    history.append({"role": "assistant", "content": ""})
+    # Stream response (reuse the existing assistant message from progress indicator)
     for chunk in run_streaming(msgs, TEMPERATURE_GENERATION):
         history[-1]["content"] = chunk
         yield convert_history_to_tuples(history)

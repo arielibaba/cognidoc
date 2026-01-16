@@ -14,6 +14,7 @@ and uses the standard RAG pipeline for simple queries.
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING
@@ -28,6 +29,9 @@ from .agent_tools import (
 from .complexity import ComplexityScore
 from .utils.llm_client import llm_chat, llm_stream
 from .utils.logger import logger
+
+# Thread pool for parallel reflection (reused across agent calls)
+_reflection_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="agent_reflect")
 
 if TYPE_CHECKING:
     from .hybrid_retriever import HybridRetriever
@@ -306,7 +310,14 @@ class CogniDocAgent:
                 result = self.tools.execute(action)
                 step.observation = result.observation
 
-                # Store useful context
+                # 4. OBSERVE + REFLECT (parallel)
+                # Start reflection in background thread while storing context
+                context.current_state = AgentState.REFLECTING
+                reflection_future: Future = _reflection_executor.submit(
+                    self._reflect, context, step.observation
+                )
+
+                # Store useful context (runs while reflection computes in parallel)
                 if result.success and result.data:
                     if action.tool == ToolName.RETRIEVE_VECTOR:
                         for doc in result.data[:3]:
@@ -319,10 +330,8 @@ class CogniDocAgent:
                     elif action.tool in (ToolName.SYNTHESIZE, ToolName.COMPARE_ENTITIES):
                         context.add_context(str(result.data))
 
-                # 4. OBSERVE + REFLECT
-                context.current_state = AgentState.REFLECTING
-                reflection = self._reflect(context, step.observation)
-                step.reflection = reflection
+                # Wait for reflection to complete (usually already done by now)
+                step.reflection = reflection_future.result(timeout=30.0)
 
                 context.add_step(step)
 
@@ -578,7 +587,16 @@ Provide the best possible answer with the available information. If some aspects
                 # Show if result was cached
                 cached_indicator = " [cached]" if result.metadata.get("cached") else ""
 
-                # Store context
+                # 4. OBSERVE - Show result summary
+                obs_preview = step.observation[:120].replace('\n', ' ') if step.observation else "No result"
+                yield (AgentState.OBSERVING, f"Result{cached_indicator}: {obs_preview}")
+
+                # 5. REFLECT (parallel) - Start reflection while storing context
+                reflection_future: Future = _reflection_executor.submit(
+                    self._reflect, context, step.observation
+                )
+
+                # Store context (runs while reflection computes in parallel)
                 if result.success and result.data:
                     if action.tool == ToolName.RETRIEVE_VECTOR:
                         for doc in result.data[:3]:
@@ -586,12 +604,8 @@ Provide the best possible answer with the available information. If some aspects
                     elif action.tool == ToolName.RETRIEVE_GRAPH:
                         context.add_context(result.data.get("context", ""))
 
-                # 4. OBSERVE - Show result summary
-                obs_preview = step.observation[:120].replace('\n', ' ') if step.observation else "No result"
-                yield (AgentState.OBSERVING, f"Result{cached_indicator}: {obs_preview}")
-
-                # 5. REFLECT
-                reflection = self._reflect(context, step.observation)
+                # Wait for reflection to complete
+                reflection = reflection_future.result(timeout=30.0)
                 step.reflection = reflection
                 context.add_step(step)
 

@@ -223,8 +223,15 @@ def retrieve_by_relationship(
     - Paths between two entities
     """
     entities = []
+    seen_entity_ids = set()  # O(1) lookup instead of O(n) list check
     relationships = []
     paths = []
+
+    def _add_entity(node):
+        """Add entity if not already seen (O(1) check)."""
+        if node and node.id not in seen_entity_ids:
+            seen_entity_ids.add(node.id)
+            entities.append(node)
 
     # If both source and target specified, find paths
     if source_entity and target_entity:
@@ -233,34 +240,30 @@ def retrieve_by_relationship(
         # Collect entities from paths
         for path in paths:
             for src, rel, tgt in path:
-                src_node = kg.get_node_by_name(src)
-                tgt_node = kg.get_node_by_name(tgt)
-                if src_node and src_node not in entities:
-                    entities.append(src_node)
-                if tgt_node and tgt_node not in entities:
-                    entities.append(tgt_node)
+                _add_entity(kg.get_node_by_name(src))
+                _add_entity(kg.get_node_by_name(tgt))
                 relationships.append((src, rel, tgt))
 
     # If only source specified, get outgoing relationships
     elif source_entity:
         node = kg.get_node_by_name(source_entity)
         if node:
-            entities.append(node)
+            _add_entity(node)
             neighbors = kg.get_neighbors(node.id, depth=1, direction="out")
             for neighbor, rel_type, _ in neighbors:
                 if relationship_type is None or rel_type == relationship_type:
-                    entities.append(neighbor)
+                    _add_entity(neighbor)
                     relationships.append((node.name, rel_type, neighbor.name))
 
     # If only target specified, get incoming relationships
     elif target_entity:
         node = kg.get_node_by_name(target_entity)
         if node:
-            entities.append(node)
+            _add_entity(node)
             neighbors = kg.get_neighbors(node.id, depth=1, direction="in")
             for neighbor, rel_type, _ in neighbors:
                 if relationship_type is None or rel_type == relationship_type:
-                    entities.append(neighbor)
+                    _add_entity(neighbor)
                     relationships.append((neighbor.name, rel_type, node.name))
 
     # If only relationship type specified, find all of that type
@@ -270,10 +273,8 @@ def retrieve_by_relationship(
                 src_node = kg.nodes.get(src)
                 tgt_node = kg.nodes.get(tgt)
                 if src_node and tgt_node:
-                    if src_node not in entities:
-                        entities.append(src_node)
-                    if tgt_node not in entities:
-                        entities.append(tgt_node)
+                    _add_entity(src_node)
+                    _add_entity(tgt_node)
                     relationships.append((src_node.name, relationship_type, tgt_node.name))
 
     result = GraphRetrievalResult(
