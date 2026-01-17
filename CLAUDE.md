@@ -57,6 +57,27 @@ uv sync --group dev
 python -m cognidoc.setup
 ```
 
+### Installing as a Package (in another project)
+
+To use cognidoc in a separate project (not the development repo):
+
+```bash
+# Create a new project
+mkdir my-doc-project && cd my-doc-project
+python -m venv .venv && source .venv/bin/activate
+
+# Install cognidoc with all dependencies
+pip install "cognidoc[all] @ git+https://github.com/arielibaba/cognidoc.git"
+
+# Add documents and run
+mkdir -p data/sources
+cp /path/to/documents/* data/sources/
+cognidoc ingest ./data/sources --llm gemini --embedding ollama
+cognidoc serve --port 7860
+```
+
+**Note:** The `[all]` extra includes UI (gradio, plotly, pandas), YOLO, Ollama, cloud providers, and conversion tools.
+
 ### CLI Commands (`cognidoc`)
 
 ```bash
