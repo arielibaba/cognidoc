@@ -37,7 +37,7 @@ uv run pylint src/cognidoc/
 uv sync --group dev
 
 # Optional dependency groups (pyproject.toml):
-# [ui]         - Gradio interface
+# [ui]         - Gradio interface (gradio, plotly, pandas)
 # [yolo]       - YOLO detection (torch, ultralytics)
 # [ollama]     - Local Ollama inference
 # [gemini]     - Google Gemini provider
@@ -598,7 +598,7 @@ POST /api/export_csv            # Export metrics CSV
 POST /api/export_json           # Export metrics JSON
 ```
 
-See README.md "API Integration" section for detailed examples with curl, requests, and gradio_client.
+See README.md "REST API" section for examples with curl and gradio_client.
 
 ## Configuration
 
