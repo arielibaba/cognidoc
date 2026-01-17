@@ -32,6 +32,22 @@ make refactor         # Format + lint
 # For src/ code, run directly:
 uv run black src/cognidoc/
 uv run pylint src/cognidoc/
+
+# Install dev dependencies (pytest, black, pylint, mypy)
+uv sync --group dev
+
+# Optional dependency groups (pyproject.toml):
+# [ui]         - Gradio interface
+# [yolo]       - YOLO detection (torch, ultralytics)
+# [ollama]     - Local Ollama inference
+# [gemini]     - Google Gemini provider
+# [openai]     - OpenAI provider
+# [anthropic]  - Anthropic provider
+# [cloud]      - All cloud providers
+# [conversion] - Office document conversion
+# [wizard]     - Interactive setup wizard (questionary)
+# [all]        - Everything above
+# [dev]        - Development tools
 ```
 
 ### First-Time Setup
@@ -720,13 +736,13 @@ pytest tests/test_00_e2e_pipeline.py -v --run-slow
 
 | Module | Tests | Description |
 |--------|-------|-------------|
-| `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
+| `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 27 | Agent ReAct loop |
 | `test_agent_tools.py` | 33 | Tool implementations |
-| `test_complexity.py` | 24 | Query complexity evaluation |
+| `test_complexity.py` | 25 | Query complexity evaluation |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE), document count |
-| `test_providers.py` | 33 | LLM/Embedding providers |
-| **Total** | **150** (148 passed, 2 skipped) |
+| `test_providers.py` | 32 | LLM/Embedding providers |
+| **Total** | **151** |
 
 **Test Infrastructure:**
 - `conftest.py` provides session-scoped `cognidoc_session` fixture to avoid Qdrant lock conflicts
