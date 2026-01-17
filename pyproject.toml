@@ -52,6 +52,7 @@ dependencies = [
 ui = [
     "gradio>=4.0",
     "plotly>=5.0",
+    "pandas>=2.0",
 ]
 
 # YOLO detection (optional - falls back to simple extraction)
@@ -114,6 +115,7 @@ all = [
     # UI
     "gradio>=4.0",
     "plotly>=5.0",
+    "pandas>=2.0",
     # YOLO
     "ultralytics>=8.0",
     "pillow>=10.0",

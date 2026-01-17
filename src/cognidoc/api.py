@@ -498,10 +498,10 @@ class CogniDoc:
         """
         try:
             from .cognidoc_app import create_app
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
-                "Gradio not installed. Install with: pip install cognidoc[ui]"
-            )
+                f"UI dependencies not installed: {e}. Install with: pip install cognidoc[ui]"
+            ) from e
 
         # Update reranking setting
         if no_rerank:
