@@ -1490,11 +1490,53 @@ COMPRESSION_SKIP_RATIO = 0.5  # Skip docs < 50% of MAX_CHUNK_SIZE
 COMPRESSION_SKIP_THRESHOLD = MAX_CHUNK_SIZE * COMPRESSION_SKIP_RATIO  # 256 tokens
 ```
 
+### Résultats benchmark (après fix)
+
+```
+======================================================================
+BENCHMARK SUMMARY (cognidoc-theologie-morale: 17,265 docs)
+======================================================================
+
+VECTOR_ONLY:
+  Queries: 5
+  Avg Latency: 4767.6 ms
+  Avg Topic Precision: 50.00%
+  MRR: 0.667
+
+HYBRID:
+  Queries: 5
+  Avg Latency: 3876.6 ms
+  Avg Topic Precision: 50.00%
+  MRR: 0.667
+
+HYBRID vs VECTOR-ONLY:
+  Latency: -18.7% (hybrid plus rapide grâce au smart routing)
+======================================================================
+```
+
+**Comparaison avant/après:**
+| Métrique | Avant (compression ON) | Après (compression OFF) |
+|----------|------------------------|-------------------------|
+| Query 9 latency | ~240s | ~4s |
+| Total benchmark | N/A (timeout) | 1m50s |
+| Tests passés | 7/10 | 10/10 |
+
 ### Commits session 13
 
 | Hash | Description |
 |------|-------------|
 | `42c7c8f` | Disable contextual compression by default |
+| `d49e7ac` | Update documentation with session 13 compression analysis |
+| `f5f8051` | Update uv.lock |
+
+### Configuration pour lancer les benchmarks
+
+```bash
+# Depuis le projet cognidoc (librairie), avec les données de cognidoc-theologie-morale
+cd "/Users/arielibaba/Documents/projets perso/cognidoc"
+COGNIDOC_DATA_DIR="/Users/arielibaba/Documents/projets perso/cognidoc-theologie-morale/data" \
+  uv run pytest tests/test_benchmark.py -v --run-slow
+```
 
 ### Améliorations futures
 

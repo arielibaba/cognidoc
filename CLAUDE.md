@@ -772,3 +772,19 @@ pytest tests/test_00_e2e_pipeline.py -v --run-slow
 - `conftest.py` provides session-scoped `cognidoc_session` fixture to avoid Qdrant lock conflicts
 - `--run-slow` flag enables slow E2E tests (registered via `pytest_addoption`)
 - E2E tests are named `test_00_*` to run first alphabetically (Qdrant embedded only allows one client per storage folder)
+
+**Benchmark tests with external data:**
+
+The benchmark tests (`test_benchmark.py`) are designed to run against a real corpus. Use `COGNIDOC_DATA_DIR` to point to an external project's data:
+
+```bash
+# Run benchmarks with cognidoc-theologie-morale data (17,265 docs)
+COGNIDOC_DATA_DIR="/path/to/cognidoc-theologie-morale/data" \
+  uv run pytest tests/test_benchmark.py -v --run-slow
+
+# Show benchmark summary only
+COGNIDOC_DATA_DIR="/path/to/cognidoc-theologie-morale/data" \
+  uv run pytest tests/test_benchmark.py::TestBenchmarkComparison::test_benchmark_summary -v --run-slow -s
+```
+
+**Note:** Benchmark tests query bioethics topics (PMA, avortement, bioéthique). Running against generic test fixtures will fail relevance tests.
