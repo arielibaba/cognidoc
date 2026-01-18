@@ -461,8 +461,9 @@ CROSS_ENCODER_BATCH_SIZE = int(os.getenv("CROSS_ENCODER_BATCH_SIZE", "10"))
 ENABLE_LOST_IN_MIDDLE_REORDER = os.getenv("ENABLE_LOST_IN_MIDDLE_REORDER", "true").lower() == "true"
 
 # Contextual Compression (extracts query-relevant content)
-# Skips documents under COMPRESSION_SKIP_THRESHOLD to avoid unnecessary LLM calls
-ENABLE_CONTEXTUAL_COMPRESSION = os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "true").lower() == "true"
+# Disabled by default: pre-chunked text (512 tokens max) + reranking already filters noise effectively.
+# Enable via ENABLE_CONTEXTUAL_COMPRESSION=true for high-noise domains or very long documents.
+ENABLE_CONTEXTUAL_COMPRESSION = os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "false").lower() == "true"
 COMPRESSION_MAX_TOKENS_PER_DOC = int(os.getenv("COMPRESSION_MAX_TOKENS_PER_DOC", "200"))
 # Skip ratio: skip compression for docs < (MAX_CHUNK_SIZE * ratio) tokens
 # Default 0.5 = skip docs under 50% of max chunk size (small docs not worth compressing)
