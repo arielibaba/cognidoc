@@ -586,6 +586,7 @@ def compress_context(
     model: str = None,  # Deprecated, uses configured LLM provider
     max_tokens_per_doc: int = 200,
     max_workers: int = 4,
+    skip_threshold: int = None,
 ) -> List[str]:
     """
     Compress documents to extract only query-relevant information.
@@ -599,6 +600,7 @@ def compress_context(
         model: Deprecated, uses configured LLM provider (Gemini by default)
         max_tokens_per_doc: Target max tokens per compressed doc
         max_workers: Maximum parallel LLM calls (default: 4)
+        skip_threshold: Skip compression for docs under this word count (default from config)
 
     Returns:
         List of compressed document texts
@@ -606,14 +608,19 @@ def compress_context(
     if not documents:
         return []
 
+    # Import skip threshold from config if not specified
+    if skip_threshold is None:
+        from ..constants import COMPRESSION_SKIP_THRESHOLD
+        skip_threshold = COMPRESSION_SKIP_THRESHOLD
+
     t_start = time.perf_counter()
 
     def _compress_single(doc_idx: int, doc: Any) -> Tuple[int, Optional[str]]:
         """Compress a single document. Returns (index, compressed_text or None)."""
         text = doc.text if hasattr(doc, 'text') else str(doc)
 
-        # Skip if already short
-        if len(text.split()) < max_tokens_per_doc:
+        # Skip if already short enough (avoids expensive LLM calls for small docs)
+        if len(text.split()) < skip_threshold:
             return (doc_idx, text)
 
         prompt = f"""Extract ONLY the parts of this document that are relevant to the query.

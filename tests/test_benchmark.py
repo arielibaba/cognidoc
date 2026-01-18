@@ -231,9 +231,21 @@ class BenchmarkRunner:
                         "score": 0.0,
                     })
                 elif isinstance(chunk, str):
+                    # Parse source from chunk name format (varies):
+                    # 3-part: "Topic__Type__SourceName_page_XXX..." -> source = part[2]
+                    # 2-part: "Topic__SourceName_page_XXX..."      -> source = part[1]
+                    source_name = ""
+                    parts = chunk.split("__")
+                    if len(parts) >= 2:
+                        # Use last meaningful part (source is either part[2] or part[1])
+                        source_part = parts[-1] if len(parts) >= 3 else parts[1]
+                        if "_page_" in source_part:
+                            source_name = source_part.split("_page_")[0]
+                        else:
+                            source_name = source_part
                     documents.append({
                         "content": chunk[:500],
-                        "metadata": {},
+                        "metadata": {"source": source_name, "name": chunk},
                         "score": 0.0,
                     })
 

@@ -437,6 +437,10 @@ TOP_K_REFS = int(os.getenv("TOP_K_REFS", str(TOP_K_RERANKED_PARENTS)))
 # Reranking toggle (can be overridden at runtime)
 ENABLE_RERANKING = os.getenv("ENABLE_RERANKING", "true").lower() == "true"
 
+# Graph source chunks limits (prevents LLM timeout on entities with many chunks)
+MAX_SOURCE_CHUNKS_PER_ENTITY = int(os.getenv("MAX_SOURCE_CHUNKS_PER_ENTITY", "20"))
+MAX_SOURCE_CHUNKS_FROM_GRAPH = int(os.getenv("MAX_SOURCE_CHUNKS_FROM_GRAPH", "100"))
+
 # =============================================================================
 # Advanced RAG Configuration
 # =============================================================================
@@ -457,8 +461,11 @@ CROSS_ENCODER_BATCH_SIZE = int(os.getenv("CROSS_ENCODER_BATCH_SIZE", "10"))
 ENABLE_LOST_IN_MIDDLE_REORDER = os.getenv("ENABLE_LOST_IN_MIDDLE_REORDER", "true").lower() == "true"
 
 # Contextual Compression (extracts query-relevant content)
-ENABLE_CONTEXTUAL_COMPRESSION = os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "true").lower() == "true"
+# Disabled by default due to high latency (~50s per doc with Gemini)
+ENABLE_CONTEXTUAL_COMPRESSION = os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "false").lower() == "true"
 COMPRESSION_MAX_TOKENS_PER_DOC = int(os.getenv("COMPRESSION_MAX_TOKENS_PER_DOC", "200"))
+# Skip compression for documents under this word count (avoids LLM calls for small docs)
+COMPRESSION_SKIP_THRESHOLD = int(os.getenv("COMPRESSION_SKIP_THRESHOLD", "600"))
 
 # Citation Verification
 ENABLE_CITATION_VERIFICATION = os.getenv("ENABLE_CITATION_VERIFICATION", "false").lower() == "true"

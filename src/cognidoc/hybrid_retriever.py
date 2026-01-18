@@ -52,6 +52,8 @@ from .constants import (
     ENABLE_LOST_IN_MIDDLE_REORDER,
     ENABLE_CONTEXTUAL_COMPRESSION,
     COMPRESSION_MAX_TOKENS_PER_DOC,
+    MAX_SOURCE_CHUNKS_PER_ENTITY,
+    MAX_SOURCE_CHUNKS_FROM_GRAPH,
 )
 from .utils.rag_utils import (
     VectorIndex,
@@ -244,9 +246,15 @@ def fuse_results(
         context_parts.append(graph_result.context)
         context_parts.append("")
 
-        # Track source chunks from graph
+        # Track source chunks from graph (with limits to prevent LLM timeout)
         for entity in graph_result.entities:
-            source_chunks.extend(entity.source_chunks)
+            # Cap per-entity chunks
+            entity_chunks = entity.source_chunks[:MAX_SOURCE_CHUNKS_PER_ENTITY]
+            source_chunks.extend(entity_chunks)
+            # Stop if total limit reached
+            if len(source_chunks) >= MAX_SOURCE_CHUNKS_FROM_GRAPH:
+                source_chunks = source_chunks[:MAX_SOURCE_CHUNKS_FROM_GRAPH]
+                break
 
     # Add vector results if available and weighted
     if vector_results and analysis.vector_weight > 0:
