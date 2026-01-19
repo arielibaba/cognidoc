@@ -619,7 +619,7 @@ async def extract_entities_from_text_async(
 
     except Exception as e:
         logger.error(f"Async entity extraction failed for {chunk_id}: {e}")
-        return []
+        raise  # Re-raise to let extract_from_chunk_async classify the error
 
 
 async def extract_relationships_from_text_async(
@@ -693,7 +693,7 @@ async def extract_relationships_from_text_async(
 
     except Exception as e:
         logger.error(f"Async relationship extraction failed for {chunk_id}: {e}")
-        return []
+        raise  # Re-raise to let extract_from_chunk_async classify the error
 
 
 async def extract_from_chunk_async(
