@@ -16,10 +16,11 @@ import networkx as nx
 
 from .extract_entities import Entity, Relationship, ExtractionResult
 from .graph_config import get_graph_config, GraphConfig
-from .constants import INDEX_DIR, EMBED_MODEL
+from .constants import INDEX_DIR, EMBED_MODEL, MAX_CONSECUTIVE_QUOTA_ERRORS
 from .utils.llm_client import llm_chat
 from .utils.logger import logger
 from .utils.rag_utils import get_embedding
+from .utils.error_classifier import is_quota_or_rate_error, get_error_info, ErrorType
 
 
 # Directory for graph storage
@@ -305,29 +306,54 @@ class KnowledgeGraph:
         self,
         compute_embeddings: bool = True,
         skip_existing: bool = False,
-    ) -> None:
+        # Checkpoint parameters
+        processed_community_ids: Optional[Set[int]] = None,
+        max_consecutive_quota_errors: int = None,
+    ) -> Tuple[int, int, int, bool]:
         """
         Generate summaries and embeddings for each community using LLM.
 
         Uses the unified LLM client (Gemini by default).
         Embeddings are computed in batch for better performance.
 
+        Supports checkpoint/resume: skips already-processed communities and stops
+        gracefully when quota errors are detected.
+
         Args:
             compute_embeddings: Whether to pre-compute embeddings for fast retrieval
             skip_existing: If True, skip communities that already have a valid summary
                           (not the default "Community of X related entities" placeholder)
+            processed_community_ids: Set of community IDs already processed (for resume)
+            max_consecutive_quota_errors: Stop after this many consecutive quota errors
+
+        Returns:
+            Tuple of (generated, skipped, quota_errors, interrupted)
         """
         import asyncio
 
+        if max_consecutive_quota_errors is None:
+            max_consecutive_quota_errors = MAX_CONSECUTIVE_QUOTA_ERRORS
+
+        if processed_community_ids is None:
+            processed_community_ids = set()
+
         if not self.communities:
-            return
+            return 0, 0, 0, False
 
         skipped = 0
         generated = 0
+        quota_errors = 0
+        consecutive_quota_errors = 0
+        interrupted = False
         communities_to_embed = []  # Collect for batch embedding
 
         for community_id, community in self.communities.items():
             if not community.node_ids:
+                continue
+
+            # Skip already processed communities (resume support)
+            if community_id in processed_community_ids:
+                skipped += 1
                 continue
 
             # Skip communities with existing valid summaries
@@ -376,6 +402,7 @@ SUMMARY:"""
                 )
                 community.summary = response.strip()
                 generated += 1
+                consecutive_quota_errors = 0  # Reset on success
                 logger.debug(f"Generated summary for community {community_id}")
 
                 # Collect for batch embedding
@@ -383,11 +410,29 @@ SUMMARY:"""
                     communities_to_embed.append((community_id, community.summary))
 
             except Exception as e:
+                error_type, error_msg = get_error_info(e)
                 logger.error(f"Failed to generate summary for community {community_id}: {e}")
+
+                if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
+                    quota_errors += 1
+                    consecutive_quota_errors += 1
+                    logger.warning(
+                        f"Quota/rate error ({consecutive_quota_errors}/{max_consecutive_quota_errors})"
+                    )
+
+                    if consecutive_quota_errors >= max_consecutive_quota_errors:
+                        logger.error(
+                            f"Stopping community summary generation: {consecutive_quota_errors} consecutive quota errors."
+                        )
+                        interrupted = True
+                        break
+                else:
+                    consecutive_quota_errors = 0
+
                 community.summary = f"Community of {len(community.node_ids)} related entities"
 
         # Batch compute embeddings for all communities at once
-        if communities_to_embed:
+        if communities_to_embed and not interrupted:
             logger.info(f"Computing embeddings for {len(communities_to_embed)} community summaries...")
             from .utils.embedding_providers import get_embedding_provider, OllamaEmbeddingProvider
             provider = get_embedding_provider()
@@ -415,12 +460,26 @@ SUMMARY:"""
                     except Exception as e:
                         logger.warning(f"Failed to embed community {comm_id}: {e}")
 
-        if skip_existing:
-            logger.info(f"Community summaries: {generated} generated, {skipped} skipped (already had valid summary)")
+        if interrupted:
+            logger.warning(
+                f"Community summaries interrupted: {generated} generated, {skipped} skipped, "
+                f"{quota_errors} quota errors. Resume to continue."
+            )
+        elif skip_existing or processed_community_ids:
+            logger.info(f"Community summaries: {generated} generated, {skipped} skipped")
         else:
             logger.info(f"Community summaries: {generated} generated")
 
-    def compute_entity_embeddings(self, skip_existing: bool = True, batch_size: int = 50) -> int:
+        return generated, skipped, quota_errors, interrupted
+
+    def compute_entity_embeddings(
+        self,
+        skip_existing: bool = True,
+        batch_size: int = 50,
+        # Checkpoint parameters
+        processed_entity_ids: Optional[Set[str]] = None,
+        max_consecutive_quota_errors: int = None,
+    ) -> Tuple[int, int, int, bool]:
         """
         Pre-compute embeddings for all entities using batched async requests.
 
@@ -430,23 +489,38 @@ SUMMARY:"""
         Uses batch async embedding for 5-10x faster processing compared to
         sequential embedding calls.
 
+        Supports checkpoint/resume: skips already-processed entities and stops
+        gracefully when quota errors are detected.
+
         Args:
             skip_existing: If True, skip entities that already have embeddings
             batch_size: Number of entities to embed per batch (default: 50)
+            processed_entity_ids: Set of entity IDs already processed (for resume)
+            max_consecutive_quota_errors: Stop after this many consecutive quota errors
 
         Returns:
-            Number of embeddings computed
+            Tuple of (computed, skipped, quota_errors, interrupted)
         """
         import asyncio
 
+        if max_consecutive_quota_errors is None:
+            max_consecutive_quota_errors = MAX_CONSECUTIVE_QUOTA_ERRORS
+
+        if processed_entity_ids is None:
+            processed_entity_ids = set()
+
         if not self.nodes:
-            return 0
+            return 0, 0, 0, False
 
         # Collect entities that need embeddings
         to_embed = []
         skipped = 0
 
         for node_id, node in self.nodes.items():
+            # Skip already processed entities (resume support)
+            if node_id in processed_entity_ids:
+                skipped += 1
+                continue
             if skip_existing and node.embedding is not None:
                 skipped += 1
                 continue
@@ -458,7 +532,7 @@ SUMMARY:"""
 
         if not to_embed:
             logger.info(f"Entity embeddings: 0 computed, {skipped} skipped (all cached)")
-            return 0
+            return 0, skipped, 0, False
 
         logger.info(f"Computing embeddings for {len(to_embed)} entities (batch_size={batch_size})...")
 
@@ -468,6 +542,9 @@ SUMMARY:"""
 
         computed = 0
         errors = 0
+        quota_errors = 0
+        consecutive_quota_errors = 0
+        interrupted = False
 
         # Check if provider supports async embedding
         if isinstance(provider, OllamaEmbeddingProvider):
@@ -477,6 +554,9 @@ SUMMARY:"""
 
             # Process in batches
             for i in range(0, len(to_embed), batch_size):
+                if interrupted:
+                    break
+
                 batch = to_embed[i:i + batch_size]
                 batch_texts = [text for _, text in batch]
 
@@ -489,28 +569,79 @@ SUMMARY:"""
                         if embedding:
                             self.nodes[node_id].embedding = embedding
                             computed += 1
+
+                    consecutive_quota_errors = 0  # Reset on success
+
                 except Exception as e:
+                    error_type, error_msg = get_error_info(e)
+
+                    if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
+                        quota_errors += 1
+                        consecutive_quota_errors += 1
+                        logger.warning(
+                            f"Quota/rate error ({consecutive_quota_errors}/{max_consecutive_quota_errors}): {e}"
+                        )
+
+                        if consecutive_quota_errors >= max_consecutive_quota_errors:
+                            logger.error(
+                                f"Stopping entity embedding: {consecutive_quota_errors} consecutive quota errors."
+                            )
+                            interrupted = True
+                            break
+                    else:
+                        consecutive_quota_errors = 0
+
                     logger.warning(f"Batch embedding failed: {e}, falling back to sequential")
                     # Fallback to sequential for this batch
                     for node_id, text in batch:
                         try:
                             self.nodes[node_id].embedding = get_embedding(text, EMBED_MODEL)
                             computed += 1
+                            consecutive_quota_errors = 0
                         except Exception as e2:
+                            error_type2, _ = get_error_info(e2)
                             logger.warning(f"Failed to compute embedding for {self.nodes[node_id].name}: {e2}")
                             errors += 1
+
+                            if error_type2 in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
+                                quota_errors += 1
+                                consecutive_quota_errors += 1
+                                if consecutive_quota_errors >= max_consecutive_quota_errors:
+                                    interrupted = True
+                                    break
         else:
             # Fallback to sequential embedding for non-Ollama providers
             for node_id, text in to_embed:
+                if interrupted:
+                    break
+
                 try:
                     self.nodes[node_id].embedding = get_embedding(text, EMBED_MODEL)
                     computed += 1
+                    consecutive_quota_errors = 0
                 except Exception as e:
+                    error_type, _ = get_error_info(e)
                     logger.warning(f"Failed to compute embedding for {self.nodes[node_id].name}: {e}")
                     errors += 1
 
-        logger.info(f"Entity embeddings: {computed} computed, {skipped} skipped, {errors} errors")
-        return computed
+                    if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
+                        quota_errors += 1
+                        consecutive_quota_errors += 1
+                        if consecutive_quota_errors >= max_consecutive_quota_errors:
+                            logger.error(
+                                f"Stopping entity embedding: {consecutive_quota_errors} consecutive quota errors."
+                            )
+                            interrupted = True
+
+        if interrupted:
+            logger.warning(
+                f"Entity embeddings interrupted: {computed} computed, {skipped} skipped, "
+                f"{quota_errors} quota errors. Resume to continue."
+            )
+        else:
+            logger.info(f"Entity embeddings: {computed} computed, {skipped} skipped, {errors} errors")
+
+        return computed, skipped, quota_errors, interrupted
 
     def find_similar_entities(
         self,

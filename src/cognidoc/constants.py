@@ -82,7 +82,7 @@ GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-2.5-flash")
 
 OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "granite3.3:8b")
 OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b-instruct")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:0.6b")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b-q8_0")
 
 # Qwen3-Embedding task instruction for query embeddings (improves retrieval accuracy by ~1-5%)
 # Format: "Instruct: {task}\nQuery:{query}" - documents don't need instructions
@@ -408,7 +408,7 @@ USER_PROMPT_GENERATE_FINAL_ANSWER = PACKAGE_DIR / "prompts/user_prompt_generate_
 # Chunking Configuration
 # =============================================================================
 
-EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:0.6b")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:4b-q8_0")
 MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "512"))
 SEMANTIC_CHUNK_BUFFER = int(os.getenv("SEMANTIC_CHUNK_BUFFER", "5"))  # Sentences buffer for context
 SEMANTIC_BREAKPOINT_METHOD = "percentile"   # Method for detecting semantic boundaries
@@ -489,6 +489,19 @@ CONTENT_TYPE_WEIGHTS = {
 }
 
 # =============================================================================
+# Checkpoint/Resume Configuration
+# =============================================================================
+
+# Path to checkpoint file for resumable pipeline execution
+CHECKPOINT_FILE = INDEX_DIR / "pipeline_checkpoint.json"
+
+# Maximum consecutive quota/rate limit errors before stopping and saving checkpoint
+MAX_CONSECUTIVE_QUOTA_ERRORS = int(os.getenv("MAX_CONSECUTIVE_QUOTA_ERRORS", "5"))
+
+# Save checkpoint every N processed items (for entity extraction, community summaries)
+CHECKPOINT_SAVE_INTERVAL = int(os.getenv("CHECKPOINT_SAVE_INTERVAL", "10"))
+
+# =============================================================================
 # Convert Path objects to strings for external use
 # =============================================================================
 
@@ -510,6 +523,7 @@ INDEX_DIR = str(INDEX_DIR.resolve())
 CACHE_DIR = str(CACHE_DIR.resolve())
 TOOL_CACHE_DB = str(TOOL_CACHE_DB.resolve())
 METRICS_DB = str(METRICS_DB.resolve())
+CHECKPOINT_FILE = str(CHECKPOINT_FILE.resolve())
 
 # Ensure directories exist
 Path(SOURCES_DIR).mkdir(parents=True, exist_ok=True)

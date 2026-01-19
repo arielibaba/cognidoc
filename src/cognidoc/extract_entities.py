@@ -21,9 +21,10 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
 
 from .graph_config import get_graph_config, GraphConfig
-from .constants import CHUNKS_DIR, PROCESSED_DIR
+from .constants import CHUNKS_DIR, PROCESSED_DIR, MAX_CONSECUTIVE_QUOTA_ERRORS, CHECKPOINT_SAVE_INTERVAL
 from .utils.llm_client import llm_chat, llm_chat_async
 from .utils.logger import logger
+from .utils.error_classifier import classify_error, is_quota_or_rate_error, ErrorType, get_error_info
 
 
 def get_optimal_concurrency() -> int:
@@ -699,7 +700,8 @@ async def extract_from_chunk_async(
     text: str,
     chunk_id: str,
     config: Optional[GraphConfig] = None,
-) -> ExtractionResult:
+    return_error_info: bool = False,
+) -> Tuple[ExtractionResult, Optional[Tuple[ErrorType, str]]]:
     """
     Async version of extract_from_chunk.
 
@@ -709,24 +711,42 @@ async def extract_from_chunk_async(
         text: Chunk text
         chunk_id: Chunk identifier
         config: Graph configuration
+        return_error_info: If True, return (result, error_info) tuple
 
     Returns:
-        ExtractionResult with entities and relationships
+        If return_error_info=False: ExtractionResult with entities and relationships
+        If return_error_info=True: Tuple of (ExtractionResult, Optional[(ErrorType, message)])
     """
     logger.debug(f"Async extracting from chunk: {chunk_id}")
+    error_info = None
 
-    # Extract entities first
-    entities = await extract_entities_from_text_async(text, chunk_id, config)
+    try:
+        # Extract entities first
+        entities = await extract_entities_from_text_async(text, chunk_id, config)
 
-    # Then extract relationships using found entities
-    relationships = await extract_relationships_from_text_async(text, entities, chunk_id, config)
+        # Then extract relationships using found entities
+        relationships = await extract_relationships_from_text_async(text, entities, chunk_id, config)
 
-    return ExtractionResult(
-        chunk_id=chunk_id,
-        chunk_text=text,
-        entities=entities,
-        relationships=relationships,
-    )
+        result = ExtractionResult(
+            chunk_id=chunk_id,
+            chunk_text=text,
+            entities=entities,
+            relationships=relationships,
+        )
+
+    except Exception as e:
+        logger.error(f"Async extraction failed for {chunk_id}: {e}")
+        error_info = get_error_info(e)
+        result = ExtractionResult(
+            chunk_id=chunk_id,
+            chunk_text=text,
+            entities=[],
+            relationships=[],
+        )
+
+    if return_error_info:
+        return result, error_info
+    return result
 
 
 async def extract_from_chunks_dir_async(
@@ -737,13 +757,20 @@ async def extract_from_chunks_dir_async(
     include_descriptions: bool = True,
     max_concurrent: int = None,
     show_progress: bool = True,
-) -> List[ExtractionResult]:
+    # Checkpoint parameters
+    processed_chunk_ids: Optional[set] = None,
+    max_consecutive_quota_errors: int = None,
+    on_progress_callback: Optional[callable] = None,
+) -> Tuple[List[ExtractionResult], Dict[str, Any]]:
     """
-    Async version of extract_from_chunks_dir with concurrent extraction.
+    Async version of extract_from_chunks_dir with concurrent extraction and checkpoint support.
 
     Processes multiple chunks concurrently using a semaphore to control
     the number of simultaneous LLM calls. This significantly improves
     throughput when using cloud LLM providers like Gemini.
+
+    Supports checkpoint/resume: skips already-processed chunks and stops
+    gracefully when quota errors are detected, allowing resumption later.
 
     By default, extracts from parent chunks (512 tokens) and descriptions,
     skipping child chunks (64 tokens) to avoid redundant extractions.
@@ -758,21 +785,52 @@ async def extract_from_chunks_dir_async(
                        Auto-detected based on CPU cores. Override for specific needs:
                        4-8 for Gemini API, 2-4 for local Ollama
         show_progress: Show progress bar (default: True)
+        processed_chunk_ids: Set of chunk IDs already processed (for resume)
+        max_consecutive_quota_errors: Stop after this many consecutive quota errors
+        on_progress_callback: Called after each chunk with (chunk_id, success, error_type)
 
     Returns:
-        List of extraction results
+        Tuple of (results, checkpoint_state) where checkpoint_state contains:
+        - processed_chunk_ids: Set of successfully processed chunk IDs
+        - failed_chunks: List of {chunk_id, error_type, error_message}
+        - consecutive_quota_errors: Current count
+        - interrupted: True if stopped due to quota errors
     """
     if chunks_dir is None:
         chunks_dir = CHUNKS_DIR
 
+    if max_consecutive_quota_errors is None:
+        max_consecutive_quota_errors = MAX_CONSECUTIVE_QUOTA_ERRORS
+
     chunks_path = Path(chunks_dir)
     if not chunks_path.exists():
         logger.warning(f"Chunks directory not found: {chunks_dir}")
-        return []
+        return [], {"processed_chunk_ids": set(), "failed_chunks": [], "consecutive_quota_errors": 0, "interrupted": False}
+
+    # Initialize checkpoint state
+    if processed_chunk_ids is None:
+        processed_chunk_ids = set()
+    else:
+        processed_chunk_ids = set(processed_chunk_ids)  # Copy to avoid mutation
+
+    checkpoint_state = {
+        "processed_chunk_ids": processed_chunk_ids,
+        "failed_chunks": [],
+        "consecutive_quota_errors": 0,
+        "interrupted": False,
+    }
 
     # Collect all chunk files to process
     chunk_files = []
+    skipped_already_processed = 0
     for chunk_file in sorted(chunks_path.rglob("*.txt")):
+        chunk_id = chunk_file.stem
+
+        # Skip already processed chunks (resume support)
+        if chunk_id in processed_chunk_ids:
+            skipped_already_processed += 1
+            continue
+
         # Classify chunk type
         is_parent_only = "_parent_chunk_" in chunk_file.name and "_child_chunk_" not in chunk_file.name
         is_child = "_child_chunk_" in chunk_file.name
@@ -787,9 +845,15 @@ async def extract_from_chunks_dir_async(
             continue
         chunk_files.append(chunk_file)
 
+    if skipped_already_processed > 0:
+        logger.info(f"Resuming: skipping {skipped_already_processed} already-processed chunks")
+
     if not chunk_files:
-        logger.warning(f"No chunk files found in {chunks_dir}")
-        return []
+        if skipped_already_processed > 0:
+            logger.info("All chunks already processed")
+        else:
+            logger.warning(f"No chunk files found in {chunks_dir}")
+        return [], checkpoint_state
 
     # Use adaptive concurrency if not specified
     if max_concurrent is None:
@@ -800,19 +864,89 @@ async def extract_from_chunks_dir_async(
     # Semaphore to limit concurrent extractions
     semaphore = asyncio.Semaphore(max_concurrent)
 
+    # Shared state for quota error tracking (thread-safe for async)
+    quota_error_lock = asyncio.Lock()
+    consecutive_quota_errors = 0
+    should_stop = False
+
+    results = []
+    processed_count = 0
+
     async def process_chunk(chunk_file: Path) -> Optional[ExtractionResult]:
-        """Process a single chunk with semaphore control."""
+        """Process a single chunk with semaphore control and error tracking."""
+        nonlocal consecutive_quota_errors, should_stop, processed_count
+
+        # Check if we should stop before acquiring semaphore
+        if should_stop:
+            return None
+
         async with semaphore:
+            # Double-check after acquiring semaphore
+            if should_stop:
+                return None
+
+            chunk_id = chunk_file.stem
+
             try:
                 text = chunk_file.read_text(encoding="utf-8")
                 if not text.strip():
                     return None
 
-                result = await extract_from_chunk_async(
+                result, error_info = await extract_from_chunk_async(
                     text=text,
-                    chunk_id=chunk_file.stem,
+                    chunk_id=chunk_id,
                     config=config,
+                    return_error_info=True,
                 )
+
+                if error_info:
+                    error_type, error_message = error_info
+
+                    async with quota_error_lock:
+                        # Record failed chunk
+                        checkpoint_state["failed_chunks"].append({
+                            "chunk_id": chunk_id,
+                            "error_type": error_type.value,
+                            "error_message": error_message[:200],
+                        })
+
+                        # Check if quota/rate error
+                        if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
+                            consecutive_quota_errors += 1
+                            checkpoint_state["consecutive_quota_errors"] = consecutive_quota_errors
+                            logger.warning(
+                                f"Quota/rate error for {chunk_id} "
+                                f"({consecutive_quota_errors}/{max_consecutive_quota_errors}): {error_message[:100]}"
+                            )
+
+                            if consecutive_quota_errors >= max_consecutive_quota_errors:
+                                logger.error(
+                                    f"Stopping extraction: {consecutive_quota_errors} consecutive quota errors. "
+                                    "Pipeline will save checkpoint for resume."
+                                )
+                                should_stop = True
+                                checkpoint_state["interrupted"] = True
+                                return None
+                        else:
+                            # Non-quota error, reset counter
+                            consecutive_quota_errors = 0
+                            checkpoint_state["consecutive_quota_errors"] = 0
+
+                    if on_progress_callback:
+                        on_progress_callback(chunk_id, False, error_type.value)
+
+                    # Return result even if empty (for tracking)
+                    return result if result.entities or result.relationships else None
+
+                # Success - reset quota error counter
+                async with quota_error_lock:
+                    consecutive_quota_errors = 0
+                    checkpoint_state["consecutive_quota_errors"] = 0
+                    checkpoint_state["processed_chunk_ids"].add(chunk_id)
+                    processed_count += 1
+
+                if on_progress_callback:
+                    on_progress_callback(chunk_id, True, None)
 
                 logger.debug(
                     f"Processed {chunk_file.name}: "
@@ -822,41 +956,72 @@ async def extract_from_chunks_dir_async(
                 return result
 
             except Exception as e:
+                error_type, error_message = get_error_info(e)
                 logger.error(f"Error processing {chunk_file.name}: {e}")
+
+                async with quota_error_lock:
+                    checkpoint_state["failed_chunks"].append({
+                        "chunk_id": chunk_id,
+                        "error_type": error_type.value,
+                        "error_message": error_message[:200],
+                    })
+
+                    if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
+                        consecutive_quota_errors += 1
+                        checkpoint_state["consecutive_quota_errors"] = consecutive_quota_errors
+
+                        if consecutive_quota_errors >= max_consecutive_quota_errors:
+                            logger.error(
+                                f"Stopping extraction: {consecutive_quota_errors} consecutive quota errors."
+                            )
+                            should_stop = True
+                            checkpoint_state["interrupted"] = True
+                    else:
+                        consecutive_quota_errors = 0
+                        checkpoint_state["consecutive_quota_errors"] = 0
+
+                if on_progress_callback:
+                    on_progress_callback(chunk_id, False, error_type.value)
+
                 return None
 
-    # Create tasks for all chunks
-    tasks = [process_chunk(cf) for cf in chunk_files]
-
-    # Run all tasks concurrently with optional progress bar
+    # Process chunks sequentially with progress tracking to enable early stopping
+    # (Using gather would process all tasks even after we want to stop)
     if show_progress:
-        results_raw = await async_tqdm.gather(
-            *tasks,
-            desc="Entity extraction",
-            unit="chunk",
-        )
-    else:
-        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+        pbar = tqdm(total=len(chunk_files), desc="Entity extraction", unit="chunk")
 
-    # Filter out None results and exceptions
-    results = []
-    errors = 0
-    for r in results_raw:
-        if isinstance(r, Exception):
-            logger.error(f"Chunk extraction failed: {r}")
-            errors += 1
-        elif r is not None:
-            results.append(r)
+    for chunk_file in chunk_files:
+        if should_stop:
+            break
+
+        result = await process_chunk(chunk_file)
+        if result is not None and (result.entities or result.relationships):
+            results.append(result)
+
+        if show_progress:
+            pbar.update(1)
+
+    if show_progress:
+        pbar.close()
 
     total_entities = sum(len(r.entities) for r in results)
     total_relationships = sum(len(r.relationships) for r in results)
+    errors = len(checkpoint_state["failed_chunks"])
 
-    logger.info(
-        f"Async extraction complete: {len(results)} chunks processed, "
-        f"{total_entities} entities, {total_relationships} relationships, "
-        f"{errors} errors"
-    )
-    return results
+    if checkpoint_state["interrupted"]:
+        logger.warning(
+            f"Extraction interrupted: {len(results)} chunks processed, "
+            f"{total_entities} entities, {total_relationships} relationships, "
+            f"{errors} errors. Resume to continue."
+        )
+    else:
+        logger.info(
+            f"Async extraction complete: {len(results)} chunks processed, "
+            f"{total_entities} entities, {total_relationships} relationships, "
+            f"{errors} errors"
+        )
+
+    return results, checkpoint_state
 
 
 def run_extraction_async(
@@ -867,12 +1032,19 @@ def run_extraction_async(
     include_descriptions: bool = True,
     max_concurrent: int = None,
     show_progress: bool = True,
-) -> List[ExtractionResult]:
+    # Checkpoint parameters
+    processed_chunk_ids: Optional[set] = None,
+    max_consecutive_quota_errors: int = None,
+    on_progress_callback: Optional[callable] = None,
+) -> Tuple[List[ExtractionResult], Dict[str, Any]]:
     """
-    Synchronous wrapper for async extraction.
+    Synchronous wrapper for async extraction with checkpoint support.
 
     Convenience function that handles the async event loop setup,
     making it easy to call from synchronous code.
+
+    Supports checkpoint/resume: skips already-processed chunks and stops
+    gracefully when quota errors are detected, allowing resumption later.
 
     By default, extracts from parent chunks (512 tokens) and descriptions,
     skipping child chunks (64 tokens) to avoid redundant extractions.
@@ -886,16 +1058,26 @@ def run_extraction_async(
         max_concurrent: Maximum number of concurrent extractions (default: auto)
                        Auto-detected based on CPU cores.
         show_progress: Show progress bar (default: True)
+        processed_chunk_ids: Set of chunk IDs already processed (for resume)
+        max_consecutive_quota_errors: Stop after this many consecutive quota errors
+        on_progress_callback: Called after each chunk with (chunk_id, success, error_type)
 
     Returns:
-        List of extraction results
+        Tuple of (results, checkpoint_state) where checkpoint_state contains:
+        - processed_chunk_ids: Set of successfully processed chunk IDs
+        - failed_chunks: List of {chunk_id, error_type, error_message}
+        - consecutive_quota_errors: Current count
+        - interrupted: True if stopped due to quota errors
 
     Example:
-        # Instead of:
-        # results = extract_from_chunks_dir(chunks_dir)  # Sequential, slow
+        # Fresh extraction
+        results, checkpoint = run_extraction_async(chunks_dir)
 
-        # Use:
-        results = run_extraction_async(chunks_dir)  # 2-4x faster with auto concurrency
+        # Resume from checkpoint
+        results, checkpoint = run_extraction_async(
+            chunks_dir,
+            processed_chunk_ids=previous_checkpoint["processed_chunk_ids"]
+        )
     """
     try:
         # Check if we're already in an async context
@@ -913,6 +1095,9 @@ def run_extraction_async(
                     include_descriptions=include_descriptions,
                     max_concurrent=max_concurrent,
                     show_progress=show_progress,
+                    processed_chunk_ids=processed_chunk_ids,
+                    max_consecutive_quota_errors=max_consecutive_quota_errors,
+                    on_progress_callback=on_progress_callback,
                 )
             )
             return future.result()
@@ -927,6 +1112,9 @@ def run_extraction_async(
                 include_descriptions=include_descriptions,
                 max_concurrent=max_concurrent,
                 show_progress=show_progress,
+                processed_chunk_ids=processed_chunk_ids,
+                max_consecutive_quota_errors=max_consecutive_quota_errors,
+                on_progress_callback=on_progress_callback,
             )
         )
 
