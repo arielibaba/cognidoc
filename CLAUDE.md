@@ -758,15 +758,16 @@ pytest tests/test_00_e2e_pipeline.py -v --run-slow
 
 | Module | Tests | Description |
 |--------|-------|-------------|
-| `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
+| `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 27 | Agent ReAct loop |
 | `test_agent_tools.py` | 33 | Tool implementations |
 | `test_benchmark.py` | 10 | Precision/recall benchmark (vector vs GraphRAG) |
+| `test_checkpoint.py` | 32 | Checkpoint/resume system for pipeline interruption |
 | `test_complexity.py` | 25 | Query complexity evaluation |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE), document count |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing, JSON |
 | `test_providers.py` | 32 | LLM/Embedding providers |
-| **Total** | **195** |
+| **Total** | **226** |
 
 **Test Infrastructure:**
 - `conftest.py` provides session-scoped `cognidoc_session` fixture to avoid Qdrant lock conflicts
