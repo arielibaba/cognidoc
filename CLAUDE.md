@@ -188,13 +188,13 @@ When switching providers at runtime (e.g., `DEFAULT_LLM_PROVIDER=ollama`), the c
 | Provider | LLM Model Env Var | Default Model |
 |----------|-------------------|---------------|
 | gemini | `GEMINI_LLM_MODEL` | gemini-2.5-flash |
-| ollama | `OLLAMA_LLM_MODEL` | granite4:7b-a1b-h |
+| ollama | `OLLAMA_LLM_MODEL` | granite3.3:8b |
 | openai | `OPENAI_LLM_MODEL` | gpt-4o |
 | anthropic | `ANTHROPIC_LLM_MODEL` | claude-sonnet-4-20250514 |
 
 **Priority order:** Provider-specific env var → Built-in default for that provider
 
-This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite4:7b-a1b-h` even if `.env` has `DEFAULT_LLM_MODEL=gemini-2.5-flash`.
+This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite3.3:8b` even if `.env` has `DEFAULT_LLM_MODEL=gemini-2.5-flash`.
 
 ### Key Constants (overridable via `.env`)
 
@@ -230,7 +230,7 @@ def get_memory_window() -> int:
 
 Required Ollama models:
 ```bash
-ollama pull granite4:7b-a1b-h               # LLM generation
+ollama pull granite3.3:8b               # LLM generation
 ollama pull qwen3-embedding:4b-q8_0         # Embeddings (default)
 ollama pull ibm/granite-docling:258m-bf16   # Document parsing
 ollama pull qwen3-vl:8b-instruct            # Vision (optional)

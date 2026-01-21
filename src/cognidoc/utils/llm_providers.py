@@ -646,7 +646,7 @@ def create_llm_provider(config: LLMConfig) -> BaseLLMProvider:
 # Default models per provider (fallback if env vars not set)
 _DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash",
-    "ollama": "granite4:7b-a1b-h",
+    "ollama": "granite3.3:8b",
     "openai": "gpt-4o",
     "anthropic": "claude-sonnet-4-20250514",
 }
