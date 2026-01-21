@@ -560,28 +560,35 @@ async def run_ingestion_pipeline_async(
     else:
         logger.info("Skipping YOLO detection")
 
-    # 5. Extract text and tables
+    # 5. Extract text and tables (in parallel for better performance)
     if not skip_extraction:
         pipeline_timer.stage("content_extraction")
         try:
-            logger.info(f"Extracting text from images using {extraction_provider}...")
-            text_stats = parse_image_with_text(
-                image_dir=DETECTION_DIR,
-                output_dir=PROCESSED_DIR,
-                provider=extraction_provider,
-                image_filter=pdf_filter,  # Filter to specific files if provided
-            )
-            stats["text_extraction"] = text_stats
+            logger.info(f"Extracting text and tables in parallel using {extraction_provider}...")
 
-            logger.info(f"Extracting tables from images using {extraction_provider}...")
-            table_stats = parse_image_with_table(
+            # Run text and table extraction concurrently using asyncio.to_thread
+            # These are independent operations on different file types (text regions vs table regions)
+            text_task = asyncio.to_thread(
+                parse_image_with_text,
                 image_dir=DETECTION_DIR,
                 output_dir=PROCESSED_DIR,
                 provider=extraction_provider,
-                image_filter=pdf_filter,  # Filter to specific files if provided
+                image_filter=pdf_filter,
             )
+            table_task = asyncio.to_thread(
+                parse_image_with_table,
+                image_dir=DETECTION_DIR,
+                output_dir=PROCESSED_DIR,
+                provider=extraction_provider,
+                image_filter=pdf_filter,
+            )
+
+            # Wait for both to complete
+            text_stats, table_stats = await asyncio.gather(text_task, table_task)
+
+            stats["text_extraction"] = text_stats
             stats["table_extraction"] = table_stats
-            logger.info("Content extraction completed")
+            logger.info("Content extraction completed (parallel)")
         except Exception as e:
             logger.error(f"Content extraction failed: {e}")
             raise
@@ -615,50 +622,54 @@ async def run_ingestion_pipeline_async(
     else:
         logger.info("Skipping image descriptions")
 
-    # 7. Chunk text data
+    # 7. Chunk text and tables (in parallel for better performance)
     if not skip_chunking:
-        pipeline_timer.stage("text_chunking")
+        pipeline_timer.stage("text_chunking")  # Combined stage for both
         try:
-            logger.info("Chunking text data...")
-            chunk_text_data(
-                PROCESSED_DIR,
-                EMBED_MODEL,
-                MAX_CHUNK_SIZE,
-                None,
-                CHUNKS_DIR,
-                SEMANTIC_CHUNK_BUFFER,
-                SEMANTIC_BREAKPOINT_METHOD,
-                SEMANTIC_BREAKPOINT_VALUE,
-                SENTENCE_SPLIT_REGEX,
-                verbose=True
-            )
-            logger.info("Text chunking completed")
-        except Exception as e:
-            logger.error(f"Text chunking failed: {e}")
-            raise
+            logger.info("Chunking text and table data in parallel...")
 
-        # 8. Chunk tables
-        pipeline_timer.stage("table_chunking")
-        try:
-            logger.info("Chunking table data...")
-            client = ollama.Client()
+            # Prepare table chunking parameters
             with open(TABLE_SUMMARY_PROMPT_PATH, encoding="utf-8") as f:
                 table_prompt = f.read()
 
-            chunk_table_data(
-                table_prompt,
-                PROCESSED_DIR,
-                None,
-                MAX_CHUNK_SIZE,
-                int(0.25 * MAX_CHUNK_SIZE),
-                client,
-                OLLAMA_LLM_MODEL,
-                {"temperature": TEMPERATURE_GENERATION, "top_p": TOP_P_GENERATION},
-                CHUNKS_DIR
-            )
-            logger.info("Table chunking completed")
+            # Define chunking functions to run in parallel
+            def run_text_chunking():
+                chunk_text_data(
+                    PROCESSED_DIR,
+                    EMBED_MODEL,
+                    MAX_CHUNK_SIZE,
+                    None,
+                    CHUNKS_DIR,
+                    SEMANTIC_CHUNK_BUFFER,
+                    SEMANTIC_BREAKPOINT_METHOD,
+                    SEMANTIC_BREAKPOINT_VALUE,
+                    SENTENCE_SPLIT_REGEX,
+                    verbose=True
+                )
+
+            def run_table_chunking():
+                client = ollama.Client()
+                chunk_table_data(
+                    table_prompt,
+                    PROCESSED_DIR,
+                    None,
+                    MAX_CHUNK_SIZE,
+                    int(0.25 * MAX_CHUNK_SIZE),
+                    client,
+                    OLLAMA_LLM_MODEL,
+                    {"temperature": TEMPERATURE_GENERATION, "top_p": TOP_P_GENERATION},
+                    CHUNKS_DIR
+                )
+
+            # Run both chunking operations in parallel
+            text_chunk_task = asyncio.to_thread(run_text_chunking)
+            table_chunk_task = asyncio.to_thread(run_table_chunking)
+
+            await asyncio.gather(text_chunk_task, table_chunk_task)
+
+            logger.info("Chunking completed (parallel)")
         except Exception as e:
-            logger.error(f"Table chunking failed: {e}")
+            logger.error(f"Chunking failed: {e}")
             raise
     else:
         logger.info("Skipping chunking")
