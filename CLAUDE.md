@@ -270,6 +270,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_complexity.py` | 25 | Query complexity evaluation |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing |
+| `test_optimizations.py` | 21 | Pipeline optimizations (concurrency, pooling) |
 | `test_providers.py` | 32 | LLM/Embedding providers |
 
 **Test Infrastructure:**
