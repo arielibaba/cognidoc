@@ -26,8 +26,11 @@ UV_LINK_MODE=copy uv sync --all-extras
 UV_LINK_MODE=copy uv pip install -e ".[all,dev]"
 
 # Code quality
-uv run black src/cognidoc/       # Format
-uv run pylint src/cognidoc/      # Lint
+make format                      # Format with black
+make lint                        # Run pylint
+make refactor                    # Format + lint
+uv run black src/cognidoc/       # Format (direct)
+uv run pylint src/cognidoc/      # Lint (direct)
 
 # Run tests
 uv run pytest tests/ -v                                    # All tests
