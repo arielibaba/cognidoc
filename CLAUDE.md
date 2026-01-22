@@ -267,7 +267,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 
 | Module | Tests | Description |
 |--------|-------|-------------|
-| `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
+| `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 27 | Agent ReAct loop |
 | `test_agent_tools.py` | 33 | Tool implementations |
 | `test_benchmark.py` | 10 | Precision/recall benchmark |
