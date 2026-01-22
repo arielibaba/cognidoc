@@ -192,14 +192,45 @@ When switching providers at runtime (e.g., `DEFAULT_LLM_PROVIDER=ollama`), the c
 
 | Provider | LLM Model Env Var | Default Model |
 |----------|-------------------|---------------|
-| gemini | `GEMINI_LLM_MODEL` | gemini-2.5-flash |
+| gemini | `GEMINI_LLM_MODEL` | gemini-3-flash-preview |
 | ollama | `OLLAMA_LLM_MODEL` | granite3.3:8b |
 | openai | `OPENAI_LLM_MODEL` | gpt-4o |
 | anthropic | `ANTHROPIC_LLM_MODEL` | claude-sonnet-4-20250514 |
 
 **Priority order:** Provider-specific env var → Built-in default for that provider
 
-This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite3.3:8b` even if `.env` has `DEFAULT_LLM_MODEL=gemini-2.5-flash`.
+This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite3.3:8b` even if `.env` has `DEFAULT_LLM_MODEL=gemini-3-flash-preview`.
+
+### Models by Pipeline Stage
+
+**Ingestion Pipeline:**
+
+| Stage | Default Model | Provider |
+|-------|---------------|----------|
+| Document parsing | `ibm/granite-docling:258m-bf16` | Ollama |
+| Text/table extraction | `gemini-3-pro-preview` (vision) | Gemini |
+| Image descriptions | `gemini-3-pro-preview` (vision) | Gemini |
+| Table descriptions | `gemini-3-pro-preview` | Gemini |
+| Embeddings | `qwen3-embedding:4b-q8_0` | Ollama |
+| Entity extraction | `gemini-3-pro-preview` | Gemini |
+| Community summaries | `gemini-3-pro-preview` | Gemini |
+
+**Query Pipeline:**
+
+| Stage | Default Model | Provider |
+|-------|---------------|----------|
+| Query rewriting | `gemini-3-flash-preview` | Gemini |
+| Query expansion | `gemini-3-flash-preview` | Gemini |
+| Query classification | Rule-based (+ LLM fallback) | - |
+| Reranking | `gemini-3-flash-preview` | Gemini |
+| Generation | `gemini-3-flash-preview` | Gemini |
+
+**Optional Features (disabled by default):**
+
+| Feature | Default Model | Provider |
+|---------|---------------|----------|
+| Cross-encoder reranking | `dengcao/Qwen3-Reranker-0.6B:F16` | Ollama |
+| Contextual compression | `gemini-3-flash-preview` | Gemini |
 
 ### Key Constants (overridable via `.env`)
 
@@ -216,7 +247,7 @@ This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite3.3:8b` even if `.env` h
 
 Official provider parameters are defined in `MODEL_SPECS` dict. Auto-load specs via:
 ```python
-config = LLMConfig.from_model("gemini-2.5-flash")  # Loads all specs automatically
+config = LLMConfig.from_model("gemini-3-flash-preview")  # Loads all specs automatically
 ```
 
 ### Dynamic MEMORY_WINDOW (`helpers.py`)

@@ -44,9 +44,7 @@ from .constants import (
     SENTENCE_SPLIT_REGEX,
     TABLE_SUMMARY_PROMPT_PATH,
     EMBEDDINGS_DIR,
-    OLLAMA_LLM_MODEL,
     TEMPERATURE_GENERATION,
-    TOP_P_GENERATION,
     SYSTEM_PROMPT_IMAGE_DESC,
     USER_PROMPT_IMAGE_DESC,
     DEFAULT_VISION_PROVIDER,
@@ -656,17 +654,16 @@ async def run_ingestion_pipeline_async(
                 )
 
             def run_table_chunking():
-                client = ollama.Client()
+                # Use unified LLM client (Gemini by default) for better quality
                 chunk_table_data(
                     table_prompt,
                     PROCESSED_DIR,
                     None,
                     MAX_CHUNK_SIZE,
                     int(0.25 * MAX_CHUNK_SIZE),
-                    client,
-                    OLLAMA_LLM_MODEL,
-                    {"temperature": TEMPERATURE_GENERATION, "top_p": TOP_P_GENERATION},
-                    CHUNKS_DIR
+                    CHUNKS_DIR,
+                    use_unified_llm=True,
+                    temperature=TEMPERATURE_GENERATION
                 )
 
             # Run both chunking operations in parallel

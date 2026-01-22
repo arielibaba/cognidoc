@@ -120,6 +120,30 @@ def ask_LLM_with_JSON(
     return response["message"]["content"]
 
 
+def ask_llm_json_unified(
+    prompt: str,
+    temperature: float = 0.7
+) -> str:
+    """
+    Asks the LLM to generate a JSON response using the unified LLM client.
+
+    Uses the default LLM provider (Gemini by default) configured via environment.
+    This replaces the Ollama-specific ask_LLM_with_JSON for better quality.
+
+    Args:
+        prompt: The prompt to send to the LLM
+        temperature: Temperature for generation (default 0.7)
+
+    Returns:
+        The LLM response text
+    """
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant. Output valid JSON only."},
+        {"role": "user", "content": prompt}
+    ]
+    return llm_chat(messages, temperature=temperature, json_mode=True)
+
+
 def recover_json(json_str: str, verbose: bool = False) -> Any:
     """Attempts to recover a JSON object from a potentially malformed string."""
     if '{' not in json_str:
