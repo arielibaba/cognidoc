@@ -33,7 +33,7 @@ from .constants import (
 from .graph_config import EntityResolutionConfig
 from .helpers import load_prompt
 from .knowledge_graph import KnowledgeGraph, GraphNode, GraphEdge
-from .utils.llm_client import llm_chat_async
+from .utils.llm_client import llm_chat_async_ingestion
 from .utils.logger import logger
 from .utils.tool_cache import PersistentToolCache
 
@@ -292,7 +292,7 @@ async def verify_candidate_pair(
 
     # Call LLM
     try:
-        response = await llm_chat_async(
+        response = await llm_chat_async_ingestion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             json_mode=True,
@@ -556,7 +556,7 @@ async def merge_descriptions(
             descriptions="\n".join(f"- {d}" for d in unique),
         )
 
-        response = await llm_chat_async(
+        response = await llm_chat_async_ingestion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )

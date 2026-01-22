@@ -168,6 +168,92 @@ async def llm_chat_async(
     )
 
 
+# Ingestion-specific LLM client (uses INGESTION_LLM_MODEL for higher quality)
+_ingestion_llm_client: Optional[BaseLLMProvider] = None
+
+
+def get_ingestion_llm_client() -> BaseLLMProvider:
+    """
+    Get the ingestion-specific LLM client (uses INGESTION_LLM_MODEL).
+
+    This client uses gemini-3-pro-preview by default for higher quality
+    during ingestion operations like entity extraction and resolution.
+
+    Returns:
+        BaseLLMProvider instance configured for ingestion
+    """
+    global _ingestion_llm_client
+    if _ingestion_llm_client is None:
+        from ..constants import INGESTION_LLM_MODEL
+        _ingestion_llm_client = create_llm_provider(LLMConfig.from_model(
+            model=INGESTION_LLM_MODEL,
+            provider="gemini",
+        ))
+        logger.info(f"Ingestion LLM client initialized: gemini/{INGESTION_LLM_MODEL}")
+    return _ingestion_llm_client
+
+
+def llm_chat_ingestion(
+    messages: List[Dict[str, str]],
+    temperature: Optional[float] = None,
+    json_mode: bool = False,
+) -> str:
+    """
+    Send a chat request using the ingestion LLM (higher quality model).
+
+    Uses INGESTION_LLM_MODEL (gemini-3-pro-preview by default) for
+    ingestion operations like entity extraction and resolution.
+
+    Args:
+        messages: List of {"role": ..., "content": ...} dicts
+        temperature: Override default temperature
+        json_mode: Force JSON output
+
+    Returns:
+        Response text from LLM
+    """
+    client = get_ingestion_llm_client()
+    msg_objects = [Message(role=m["role"], content=m["content"]) for m in messages]
+
+    if temperature is not None:
+        original_temp = client.config.temperature
+        client.config.temperature = temperature
+        try:
+            response = client.chat(msg_objects, json_mode=json_mode)
+        finally:
+            client.config.temperature = original_temp
+    else:
+        response = client.chat(msg_objects, json_mode=json_mode)
+
+    return response.content
+
+
+async def llm_chat_async_ingestion(
+    messages: List[Dict[str, str]],
+    temperature: Optional[float] = None,
+    json_mode: bool = False,
+) -> str:
+    """
+    Async version of llm_chat_ingestion for parallel execution.
+
+    Uses INGESTION_LLM_MODEL (gemini-3-pro-preview by default) for
+    ingestion operations like entity extraction and resolution.
+
+    Args:
+        messages: List of {"role": ..., "content": ...} dicts
+        temperature: Override default temperature
+        json_mode: Force JSON output
+
+    Returns:
+        Response text from LLM
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _executor,
+        lambda: llm_chat_ingestion(messages, temperature, json_mode)
+    )
+
+
 async def run_parallel_llm_calls(
     calls: List[Tuple[str, List[Dict[str, str]], Optional[float]]],
 ) -> Dict[str, str]:

@@ -213,6 +213,7 @@ This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite3.3:8b` even if `.env` h
 | Table descriptions | `gemini-3-pro-preview` | Gemini |
 | Embeddings | `qwen3-embedding:4b-q8_0` | Ollama |
 | Entity extraction | `gemini-3-pro-preview` | Gemini |
+| Entity resolution | `gemini-3-pro-preview` | Gemini |
 | Community summaries | `gemini-3-pro-preview` | Gemini |
 
 **Query Pipeline:**
