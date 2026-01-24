@@ -1027,3 +1027,256 @@ def build_knowledge_graph(
 
     logger.info(f"Knowledge graph complete: {kg.get_statistics()}")
     return kg
+
+
+# =============================================================================
+# Backup and Recovery Functions
+# =============================================================================
+
+
+def has_valid_knowledge_graph(path: str = None) -> bool:
+    """
+    Check if a valid knowledge graph exists at the given path.
+
+    A valid KG has nodes.json with at least one entity.
+
+    Args:
+        path: Path to knowledge graph directory (defaults to GRAPH_DIR)
+
+    Returns:
+        True if valid KG exists, False otherwise
+    """
+    if path is None:
+        path = str(GRAPH_DIR)
+
+    kg_path = Path(path)
+    nodes_file = kg_path / "nodes.json"
+
+    if not nodes_file.exists():
+        return False
+
+    try:
+        with open(nodes_file, "r", encoding="utf-8") as f:
+            nodes_data = json.load(f)
+        # Valid if we have at least one entity
+        return len(nodes_data) > 0
+    except Exception:
+        return False
+
+
+def get_knowledge_graph_stats(path: str = None) -> Dict[str, int]:
+    """
+    Get basic statistics about an existing knowledge graph.
+
+    Args:
+        path: Path to knowledge graph directory (defaults to GRAPH_DIR)
+
+    Returns:
+        Dict with counts of nodes, communities, etc.
+    """
+    if path is None:
+        path = str(GRAPH_DIR)
+
+    kg_path = Path(path)
+    stats = {"nodes": 0, "communities": 0, "edges": 0}
+
+    # Count nodes
+    nodes_file = kg_path / "nodes.json"
+    if nodes_file.exists():
+        try:
+            with open(nodes_file, "r", encoding="utf-8") as f:
+                nodes_data = json.load(f)
+            stats["nodes"] = len(nodes_data)
+        except Exception:
+            pass
+
+    # Count communities
+    communities_file = kg_path / "communities.json"
+    if communities_file.exists():
+        try:
+            with open(communities_file, "r", encoding="utf-8") as f:
+                communities_data = json.load(f)
+            stats["communities"] = len(communities_data)
+        except Exception:
+            pass
+
+    # Count edges from graph pickle
+    graph_file = kg_path / "graph.gpickle"
+    if graph_file.exists():
+        try:
+            with open(graph_file, "rb") as f:
+                graph = pickle.load(f)
+            stats["edges"] = graph.number_of_edges()
+        except Exception:
+            pass
+
+    return stats
+
+
+def backup_knowledge_graph(path: str = None, backup_dir: str = None) -> Optional[str]:
+    """
+    Create a timestamped backup of the knowledge graph.
+
+    Backups are stored in INDEX_DIR/knowledge_graph_backups/
+
+    Args:
+        path: Path to knowledge graph directory (defaults to GRAPH_DIR)
+        backup_dir: Custom backup directory (defaults to INDEX_DIR/knowledge_graph_backups)
+
+    Returns:
+        Path to backup directory if successful, None otherwise
+    """
+    import shutil
+    from datetime import datetime
+
+    if path is None:
+        path = str(GRAPH_DIR)
+
+    kg_path = Path(path)
+
+    # Check if there's anything to backup
+    if not has_valid_knowledge_graph(path):
+        logger.info("No valid knowledge graph to backup")
+        return None
+
+    # Get stats for logging
+    stats = get_knowledge_graph_stats(path)
+
+    # Create backup directory
+    if backup_dir is None:
+        backup_dir = Path(INDEX_DIR) / "knowledge_graph_backups"
+    else:
+        backup_dir = Path(backup_dir)
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create timestamped backup folder
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"kg_backup_{timestamp}"
+
+    try:
+        # Copy entire knowledge_graph directory
+        shutil.copytree(kg_path, backup_path)
+
+        logger.info(
+            f"Knowledge graph backed up to {backup_path} "
+            f"({stats['nodes']} nodes, {stats['edges']} edges, {stats['communities']} communities)"
+        )
+
+        # Clean up old backups (keep last 5)
+        _cleanup_old_backups(backup_dir, keep=5)
+
+        return str(backup_path)
+
+    except Exception as e:
+        logger.error(f"Failed to backup knowledge graph: {e}")
+        return None
+
+
+def _cleanup_old_backups(backup_dir: Path, keep: int = 5) -> None:
+    """Remove old backups, keeping the most recent ones."""
+    import shutil
+
+    backups = sorted(
+        [d for d in backup_dir.iterdir() if d.is_dir() and d.name.startswith("kg_backup_")],
+        key=lambda x: x.name,
+        reverse=True,
+    )
+
+    for old_backup in backups[keep:]:
+        try:
+            shutil.rmtree(old_backup)
+            logger.debug(f"Removed old backup: {old_backup}")
+        except Exception as e:
+            logger.warning(f"Failed to remove old backup {old_backup}: {e}")
+
+
+def list_knowledge_graph_backups(backup_dir: str = None) -> List[Dict[str, Any]]:
+    """
+    List available knowledge graph backups.
+
+    Args:
+        backup_dir: Custom backup directory (defaults to INDEX_DIR/knowledge_graph_backups)
+
+    Returns:
+        List of backup info dicts with path, timestamp, and stats
+    """
+    if backup_dir is None:
+        backup_dir = Path(INDEX_DIR) / "knowledge_graph_backups"
+    else:
+        backup_dir = Path(backup_dir)
+
+    if not backup_dir.exists():
+        return []
+
+    backups = []
+    for d in sorted(backup_dir.iterdir(), key=lambda x: x.name, reverse=True):
+        if d.is_dir() and d.name.startswith("kg_backup_"):
+            try:
+                # Parse timestamp from name
+                ts_str = d.name.replace("kg_backup_", "")
+                from datetime import datetime
+                timestamp = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+
+                stats = get_knowledge_graph_stats(str(d))
+
+                backups.append({
+                    "path": str(d),
+                    "name": d.name,
+                    "timestamp": timestamp.isoformat(),
+                    "nodes": stats["nodes"],
+                    "edges": stats["edges"],
+                    "communities": stats["communities"],
+                })
+            except Exception:
+                continue
+
+    return backups
+
+
+def restore_knowledge_graph_backup(backup_path: str, target_path: str = None) -> bool:
+    """
+    Restore a knowledge graph from backup.
+
+    Args:
+        backup_path: Path to backup directory
+        target_path: Target directory (defaults to GRAPH_DIR)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    import shutil
+
+    if target_path is None:
+        target_path = str(GRAPH_DIR)
+
+    backup = Path(backup_path)
+    target = Path(target_path)
+
+    if not backup.exists():
+        logger.error(f"Backup not found: {backup_path}")
+        return False
+
+    if not has_valid_knowledge_graph(str(backup)):
+        logger.error(f"Backup is not a valid knowledge graph: {backup_path}")
+        return False
+
+    try:
+        # Remove current KG if exists
+        if target.exists():
+            shutil.rmtree(target)
+
+        # Copy backup to target
+        shutil.copytree(backup, target)
+
+        stats = get_knowledge_graph_stats(target_path)
+        logger.info(
+            f"Knowledge graph restored from {backup_path} "
+            f"({stats['nodes']} nodes, {stats['edges']} edges, {stats['communities']} communities)"
+        )
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to restore knowledge graph: {e}")
+        return False
