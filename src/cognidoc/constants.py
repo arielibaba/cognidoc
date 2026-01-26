@@ -77,12 +77,11 @@ OLLAMA_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "180.0"))
 
 # Model names by provider
-# Query pipeline uses flash model for speed
+# All Gemini tasks use flash model by default (speed + API quota considerations)
 GEMINI_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini-3-flash-preview")
-# Vision and ingestion use pro model for quality
-GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-3-pro-preview")
+GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-3-flash-preview")
 # Ingestion LLM model (entity extraction, community summaries, table descriptions)
-INGESTION_LLM_MODEL = os.getenv("INGESTION_LLM_MODEL", "gemini-3-pro-preview")
+INGESTION_LLM_MODEL = os.getenv("INGESTION_LLM_MODEL", "gemini-3-flash-preview")
 
 OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "granite3.3:8b")
 OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b-instruct")

@@ -95,6 +95,9 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `helpers.py` | Query rewriting, parsing, conversation context |
 | `schema_wizard.py` | Interactive/auto schema generation for GraphRAG |
 | `constants.py` | Central config (paths, thresholds, model names) |
+| `checkpoint.py` | Resumable pipeline execution with atomic saves |
+| `cli.py` | Command-line interface (ingest, query, serve, info) |
+| `graph_config.py` | GraphRAG schema loading and validation |
 | `utils/llm_client.py` | Singleton LLM client (Gemini default) |
 | `utils/llm_providers.py` | Multi-provider abstraction layer |
 | `utils/rag_utils.py` | Document, VectorIndex, KeywordIndex classes |

@@ -111,9 +111,9 @@ pip install -e ".[all,dev]"
 ```bash
 # Install Ollama from https://ollama.ai/
 # Then pull required models:
-ollama pull granite3.3:8b          # LLM generation
-ollama pull qwen3-embedding:0.6b   # Embeddings
-ollama pull qwen3-vl:8b-instruct   # Vision (optional)
+ollama pull granite3.3:8b               # LLM generation
+ollama pull qwen3-embedding:4b-q8_0     # Embeddings (default)
+ollama pull qwen3-vl:8b-instruct        # Vision (optional)
 ```
 
 ### YOLO Model (Optional)
@@ -138,7 +138,7 @@ Without YOLO, the system uses simple page-level extraction.
 | **Gemini** (default) | `gemini-2.5-flash` | `text-embedding-004` | `GOOGLE_API_KEY` |
 | **OpenAI** | `gpt-4o-mini` | `text-embedding-3-small` | `OPENAI_API_KEY` |
 | **Anthropic** | `claude-3-haiku` | - | `ANTHROPIC_API_KEY` |
-| **Ollama** | `granite3.3:8b` | `qwen3-embedding:0.6b` | Local (no key) |
+| **Ollama** | `granite3.3:8b` | `qwen3-embedding:4b-q8_0` | Local (no key) |
 
 ### Environment Variables (.env)
 
