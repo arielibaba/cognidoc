@@ -1677,3 +1677,89 @@ Pour réactiver le cross-encoder (plus rapide mais moins précis):
 ```bash
 ENABLE_CROSS_ENCODER=true python -m cognidoc.cognidoc_app
 ```
+
+---
+
+## Session 15 - 26 janvier 2026
+
+### Contexte: Test E2E sur cognidoc-theologie-morale
+
+Cette session a finalisé le test E2E complet du système sur le corpus de théologie morale (bioéthique).
+
+### Résultats du pipeline E2E
+
+| Composant | Valeur |
+|-----------|--------|
+| Documents sources | ~150 PDFs |
+| Pages traitées | 7,833 |
+| Chunks générés | 6,115 (parents) / 20,536 (total avec children) |
+| Embeddings | 17,111 documents indexés |
+| Entités extraites | 22,315 |
+| Relations | 15,364 |
+| Communautés | 13,929 (100% avec résumés) |
+
+### Problèmes résolus
+
+1. **72 chunks manquants** - Extraction entités avait échoué sur 72 chunks (erreurs 503)
+   - Script `extract_missing_chunks.py` créé pour récupération
+   - +209 nouvelles entités, 383 fusionnées, 143 relations ajoutées
+
+2. **Community summaries bloqués à 49.6%** - Processus figé pendant ~2h
+   - Résolu par kill/restart du processus
+   - Reprise automatique grâce au checkpoint system
+   - 13,929/13,929 communautés traitées (100%)
+
+### Standardisation des modèles par défaut
+
+**Décision:** Utiliser `gemini-3-flash-preview` PARTOUT (pas pro) pour :
+- Limitations API Gemini (quotas)
+- Temps de calcul réduit
+- Résultats équivalents pour ce use case
+
+| Fichier | Modification |
+|---------|--------------|
+| `constants.py` | `GEMINI_VISION_MODEL = gemini-3-flash-preview` |
+| `constants.py` | `INGESTION_LLM_MODEL = gemini-3-flash-preview` |
+| `README.md` | Corrigé `qwen3-embedding:0.6b` → `qwen3-embedding:4b-q8_0` |
+| `CLAUDE.md` | Ajouté modules manquants (checkpoint, cli, graph_config) |
+
+### Tests validés
+
+```bash
+pytest tests/ -v
+# 273 passed, 13 skipped, 33 warnings in 37.13s
+```
+
+### Commits session 15
+
+| Hash | Description |
+|------|-------------|
+| `11596cb` | Add periodic save during community summaries generation |
+| `b9095f3` | Add knowledge graph data protection and backup system |
+| `98d45bc` | Standardize default models to gemini-3-flash-preview and fix docs |
+
+### Configuration validée (cognidoc-theologie-morale)
+
+```
+LLM:        gemini-3-flash-preview (Gemini)
+Embedding:  qwen3-embedding:4b-q8_0 (Ollama)
+Agent:      Activé (seuil complexité: 0.55)
+GraphRAG:   22,315 entités, 13,929 communautés
+```
+
+### Tests système effectués
+
+| Type de requête | Exemple | Résultat |
+|-----------------|---------|----------|
+| Factual | "Quelle est la position de l'Église sur l'avortement?" | ✅ Réponse détaillée |
+| Relational | "Quel lien entre dignité humaine et contraception?" | ✅ Relations trouvées |
+| Exploratory | "Parle-moi de la bioéthique catholique" | ✅ Vue d'ensemble |
+| Procedural | "Comment l'Église évalue-t-elle les cas de PMA?" | ✅ Processus décrit |
+| Comparative | "Compare contraception et PMA selon l'Église" | ✅ Analyse comparative |
+
+### État final
+
+- **cognidoc (librairie):** 3 commits poussés sur origin
+- **cognidoc-theologie-morale:** 4 commits locaux (projet de test, non poussé)
+- **Tests:** 273/286 passés (13 skipped = tests E2E lents)
+- **Documentation:** CLAUDE.md et README.md synchronisés avec le code
