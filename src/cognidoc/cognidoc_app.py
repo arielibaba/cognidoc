@@ -1915,20 +1915,16 @@ def main():
     # Create Gradio app
     demo = create_gradio_app(default_reranking=default_reranking)
 
-    # Create FastAPI app and mount Gradio + static files
+    # Create FastAPI app and mount static files BEFORE Gradio
+    # (Gradio's catch-all at "/" would intercept /pdfs/ if mounted first)
     app = FastAPI()
 
-    # Mount Gradio app on root path first
-    app = gr.mount_gradio_app(app, demo, path="/")
-
-    # Add explicit route for PDF files AFTER Gradio mount
-    # Using add_route ensures it's not overwritten by Gradio
-    from starlette.routing import Mount
     from starlette.staticfiles import StaticFiles as StarletteStaticFiles
-    pdf_app = StarletteStaticFiles(directory=PDF_DIR, check_dir=True)
-    # Insert at the beginning of routes to take priority
-    app.routes.insert(0, Mount("/pdfs", app=pdf_app, name="pdfs"))
+    app.mount("/pdfs", StarletteStaticFiles(directory=PDF_DIR, check_dir=True), name="pdfs")
     logger.info(f"Static PDF files mounted at /pdfs from {PDF_DIR}")
+
+    # Mount Gradio app on root path AFTER static files
+    app = gr.mount_gradio_app(app, demo, path="/")
 
     logger.info(f"Launching CogniDoc on port {args.port}...")
     uvicorn.run(app, host="0.0.0.0", port=args.port)
