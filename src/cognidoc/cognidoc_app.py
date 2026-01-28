@@ -1543,6 +1543,42 @@ def get_global_stats_html():
     """
 
 
+def create_fastapi_app(demo: gr.Blocks) -> "FastAPI":
+    """
+    Wrap a Gradio app in a FastAPI app with PDF serving endpoint.
+
+    Registers /pdfs/{path} BEFORE Gradio's catch-all at "/" so that
+    source document links work correctly.
+    """
+    from pathlib import Path as _Path
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import FileResponse
+
+    app = FastAPI()
+
+    _pdf_dir = _Path(PDF_DIR).resolve()
+    logger.info(f"PDF serving endpoint registered at /pdfs from {_pdf_dir}")
+
+    @app.get("/pdfs/{file_path:path}")
+    async def serve_pdf(file_path: str):
+        decoded = urllib.parse.unquote(file_path)
+        # Normalize Unicode (macOS uses NFD, URLs typically use NFC)
+        decoded_nfc = unicodedata.normalize('NFC', decoded)
+        decoded_nfd = unicodedata.normalize('NFD', decoded)
+        for candidate in (decoded, decoded_nfc, decoded_nfd):
+            full_path = (_pdf_dir / candidate).resolve()
+            # Path traversal protection
+            if not str(full_path).startswith(str(_pdf_dir)):
+                raise HTTPException(status_code=403)
+            if full_path.is_file():
+                return FileResponse(full_path, media_type="application/pdf")
+        raise HTTPException(status_code=404, detail=f"PDF not found: {decoded}")
+
+    # Mount Gradio AFTER explicit routes
+    app = gr.mount_gradio_app(app, demo, path="/")
+    return app
+
+
 def create_gradio_app(default_reranking: bool = True):
     """
     Create the Gradio application with professional UI.
@@ -1915,16 +1951,8 @@ def main():
     # Create Gradio app
     demo = create_gradio_app(default_reranking=default_reranking)
 
-    # Create FastAPI app and mount static files BEFORE Gradio
-    # (Gradio's catch-all at "/" would intercept /pdfs/ if mounted first)
-    app = FastAPI()
-
-    from starlette.staticfiles import StaticFiles as StarletteStaticFiles
-    app.mount("/pdfs", StarletteStaticFiles(directory=PDF_DIR, check_dir=True), name="pdfs")
-    logger.info(f"Static PDF files mounted at /pdfs from {PDF_DIR}")
-
-    # Mount Gradio app on root path AFTER static files
-    app = gr.mount_gradio_app(app, demo, path="/")
+    # Create FastAPI app with PDF serving + Gradio
+    app = create_fastapi_app(demo)
 
     logger.info(f"Launching CogniDoc on port {args.port}...")
     uvicorn.run(app, host="0.0.0.0", port=args.port)

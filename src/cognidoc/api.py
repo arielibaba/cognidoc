@@ -497,7 +497,7 @@ class CogniDoc:
             no_rerank: Disable LLM reranking
         """
         try:
-            from .cognidoc_app import create_gradio_app
+            from .cognidoc_app import create_gradio_app, create_fastapi_app
         except ImportError as e:
             raise ImportError(
                 f"UI dependencies not installed: {e}. Install with: pip install cognidoc[ui]"
@@ -508,8 +508,16 @@ class CogniDoc:
             self.config.use_reranking = False
 
         logger.info(f"Launching CogniDoc UI on port {port}")
-        app = create_gradio_app(default_reranking=self.config.use_reranking)
-        app.launch(server_port=port, share=share)
+        demo = create_gradio_app(default_reranking=self.config.use_reranking)
+
+        if share:
+            # Share mode: use Gradio's built-in tunnel (no FastAPI wrapper)
+            demo.launch(server_port=port, share=True)
+        else:
+            # Normal mode: wrap in FastAPI with PDF serving endpoint
+            import uvicorn
+            app = create_fastapi_app(demo)
+            uvicorn.run(app, host="0.0.0.0", port=port)
 
     def save(self, path: str):
         """
