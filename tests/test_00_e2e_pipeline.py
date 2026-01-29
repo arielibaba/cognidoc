@@ -168,6 +168,10 @@ class TestE2EFullPipeline:
             assert len(query_result.answer) > 50
 
         finally:
+            # Release Qdrant lock so other tests can access the vector store
+            if doc._retriever is not None:
+                doc._retriever.close()
+                doc._retriever = None
             # Cleanup: remove test document
             if dest_path.exists():
                 dest_path.unlink()
@@ -208,6 +212,10 @@ class TestE2EFullPipeline:
             assert query_result.answer is not None
 
         finally:
+            # Release Qdrant lock so other tests can access the vector store
+            if doc._retriever is not None:
+                doc._retriever.close()
+                doc._retriever = None
             if dest_path.exists():
                 dest_path.unlink()
 
