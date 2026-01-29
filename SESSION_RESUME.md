@@ -2149,10 +2149,19 @@ Audit des références de données de test dans SESSION_RESUME.md. Suppression d
 |------|---------|
 | `40ec184` | Remove external corpus references from SESSION_RESUME.md next steps |
 | `b87887c` | Update SESSION_RESUME.md with session 20 |
+| `bafc004` | Update SESSION_RESUME.md with CLAUDE.md consistency verification |
+
+### Tests
+
+```bash
+uv run pytest tests/ -v --run-slow -x
+# 422 passed, 1 skipped, 0 failures in 393.76s (6m33s)
+```
 
 ### État final
 
-- **2 commits** poussés sur origin/master
+- **3 commits** poussés sur origin/master
+- **422 tests** passent (E2E + benchmarks + unitaires)
 - **SESSION_RESUME.md** nettoyé de toute dépendance implicite à des données externes
 - **Cohérence CLAUDE.md ↔ SESSION_RESUME.md** vérifiée — aucune divergence sur les données de test
 
