@@ -560,6 +560,393 @@ def _run_index_building():
     logger.info("Index building completed")
 
 
+def _run_entity_extraction(
+    checkpoint: "PipelineCheckpoint",
+    checkpoint_path: Path,
+    graph_config,
+    use_async_extraction: bool,
+    entity_max_concurrent: int,
+    max_consecutive_quota_errors: int,
+    incremental_stems: list = None,
+) -> tuple:
+    """Stage 11a: Extract entities and relationships from chunks.
+
+    Returns:
+        (extraction_results, extraction_interrupted, stats_dict)
+    """
+    extraction_mode = "async" if use_async_extraction else "sequential"
+    logger.info(
+        f"Extracting entities and relationships ({extraction_mode} mode, "
+        f"max_concurrent={entity_max_concurrent})..."
+    )
+
+    # Update checkpoint stage
+    checkpoint.set_stage("entity_extraction")
+
+    # Get processed chunk IDs from checkpoint for resume
+    processed_chunk_ids = set(checkpoint.entity_extraction.processed_item_ids)
+
+    # Track progress for periodic checkpoint saving
+    chunks_since_last_save = [0]  # Use list for mutable closure
+
+    def on_extraction_progress(chunk_id: str, success: bool, error_type: str = None):
+        """Callback to save checkpoint periodically during extraction."""
+        if success:
+            if chunk_id not in processed_chunk_ids:
+                processed_chunk_ids.add(chunk_id)
+                checkpoint.entity_extraction.processed_item_ids.append(chunk_id)
+            chunks_since_last_save[0] += 1
+
+            if chunks_since_last_save[0] >= CHECKPOINT_SAVE_INTERVAL:
+                checkpoint.save(checkpoint_path)
+                logger.debug(
+                    f"Checkpoint saved ({len(checkpoint.entity_extraction.processed_item_ids)} chunks processed)"
+                )
+                chunks_since_last_save[0] = 0
+
+    if use_async_extraction:
+        extraction_results, extraction_state = run_extraction_async(
+            chunks_dir=CHUNKS_DIR,
+            config=graph_config,
+            max_concurrent=entity_max_concurrent,
+            show_progress=True,
+            processed_chunk_ids=processed_chunk_ids,
+            max_consecutive_quota_errors=max_consecutive_quota_errors,
+            on_progress_callback=on_extraction_progress,
+            file_filter=incremental_stems,
+        )
+
+        # Update checkpoint with extraction state
+        checkpoint.entity_extraction.processed_item_ids = list(
+            extraction_state["processed_chunk_ids"]
+        )
+        checkpoint.entity_extraction.consecutive_quota_errors = extraction_state[
+            "consecutive_quota_errors"
+        ]
+        for fc in extraction_state.get("failed_chunks", []):
+            checkpoint.entity_extraction.failed_items.append(
+                FailedItem(
+                    item_id=fc["chunk_id"],
+                    error_type=fc["error_type"],
+                    error_message=fc["error_message"],
+                )
+            )
+
+        extraction_interrupted = extraction_state.get("interrupted", False)
+    else:
+        extraction_results = extract_from_chunks_dir(
+            chunks_dir=CHUNKS_DIR,
+            config=graph_config,
+            file_filter=incremental_stems,
+        )
+        extraction_interrupted = False
+
+    total_entities = sum(len(r.entities) for r in extraction_results)
+    total_relationships = sum(len(r.relationships) for r in extraction_results)
+    extraction_stats = {
+        "chunks_processed": len(extraction_results),
+        "entities_extracted": total_entities,
+        "relationships_extracted": total_relationships,
+        "mode": extraction_mode,
+        "max_concurrent": entity_max_concurrent if use_async_extraction else 1,
+        "resumed_from_checkpoint": len(processed_chunk_ids) > 0,
+        "interrupted": extraction_interrupted,
+    }
+
+    if extraction_interrupted:
+        checkpoint.set_interrupted("quota_exhausted")
+        checkpoint.save(checkpoint_path)
+        logger.warning(
+            f"Entity extraction interrupted due to quota errors. "
+            f"Checkpoint saved to {checkpoint_path}. "
+            f"Resume later by running the pipeline again."
+        )
+    else:
+        logger.info(
+            f"Extraction completed: {total_entities} entities, "
+            f"{total_relationships} relationships from {len(extraction_results)} chunks"
+        )
+
+    return extraction_results, extraction_interrupted, extraction_stats
+
+
+def _run_graph_assembly(
+    extraction_results,
+    graph_config,
+    incremental_stems: list = None,
+    pipeline_timer=None,
+) -> "KnowledgeGraph":
+    """Stage 11b: Build or update the knowledge graph from extraction results."""
+    if pipeline_timer:
+        pipeline_timer.stage("graph_building")
+
+    if incremental_stems and has_valid_knowledge_graph():
+        # INCREMENTAL: Load existing graph and merge new entities
+        logger.info("Incremental mode: loading existing graph and merging new entities...")
+        kg = KnowledgeGraph.load(config=graph_config)
+        merge_stats = kg.build_from_extraction_results(extraction_results)
+        logger.info(
+            f"Merged into existing graph: {merge_stats.get('entities_added', 0)} added, "
+            f"{merge_stats.get('entities_merged', 0)} merged"
+        )
+        # Re-detect communities on the merged graph
+        if kg.config.graph.enable_communities:
+            kg.detect_communities()
+    else:
+        # FULL: Build new graph from scratch
+        logger.info("Building knowledge graph...")
+        kg = build_knowledge_graph(
+            extraction_results=extraction_results,
+            config=graph_config,
+            detect_communities=True,
+            generate_summaries=False,  # We'll do this with checkpoint support
+            save_graph=False,  # We'll save after all steps
+        )
+
+    return kg
+
+
+async def _run_community_and_resolution(
+    kg: "KnowledgeGraph",
+    checkpoint: "PipelineCheckpoint",
+    checkpoint_path: Path,
+    graph_config,
+    skip_resolution: bool,
+    max_consecutive_quota_errors: int,
+    pipeline_timer=None,
+) -> dict:
+    """Stage 11c: Generate community summaries and run entity resolution.
+
+    Returns:
+        dict with graph_building and optionally entity_resolution stats.
+    """
+    stats = {}
+
+    # Generate community summaries with checkpoint support
+    checkpoint.set_stage("community_summaries")
+    processed_community_ids = set(checkpoint.community_summaries.processed_item_ids)
+    checkpoint.community_summaries.total_items = len(kg.communities)
+
+    generated, skipped, quota_errors, summaries_interrupted = (
+        kg.generate_community_summaries(
+            compute_embeddings=True,
+            skip_existing=True,
+            processed_community_ids=processed_community_ids,
+            max_consecutive_quota_errors=max_consecutive_quota_errors,
+            save_interval=100,
+        )
+    )
+
+    # Update checkpoint
+    for comm_id, comm in kg.communities.items():
+        if comm.summary and not comm.summary.startswith("Community of "):
+            if comm_id not in processed_community_ids:
+                checkpoint.community_summaries.processed_item_ids.append(comm_id)
+
+    if summaries_interrupted:
+        checkpoint.set_interrupted("quota_exhausted")
+        checkpoint.save(checkpoint_path)
+        kg.save()  # Save partial graph
+        logger.warning(
+            f"Community summary generation interrupted. "
+            f"Checkpoint saved to {checkpoint_path}."
+        )
+        stats["graph_building"] = {"status": "interrupted", "reason": "quota_exhausted"}
+        return stats
+
+    # Entity resolution (semantic deduplication)
+    if not skip_resolution and graph_config.entity_resolution.enabled:
+        if pipeline_timer:
+            pipeline_timer.stage("entity_resolution")
+        logger.info("Running entity resolution (semantic deduplication)...")
+
+        try:
+            resolution_result = await resolve_entities(
+                kg,
+                config=graph_config.entity_resolution,
+                show_progress=True,
+            )
+
+            stats["entity_resolution"] = {
+                "original_entities": resolution_result.original_entity_count,
+                "final_entities": resolution_result.final_entity_count,
+                "candidates_found": resolution_result.candidates_found,
+                "clusters_merged": resolution_result.clusters_found,
+                "entities_merged": resolution_result.entities_merged,
+                "llm_calls": resolution_result.llm_calls_made,
+                "cache_hits": resolution_result.cache_hits,
+                "duration_seconds": resolution_result.duration_seconds,
+            }
+
+            logger.info(
+                f"Entity resolution: {resolution_result.original_entity_count} → "
+                f"{resolution_result.final_entity_count} entities "
+                f"({resolution_result.entities_merged} merged)"
+            )
+        except Exception as e:
+            logger.error(f"Entity resolution failed: {e}")
+            stats["entity_resolution"] = {"status": "failed", "error": str(e)}
+    else:
+        logger.info("Skipping entity resolution")
+
+    # Save completed graph
+    kg.save()
+
+    # Clear checkpoint after successful completion
+    PipelineCheckpoint.clear(checkpoint_path)
+
+    graph_stats = kg.get_statistics()
+    stats["graph_building"] = graph_stats
+    logger.info(
+        f"Knowledge graph built: {graph_stats['total_nodes']} nodes, "
+        f"{graph_stats['total_edges']} edges, "
+        f"{graph_stats['total_communities']} communities"
+    )
+
+    return stats
+
+
+async def _run_graph_building(
+    skip_resolution: bool,
+    graph_config_path: str,
+    entity_max_concurrent: int,
+    use_async_extraction: bool,
+    resume_from_checkpoint: bool,
+    max_consecutive_quota_errors: int,
+    incremental_stems: list = None,
+    pipeline_timer=None,
+) -> dict:
+    """Stage 11: Build knowledge graph (GraphRAG) with checkpoint support.
+
+    Orchestrates entity extraction, graph assembly, community summaries,
+    and entity resolution.
+
+    Returns:
+        dict with all graph-related stats.
+    """
+    stats = {}
+
+    # Set up checkpoint parameters
+    if max_consecutive_quota_errors is None:
+        max_consecutive_quota_errors = MAX_CONSECUTIVE_QUOTA_ERRORS
+
+    checkpoint_path = Path(CHECKPOINT_FILE)
+    checkpoint = None
+    extraction_interrupted = False
+
+    # Load existing checkpoint if resuming
+    if resume_from_checkpoint:
+        checkpoint = PipelineCheckpoint.load(checkpoint_path)
+        if checkpoint and checkpoint.status == "interrupted":
+            logger.info(f"Resuming from checkpoint: {checkpoint.get_summary()}")
+
+    # Initialize new checkpoint if none exists
+    if checkpoint is None:
+        checkpoint = PipelineCheckpoint()
+
+    # Load graph config
+    if graph_config_path:
+        from .graph_config import reload_graph_config
+
+        graph_config = reload_graph_config(graph_config_path)
+    else:
+        graph_config = get_graph_config()
+
+    # =========================================================================
+    # DATA PROTECTION: Check if we should load existing graph instead of rebuild
+    # =========================================================================
+    resume_from_graph = False
+    if (
+        checkpoint
+        and checkpoint.status == "interrupted"
+        and checkpoint.pipeline_stage in ("community_summaries", "graph_building")
+        and has_valid_knowledge_graph()
+    ):
+        kg_stats = get_knowledge_graph_stats()
+        logger.info(
+            f"Found existing knowledge graph with {kg_stats['nodes']} nodes, "
+            f"{kg_stats['edges']} edges. Loading instead of rebuilding."
+        )
+        resume_from_graph = True
+
+    # =========================================================================
+    # DATA PROTECTION: Backup existing graph before any modifications
+    # =========================================================================
+    if has_valid_knowledge_graph() and not resume_from_graph:
+        kg_stats = get_knowledge_graph_stats()
+        logger.info(
+            f"Backing up existing knowledge graph ({kg_stats['nodes']} nodes, "
+            f"{kg_stats['edges']} edges) before modifications..."
+        )
+        backup_path = backup_knowledge_graph()
+        if backup_path:
+            logger.info(f"Backup created: {backup_path}")
+        else:
+            logger.warning("Failed to create backup, proceeding anyway...")
+
+    try:
+        if resume_from_graph:
+            # Resume from existing graph (e.g., interrupted at community_summaries)
+            logger.info("Loading existing knowledge graph for resume...")
+            kg = KnowledgeGraph.load(config=graph_config)
+            stats["graph_extraction"] = {
+                "status": "resumed_from_existing",
+                "nodes": len(kg.nodes),
+                "edges": kg.graph.number_of_edges(),
+            }
+        else:
+            # Normal path: extract entities then build graph
+            extraction_results, extraction_interrupted, extraction_stats = (
+                _run_entity_extraction(
+                    checkpoint=checkpoint,
+                    checkpoint_path=checkpoint_path,
+                    graph_config=graph_config,
+                    use_async_extraction=use_async_extraction,
+                    entity_max_concurrent=entity_max_concurrent,
+                    max_consecutive_quota_errors=max_consecutive_quota_errors,
+                    incremental_stems=incremental_stems,
+                )
+            )
+            stats["graph_extraction"] = extraction_stats
+
+            if extraction_interrupted:
+                stats["graph_building"] = {"status": "interrupted", "reason": "quota_exhausted"}
+                return stats
+
+            # Build/update graph
+            checkpoint.set_stage("graph_building")
+            kg = _run_graph_assembly(
+                extraction_results=extraction_results,
+                graph_config=graph_config,
+                incremental_stems=incremental_stems,
+                pipeline_timer=pipeline_timer,
+            )
+
+        # Community summaries + entity resolution
+        if not extraction_interrupted:
+            community_stats = await _run_community_and_resolution(
+                kg=kg,
+                checkpoint=checkpoint,
+                checkpoint_path=checkpoint_path,
+                graph_config=graph_config,
+                skip_resolution=skip_resolution,
+                max_consecutive_quota_errors=max_consecutive_quota_errors,
+                pipeline_timer=pipeline_timer,
+            )
+            stats.update(community_stats)
+
+    except Exception as e:
+        logger.error(f"Knowledge graph building failed: {e}")
+        if checkpoint:
+            checkpoint.set_interrupted(f"error: {str(e)[:100]}")
+            checkpoint.save(checkpoint_path)
+            logger.info(f"Checkpoint saved to {checkpoint_path}")
+        logger.warning("Continuing without knowledge graph")
+        stats["graph_building"] = {"status": "failed", "error": str(e)}
+
+    return stats
+
+
 async def run_ingestion_pipeline_async(
     vision_provider: str = None,
     extraction_provider: str = "gemini",
@@ -750,309 +1137,17 @@ async def run_ingestion_pipeline_async(
     # 11. Build knowledge graph (GraphRAG) with checkpoint support
     if not skip_graph:
         pipeline_timer.stage("graph_extraction")
-
-        # Set up checkpoint parameters
-        if max_consecutive_quota_errors is None:
-            max_consecutive_quota_errors = MAX_CONSECUTIVE_QUOTA_ERRORS
-
-        checkpoint_path = Path(CHECKPOINT_FILE)
-        checkpoint = None
-        extraction_interrupted = False
-
-        # Load existing checkpoint if resuming
-        if resume_from_checkpoint:
-            checkpoint = PipelineCheckpoint.load(checkpoint_path)
-            if checkpoint and checkpoint.status == "interrupted":
-                logger.info(f"Resuming from checkpoint: {checkpoint.get_summary()}")
-
-        # Initialize new checkpoint if none exists
-        if checkpoint is None:
-            checkpoint = PipelineCheckpoint()
-
-        # Load graph config first (needed for both paths)
-        if graph_config_path:
-            from .graph_config import reload_graph_config
-
-            graph_config = reload_graph_config(graph_config_path)
-        else:
-            graph_config = get_graph_config()
-
-        # =====================================================================
-        # DATA PROTECTION: Check if we should load existing graph instead of rebuild
-        # =====================================================================
-        # If checkpoint shows we're past entity_extraction (e.g., at community_summaries)
-        # AND we have valid graph data, load it instead of rebuilding from scratch
-        # This prevents data loss when resuming after quota errors
-        resume_from_graph = False
-        if (
-            checkpoint
-            and checkpoint.status == "interrupted"
-            and checkpoint.pipeline_stage in ("community_summaries", "graph_building")
-            and has_valid_knowledge_graph()
-        ):
-            kg_stats = get_knowledge_graph_stats()
-            logger.info(
-                f"Found existing knowledge graph with {kg_stats['nodes']} nodes, "
-                f"{kg_stats['edges']} edges. Loading instead of rebuilding."
-            )
-            resume_from_graph = True
-
-        # =====================================================================
-        # DATA PROTECTION: Backup existing graph before any modifications
-        # =====================================================================
-        if has_valid_knowledge_graph() and not resume_from_graph:
-            kg_stats = get_knowledge_graph_stats()
-            logger.info(
-                f"Backing up existing knowledge graph ({kg_stats['nodes']} nodes, "
-                f"{kg_stats['edges']} edges) before modifications..."
-            )
-            backup_path = backup_knowledge_graph()
-            if backup_path:
-                logger.info(f"Backup created: {backup_path}")
-            else:
-                logger.warning("Failed to create backup, proceeding anyway...")
-
-        try:
-            # If resuming from existing graph (e.g., interrupted at community_summaries)
-            if resume_from_graph:
-                logger.info("Loading existing knowledge graph for resume...")
-                kg = KnowledgeGraph.load(config=graph_config)
-                stats["graph_extraction"] = {
-                    "status": "resumed_from_existing",
-                    "nodes": len(kg.nodes),
-                    "edges": kg.graph.number_of_edges(),
-                }
-                # Skip entity extraction, go directly to community summaries
-                extraction_interrupted = False
-            else:
-                # Normal path: run entity extraction
-                extraction_mode = "async" if use_async_extraction else "sequential"
-                logger.info(
-                    f"Extracting entities and relationships ({extraction_mode} mode, max_concurrent={entity_max_concurrent})..."
-                )
-
-                # Update checkpoint stage
-                checkpoint.set_stage("entity_extraction")
-
-                # Get processed chunk IDs from checkpoint for resume
-                # Use set for O(1) lookup instead of O(n) list search
-                processed_chunk_ids = set(checkpoint.entity_extraction.processed_item_ids)
-
-                # Track progress for periodic checkpoint saving
-                chunks_since_last_save = [0]  # Use list for mutable closure
-
-                def on_extraction_progress(chunk_id: str, success: bool, error_type: str = None):
-                    """Callback to save checkpoint periodically during extraction."""
-                    if success:
-                        # Add to checkpoint (use set for O(1) lookup, then sync to list)
-                        if chunk_id not in processed_chunk_ids:
-                            processed_chunk_ids.add(chunk_id)
-                            checkpoint.entity_extraction.processed_item_ids.append(chunk_id)
-                        chunks_since_last_save[0] += 1
-
-                        # Save checkpoint every N chunks
-                        if chunks_since_last_save[0] >= CHECKPOINT_SAVE_INTERVAL:
-                            checkpoint.save(checkpoint_path)
-                            logger.debug(
-                                f"Checkpoint saved ({len(checkpoint.entity_extraction.processed_item_ids)} chunks processed)"
-                            )
-                            chunks_since_last_save[0] = 0
-
-                # Extract entities and relationships from chunks
-                # Default: extract from parent chunks (512 tokens) + descriptions, skip children (64 tokens)
-                if use_async_extraction:
-                    # Use async extraction for improved throughput with cloud LLM providers
-                    extraction_results, extraction_state = run_extraction_async(
-                        chunks_dir=CHUNKS_DIR,
-                        config=graph_config,
-                        max_concurrent=entity_max_concurrent,
-                        show_progress=True,
-                        processed_chunk_ids=processed_chunk_ids,
-                        max_consecutive_quota_errors=max_consecutive_quota_errors,
-                        on_progress_callback=on_extraction_progress,
-                        file_filter=incremental_stems,
-                    )
-
-                    # Update checkpoint with extraction state
-                    checkpoint.entity_extraction.processed_item_ids = list(
-                        extraction_state["processed_chunk_ids"]
-                    )
-                    checkpoint.entity_extraction.consecutive_quota_errors = extraction_state[
-                        "consecutive_quota_errors"
-                    ]
-                    for fc in extraction_state.get("failed_chunks", []):
-                        checkpoint.entity_extraction.failed_items.append(
-                            FailedItem(
-                                item_id=fc["chunk_id"],
-                                error_type=fc["error_type"],
-                                error_message=fc["error_message"],
-                            )
-                        )
-
-                    extraction_interrupted = extraction_state.get("interrupted", False)
-                else:
-                    # Use sequential extraction (original behavior - no checkpoint support)
-                    extraction_results = extract_from_chunks_dir(
-                        chunks_dir=CHUNKS_DIR,
-                        config=graph_config,
-                        file_filter=incremental_stems,
-                    )
-                    extraction_state = {"interrupted": False}
-
-                total_entities = sum(len(r.entities) for r in extraction_results)
-                total_relationships = sum(len(r.relationships) for r in extraction_results)
-                stats["graph_extraction"] = {
-                    "chunks_processed": len(extraction_results),
-                    "entities_extracted": total_entities,
-                    "relationships_extracted": total_relationships,
-                    "mode": extraction_mode,
-                    "max_concurrent": entity_max_concurrent if use_async_extraction else 1,
-                    "resumed_from_checkpoint": len(processed_chunk_ids) > 0,
-                    "interrupted": extraction_interrupted,
-                }
-
-                if extraction_interrupted:
-                    # Save checkpoint and stop
-                    checkpoint.set_interrupted("quota_exhausted")
-                    checkpoint.save(checkpoint_path)
-                    logger.warning(
-                        f"Entity extraction interrupted due to quota errors. "
-                        f"Checkpoint saved to {checkpoint_path}. "
-                        f"Resume later by running the pipeline again."
-                    )
-                    stats["graph_building"] = {"status": "interrupted", "reason": "quota_exhausted"}
-                else:
-                    logger.info(
-                        f"Extraction completed: {total_entities} entities, "
-                        f"{total_relationships} relationships from {len(extraction_results)} chunks"
-                    )
-
-                    # Build knowledge graph
-                    pipeline_timer.stage("graph_building")
-                    checkpoint.set_stage("graph_building")
-
-                    if incremental_stems and has_valid_knowledge_graph():
-                        # INCREMENTAL: Load existing graph and merge new entities
-                        logger.info(
-                            "Incremental mode: loading existing graph and merging new entities..."
-                        )
-                        kg = KnowledgeGraph.load(config=graph_config)
-                        merge_stats = kg.build_from_extraction_results(extraction_results)
-                        logger.info(
-                            f"Merged into existing graph: {merge_stats.get('entities_added', 0)} added, "
-                            f"{merge_stats.get('entities_merged', 0)} merged"
-                        )
-                        # Re-detect communities on the merged graph
-                        if kg.config.graph.enable_communities:
-                            kg.detect_communities()
-                    else:
-                        # FULL: Build new graph from scratch
-                        logger.info("Building knowledge graph...")
-                        kg = build_knowledge_graph(
-                            extraction_results=extraction_results,
-                            config=graph_config,
-                            detect_communities=True,
-                            generate_summaries=False,  # We'll do this with checkpoint support
-                            save_graph=False,  # We'll save after all steps
-                        )
-
-            # =====================================================================
-            # COMMON PATH: Generate community summaries (for both resume and new graph)
-            # =====================================================================
-            # At this point, kg is defined either from:
-            # - Loading existing graph (resume_from_graph=True)
-            # - Building new graph from extraction results (extraction_interrupted=False)
-            if not extraction_interrupted:
-                # Generate community summaries with checkpoint support
-                checkpoint.set_stage("community_summaries")
-                processed_community_ids = set(checkpoint.community_summaries.processed_item_ids)
-                checkpoint.community_summaries.total_items = len(kg.communities)
-
-                generated, skipped, quota_errors, summaries_interrupted = (
-                    kg.generate_community_summaries(
-                        compute_embeddings=True,
-                        skip_existing=True,
-                        processed_community_ids=processed_community_ids,
-                        max_consecutive_quota_errors=max_consecutive_quota_errors,
-                        # Periodic save to prevent data loss (saves every 100 communities)
-                        save_interval=100,
-                    )
-                )
-
-                # Update checkpoint
-                for comm_id, comm in kg.communities.items():
-                    if comm.summary and not comm.summary.startswith("Community of "):
-                        if comm_id not in processed_community_ids:
-                            checkpoint.community_summaries.processed_item_ids.append(comm_id)
-
-                if summaries_interrupted:
-                    checkpoint.set_interrupted("quota_exhausted")
-                    checkpoint.save(checkpoint_path)
-                    kg.save()  # Save partial graph
-                    logger.warning(
-                        f"Community summary generation interrupted. "
-                        f"Checkpoint saved to {checkpoint_path}."
-                    )
-                    stats["graph_building"] = {"status": "interrupted", "reason": "quota_exhausted"}
-                else:
-                    # Entity resolution (semantic deduplication)
-                    if not skip_resolution and graph_config.entity_resolution.enabled:
-                        pipeline_timer.stage("entity_resolution")
-                        logger.info("Running entity resolution (semantic deduplication)...")
-
-                        try:
-                            resolution_result = await resolve_entities(
-                                kg,
-                                config=graph_config.entity_resolution,
-                                show_progress=True,
-                            )
-
-                            stats["entity_resolution"] = {
-                                "original_entities": resolution_result.original_entity_count,
-                                "final_entities": resolution_result.final_entity_count,
-                                "candidates_found": resolution_result.candidates_found,
-                                "clusters_merged": resolution_result.clusters_found,
-                                "entities_merged": resolution_result.entities_merged,
-                                "llm_calls": resolution_result.llm_calls_made,
-                                "cache_hits": resolution_result.cache_hits,
-                                "duration_seconds": resolution_result.duration_seconds,
-                            }
-
-                            logger.info(
-                                f"Entity resolution: {resolution_result.original_entity_count} → "
-                                f"{resolution_result.final_entity_count} entities "
-                                f"({resolution_result.entities_merged} merged)"
-                            )
-                        except Exception as e:
-                            logger.error(f"Entity resolution failed: {e}")
-                            stats["entity_resolution"] = {"status": "failed", "error": str(e)}
-                            # Continue - resolution failure shouldn't stop pipeline
-                    else:
-                        logger.info("Skipping entity resolution")
-
-                    # Save completed graph
-                    kg.save()
-
-                    # Clear checkpoint after successful completion
-                    PipelineCheckpoint.clear(checkpoint_path)
-
-                    graph_stats = kg.get_statistics()
-                    stats["graph_building"] = graph_stats
-                    logger.info(
-                        f"Knowledge graph built: {graph_stats['total_nodes']} nodes, "
-                        f"{graph_stats['total_edges']} edges, "
-                        f"{graph_stats['total_communities']} communities"
-                    )
-
-        except Exception as e:
-            logger.error(f"Knowledge graph building failed: {e}")
-            # Save checkpoint on error
-            if checkpoint:
-                checkpoint.set_interrupted(f"error: {str(e)[:100]}")
-                checkpoint.save(checkpoint_path)
-                logger.info(f"Checkpoint saved to {checkpoint_path}")
-            logger.warning("Continuing without knowledge graph")
-            stats["graph_building"] = {"status": "failed", "error": str(e)}
+        graph_stats = await _run_graph_building(
+            skip_resolution=skip_resolution,
+            graph_config_path=graph_config_path,
+            entity_max_concurrent=entity_max_concurrent,
+            use_async_extraction=use_async_extraction,
+            resume_from_checkpoint=resume_from_checkpoint,
+            max_consecutive_quota_errors=max_consecutive_quota_errors,
+            incremental_stems=incremental_stems,
+            pipeline_timer=pipeline_timer,
+        )
+        stats.update(graph_stats)
     else:
         logger.info("Skipping knowledge graph building")
 
