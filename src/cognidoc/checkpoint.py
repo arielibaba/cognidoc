@@ -13,7 +13,7 @@ import json
 import os
 import tempfile
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -31,7 +31,7 @@ class FailedItem:
     error_type: str  # From ErrorType enum value
     error_message: str
     attempts: int = 1
-    last_attempt: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    last_attempt: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -89,7 +89,7 @@ class StageCheckpoint:
                 f.attempts += 1
                 f.error_type = error_type
                 f.error_message = error_message
-                f.last_attempt = datetime.utcnow().isoformat()
+                f.last_attempt = datetime.now(timezone.utc).isoformat()
                 return
 
         # Add new failed item
@@ -119,8 +119,8 @@ class PipelineCheckpoint:
     """
 
     version: str = CHECKPOINT_VERSION
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     pipeline_stage: str = ""  # Current stage name
     status: str = "running"  # running, interrupted, completed
     interrupt_reason: str = ""  # quota_exhausted, rate_limited, error
@@ -146,8 +146,8 @@ class PipelineCheckpoint:
     def from_dict(cls, data: Dict[str, Any]) -> "PipelineCheckpoint":
         return cls(
             version=data.get("version", CHECKPOINT_VERSION),
-            created_at=data.get("created_at", datetime.utcnow().isoformat()),
-            updated_at=data.get("updated_at", datetime.utcnow().isoformat()),
+            created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
+            updated_at=data.get("updated_at", datetime.now(timezone.utc).isoformat()),
             pipeline_stage=data.get("pipeline_stage", ""),
             status=data.get("status", "running"),
             interrupt_reason=data.get("interrupt_reason", ""),
@@ -164,7 +164,7 @@ class PipelineCheckpoint:
 
     def update_timestamp(self) -> None:
         """Update the updated_at timestamp."""
-        self.updated_at = datetime.utcnow().isoformat()
+        self.updated_at = datetime.now(timezone.utc).isoformat()
 
     def set_stage(self, stage: str) -> None:
         """Set the current pipeline stage."""

@@ -467,7 +467,18 @@ SUMMARY:"""
                 # Use batched async embedding
                 try:
                     texts = [summary for _, summary in communities_to_embed]
-                    embeddings = asyncio.run(provider.embed_async(texts, max_concurrent=4))
+                    coro = provider.embed_async(texts, max_concurrent=4)
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # Already in an event loop — run in a new thread
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                            embeddings = loop.run_until_complete(
+                                loop.run_in_executor(pool, lambda: asyncio.run(coro))
+                            )
+                    except RuntimeError:
+                        # No event loop running — safe to use asyncio.run()
+                        embeddings = asyncio.run(coro)
                     for (comm_id, _), embedding in zip(communities_to_embed, embeddings):
                         if embedding:
                             self.communities[comm_id].embedding = embedding
@@ -574,10 +585,6 @@ SUMMARY:"""
 
         # Check if provider supports async embedding
         if isinstance(provider, OllamaEmbeddingProvider):
-            # Use batched async embedding (much faster)
-            async def embed_batch(batch_texts):
-                return await provider.embed_async(batch_texts, max_concurrent=4)
-
             # Process in batches
             for i in range(0, len(to_embed), batch_size):
                 if interrupted:
@@ -588,7 +595,16 @@ SUMMARY:"""
 
                 try:
                     # Run async batch embedding
-                    embeddings = asyncio.run(embed_batch(batch_texts))
+                    coro = provider.embed_async(batch_texts, max_concurrent=4)
+                    try:
+                        loop = asyncio.get_running_loop()
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as pool:
+                            embeddings = loop.run_until_complete(
+                                loop.run_in_executor(pool, lambda c=coro: asyncio.run(c))
+                            )
+                    except RuntimeError:
+                        embeddings = asyncio.run(coro)
 
                     # Assign embeddings to nodes
                     for (node_id, _), embedding in zip(batch, embeddings):
