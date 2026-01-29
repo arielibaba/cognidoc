@@ -439,8 +439,9 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 27 | Agent ReAct loop |
 | `test_agent_tools.py` | 33 | Tool implementations |
-| `test_benchmark.py` | 10 | Precision/recall benchmark (AI & medicine domain) |
+| `test_benchmark.py` | 12 | Precision/recall benchmark with reranking comparison |
 | `test_checkpoint.py` | 32 | Checkpoint/resume system |
+| `test_chunking.py` | 29 | Text/table chunking (parent/child, file filter, hard_split, table overlap) |
 | `test_complexity.py` | 25 | Query complexity evaluation |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_entity_resolution.py` | 34 | Entity resolution (blocking, matching, clustering, merging) |
