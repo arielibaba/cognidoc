@@ -1819,3 +1819,95 @@ Ajout de sections manquantes pour guider les futures sessions :
 - **cognidoc (librairie):** 3 commits poussés sur origin/master
 - **Liens sources PDF:** fonctionnels via `cognidoc serve` et `python -m cognidoc.cognidoc_app`
 - **Environnement:** `.zshrc` nettoyé, pip protégé hors venv
+
+---
+
+# Session 17 — 29 janvier 2026
+
+## Résumé
+
+Nettoyage YAML, implémentation de la génération automatique de schéma GraphRAG depuis le corpus, fix du lock Qdrant en E2E, réécriture des benchmarks, fix du routing strategy override, et corrections de qualité (datetime deprecated, async embedding).
+
+## Tâches complétées cette session
+
+| Tâche | Fichier(s) | Description |
+|-------|-----------|-------------|
+| **Nettoyage fichiers YAML** | `config/` | Suppression de 3 fichiers inutilisés (generic, bioethics, "2") |
+| **Auto-génération schéma GraphRAG** | `schema_wizard.py`, `cli.py`, `api.py`, `pyproject.toml` | Pipeline 2 étapes LLM : échantillonnage corpus → analyse par lots → synthèse → YAML |
+| **Tests génération schéma** | `test_schema_generation.py` | 75 tests (13 classes) couvrant sampling, LLM pipeline, parsing, fallbacks |
+| **Fix lock Qdrant E2E** | `rag_utils.py`, `build_indexes.py`, `hybrid_retriever.py`, `conftest.py`, `test_00_e2e_pipeline.py` | `close()` sur VectorIndex/HybridRetriever, fixture `release_qdrant_lock` |
+| **Réécriture benchmarks** | `test_benchmark.py` | Queries adaptées à la fixture test (IA & médecine) au lieu du corpus théologie morale |
+| **Fix routing strategy override** | `hybrid_retriever.py` | Le strategy override (`vector_only`/`graph_only`/`hybrid`) ne mettait pas à jour `analysis.use_vector/use_graph`, ignoré silencieusement |
+| **Fix `datetime.utcnow()`** | `checkpoint.py` | 6 occurrences → `datetime.now(timezone.utc)` (deprecated Python 3.12) |
+| **Fix async embedding event loop** | `knowledge_graph.py` | `asyncio.run()` échouait dans une event loop existante → détection + thread executor fallback |
+| **Mise à jour documentation** | `CLAUDE.md`, `README.md` | Schema auto-generation, nouveaux tests, fixtures, CLI reference |
+
+## Modifications clés
+
+### 1. Auto-génération de schéma GraphRAG (`schema_wizard.py`)
+
+Pipeline complet ajouté (~780 lignes) :
+
+1. **Échantillonnage intelligent** : `sample_pdfs_for_schema()` — répartit max_docs équitablement entre sous-dossiers, extraction texte via PyMuPDF (3 premières pages)
+2. **Étape A — Analyse par lots** : `run_batch_analysis()` — lots de 12 docs, parallélisation async avec semaphore (max 4 concurrents)
+3. **Étape B — Synthèse** : `synthesize_schema()` — agrège les résultats + noms de fichiers/dossiers → schéma YAML final
+4. **Fallback chain** : corpus pipeline → legacy single-shot → generic template
+5. **Détection noms génériques** : `is_generic_name()` — regex pour filtrer les noms non-informatifs (doc1, scan_003, etc.)
+
+Hyperparamètres documentés dans CLAUDE.md :
+- `max_docs=100` : compromis couverture/coût LLM
+- `max_pages=3` : premières pages les plus informatives, `min(max_pages, actual_pages)` si doc plus court
+
+### 2. Fix lock Qdrant
+
+**Problème** : `build_indexes()` ouvrait un QdrantClient jamais fermé → lock persistant → E2E tests en échec.
+
+**Fix** :
+- `VectorIndex.close()` : ferme le client et libère le lock
+- `build_indexes()` : appelle `child_index.close()` après `save()`
+- `HybridRetriever.close()` : ferme tous les composants de retrieval
+- Fixture `release_qdrant_lock` dans `conftest.py` pour les tests full pipeline
+
+### 3. Fix routing strategy override (`hybrid_retriever.py`)
+
+**Bug** : Le config strategy override (`vector_only`, `graph_only`, `hybrid`) modifiait `skip_vector`/`skip_graph` mais pas `analysis.use_vector`/`analysis.use_graph`. Quand le routing initial classait une query comme `graph_only`, le override `vector_only` ne forçait pas le retrieval vectoriel car `analysis.use_vector` restait `False`.
+
+**Fix** : L'override met maintenant à jour les deux : `skip_*` et `analysis.use_*`.
+
+### 4. Réécriture benchmarks (`test_benchmark.py`)
+
+Les 10 queries du benchmark étaient basées sur un corpus de bioéthique/théologie morale (projet externe) qui n'existe pas dans ce repo. Réécrit avec des queries correspondant à la fixture `tests/fixtures/test_article.md` (IA et médecine). Ajout de l'extraction du contexte graph dans `_extract_documents()`.
+
+### 5. Fix `datetime.utcnow()` et async embedding
+
+- `checkpoint.py` : `datetime.utcnow()` → `datetime.now(timezone.utc)` (6 occurrences, deprecated Python 3.12)
+- `knowledge_graph.py` : `asyncio.run()` échouait silencieusement dans une event loop existante. Fix : détection via `asyncio.get_running_loop()` + fallback `ThreadPoolExecutor` → `asyncio.run()` dans un thread séparé
+
+### Commits session 17
+
+| Hash | Description |
+|------|-------------|
+| `604a8ee` | Remove unused GraphRAG schema files, keep only graph_schema.yaml |
+| `a74119f` | Add corpus-based auto-generation of graph schema |
+| `8800c54` | Add tests for corpus-based schema generation (75 tests) |
+| `e33feda` | Fix Qdrant embedded storage lock conflicts in E2E tests |
+| `cdff628` | Fix benchmark tests and routing strategy override bug |
+| `3a5b7af` | Fix deprecated datetime.utcnow() and async embedding in event loop |
+
+### État final
+
+- **Tests** : 388 passed, 1 skipped, 0 failed (7 warnings restants)
+- **6 commits** poussés sur origin/master
+- **Nouvelles commandes CLI** : `cognidoc schema-generate`, `cognidoc ingest --regenerate-schema`
+
+### Prochaines étapes identifiées
+
+| # | Catégorie | Description | Priorité |
+|---|-----------|-------------|----------|
+| 1 | Bug | **Reranking parsing** — `rerank_documents()` échoue à parser la réponse LLM → fallback silencieux sur l'ordre brut de Qdrant. Dégrade la qualité des résultats. | Haute |
+| 2 | Qualité | **Warning test mock** — `coroutine 'AsyncMockMixin._execute_mock_call' was never awaited` dans `test_schema_generation.py`. Mineur (mock unittest). | Basse |
+| 3 | Documentation | **Documentation utilisateur** — Les fonctionnalités récentes (schema-generate, incremental ingestion, --regenerate-schema, --full-reindex) ne sont pas détaillées dans le README pour un utilisateur externe. | Moyenne |
+| 4 | Infra | **CI/CD** — Pas de GitHub Actions. Un workflow lint + tests unitaires sur push sécuriserait les régressions. | Moyenne |
+| 5 | Infra | **Docker** — Vérifier le Dockerfile existant, s'assurer qu'il fonctionne avec les nouvelles dépendances (pymupdf). | Basse |
+| 6 | Architecture | **Refactoring `run_ingestion_pipeline.py`** — ~800 lignes, orchestrateur central. Candidat pour découpage en modules. | Basse |
+| 7 | Tests | **Tests unitaires pipeline** — Les étapes individuelles (conversion, extraction, chunking) ne sont pas testées unitairement, seulement via E2E. | Moyenne |
