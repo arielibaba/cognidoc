@@ -2113,3 +2113,52 @@ uv run pytest tests/ -v --ignore=tests/test_00_e2e_pipeline.py --ignore=tests/te
 | 3 | Architecture | **Refactoring stage GraphRAG** — Extraire le bloc GraphRAG (~290 lignes) | Basse |
 | 4 | Tests | **Tests unitaires chunking** — `chunk_text_data` et `chunk_table_data` | Basse |
 | 5 | Infra | **CI/CD : ajouter E2E** — Tests E2E dans le workflow (besoin d'Ollama + données) | Basse |
+
+---
+
+## Session 20 — 29 janvier 2026
+
+### Résumé
+
+Audit des références de données de test dans SESSION_RESUME.md. Suppression des références au corpus externe (théologie morale) dans les "Prochaines étapes" des sessions 18 et 19, remplacées par des références aux benchmarks internes du projet.
+
+### Tâches complétées
+
+| Tâche | Fichier(s) | Description |
+|-------|-----------|-------------|
+| **Audit références données de test** | `SESSION_RESUME.md` | Vérification de toutes les mentions de "théologie morale" dans le fichier. Les sessions 12-15 (documentation historique de tests manuels) et session 17 (réécriture benchmarks) sont correctes. |
+| **Fix "Prochaines étapes" sessions 18 & 19** | `SESSION_RESUME.md` | Item #1 référençait "Tester sur le corpus théologie morale" — remplacé par validation via benchmarks internes. Catégorie changée de "Bug" à "Qualité" (le parser est déjà couvert par 12 tests unitaires dans `test_optimizations.py`). |
+
+### Modifications clés
+
+#### Nettoyage des références externes
+
+**Problème :** Les "Prochaines étapes" des sessions 18 et 19 suggéraient de valider le reranking sur le corpus `cognidoc-theologie-morale`, un projet externe sans rapport avec les tests automatisés de CogniDoc.
+
+**Contexte :**
+- Le parser reranking est déjà couvert par 12 tests unitaires dans `test_optimizations.py` (formats variés, fallback, scores, edge cases)
+- Les benchmarks dans `test_benchmark.py` utilisent la fixture interne `tests/fixtures/test_article.md` (IA & médecine) depuis la session 17
+- Les tests automatisés du projet sont 100% autonomes — aucune dépendance externe
+
+**Fix :** Remplacement par "Vérifier via benchmarks que le reranking améliore précision/rappel", catégorie "Qualité" au lieu de "Bug".
+
+### Commits
+
+| Hash | Message |
+|------|---------|
+| `40ec184` | Remove external corpus references from SESSION_RESUME.md next steps |
+
+### État final
+
+- **1 commit** poussé sur origin/master
+- **SESSION_RESUME.md** nettoyé de toute dépendance implicite à des données externes
+
+### Prochaines étapes identifiées
+
+| # | Catégorie | Description | Priorité |
+|---|-----------|-------------|----------|
+| 1 | Qualité | **Reranking validation métriques** — Vérifier via benchmarks que le reranking améliore précision/rappel | Moyenne |
+| 2 | Infra | **Docker : test de build** — Vérifier que `docker build` fonctionne | Moyenne |
+| 3 | Architecture | **Refactoring stage GraphRAG** — Extraire le bloc GraphRAG (~290 lignes) | Basse |
+| 4 | Tests | **Tests unitaires chunking** — `chunk_text_data` et `chunk_table_data` | Basse |
+| 5 | Infra | **CI/CD : ajouter E2E** — Tests E2E dans le workflow (besoin d'Ollama + données) | Basse |
