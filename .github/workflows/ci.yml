@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --group dev --extra cloud --extra conversion --extra ollama
+        run: uv sync --group dev --extra cloud --extra conversion --extra ollama --extra ui
 
       - name: Format check (black)
         run: uv run black --check --line-length 100 src/cognidoc/
@@ -47,7 +47,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --group dev --extra cloud --extra conversion --extra ollama
+        run: uv sync --group dev --extra cloud --extra conversion --extra ollama --extra ui
 
       - name: Run tests
         run: uv run pytest tests/ -v --ignore=tests/test_00_e2e_pipeline.py --ignore=tests/test_benchmark.py -x

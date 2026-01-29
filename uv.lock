@@ -590,7 +590,11 @@ yolo = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pylint" },
     { name = "pytest" },
+    { name = "pytest-asyncio" },
 ]
 
 [package.metadata]
@@ -667,7 +671,13 @@ requires-dist = [
 provides-extras = ["ui", "yolo", "ollama", "gemini", "openai", "anthropic", "cloud", "conversion", "wizard", "all", "dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.0.2" }]
+dev = [
+    { name = "black", specifier = ">=24.0" },
+    { name = "mypy", specifier = ">=1.0" },
+    { name = "pylint", specifier = ">=3.0" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=0.21" },
+]
 
 [[package]]
 name = "colorama"
