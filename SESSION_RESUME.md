@@ -2277,12 +2277,23 @@ Bloc inline de 308 lignes extrait en 4 fonctions :
 | `336705d` | Refactor GraphRAG pipeline stage into helper functions |
 | `900a86b` | Add unit tests for chunk_text_data and chunk_table_data (29 tests) |
 | `bf9d193` | Improve CI: Python matrix, mypy, Docker build, CI badge |
+| `58bdda5` | Fix black formatting on run_ingestion_pipeline.py |
 
 ### Tests
 
 ```bash
 uv run pytest tests/ -v
-# 439 passed, 15 skipped in 50.47s
+# 439 passed, 15 skipped in 54.78s
+```
+
+### CI GitHub Actions — ✅ tous les jobs passent
+
+```
+✓ docker       — 40s
+✓ lint         — 1m30s (black + pylint + mypy)
+✓ test (3.10)  — 21s
+✓ test (3.11)  — 25s
+✓ test (3.12)  — 23s
 ```
 
 ### État final
@@ -2290,5 +2301,5 @@ uv run pytest tests/ -v
 - Toutes les "prochaines étapes" sessions 18-20 complétées ✅
 - 439 tests passent (dont 29 nouveaux tests chunking)
 - Docker build fonctionnel
-- CI/CD avec matrice Python 3.10-3.12
+- CI/CD avec matrice Python 3.10-3.12 — tous les jobs verts
 - Pipeline GraphRAG refactoré en fonctions modulaires
