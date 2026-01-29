@@ -1,0 +1,17 @@
+.venv/
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+data/pdfs/
+data/images/
+data/detections/
+data/processed/
+data/chunks/
+data/indexes/
+data/vector_store/
+data/cache/
+models/
+*.egg-info/
+.env
+SESSION_RESUME.md

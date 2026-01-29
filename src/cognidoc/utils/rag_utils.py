@@ -659,21 +659,34 @@ def rerank_documents(
         )
 
         # Parse response to extract document numbers and scores
+        # Supports formats:
+        #   "Document 1 (score: 8): summary..."
+        #   "Document 2 (score: 6)"
+        #   "Document 3: summary" (no score)
+        #   "1. Document 1 (score: 8)"
+        #   "**Document 1** (score: 8)"
+        import re as _re
         reranked = []
+        # Regex: captures doc number and optional score
+        # Matches "Document <N>" with optional surrounding markers, then optional "(score: <S>)"
+        doc_pattern = _re.compile(
+            r'[Dd]ocument\s*(\d+)'   # "Document 1" or "document 1"
+            r'(?:.*?score\s*[:=]\s*'  # optional "... score: " or "score = "
+            r'(\d+(?:\.\d+)?)'        # capture numeric score
+            r')?',                     # score group is optional
+        )
         for line in result_text.split("\n"):
             line = line.strip()
-            if not line or not line.startswith("Document"):
+            if not line:
+                continue
+
+            match = doc_pattern.search(line)
+            if not match:
                 continue
 
             try:
-                # Extract document number
-                doc_num = int(line.split(":")[0].split()[1].strip("()"))
-
-                # Extract score if present
-                score = 5.0  # default
-                if "score:" in line.lower():
-                    score_part = line.lower().split("score:")[1]
-                    score = float(score_part.split(")")[0].strip())
+                doc_num = int(match.group(1))
+                score = float(match.group(2)) if match.group(2) else 5.0
 
                 if 1 <= doc_num <= len(documents):
                     original = documents[doc_num - 1]

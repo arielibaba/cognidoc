@@ -432,6 +432,183 @@ def parse_args():
     return parser.parse_args()
 
 
+# =============================================================================
+# Pipeline Stage Helpers
+# =============================================================================
+
+
+def _run_document_conversion(source_files: list = None) -> dict:
+    """Stage 2: Process source documents (copy PDFs, copy images, convert documents)."""
+    try:
+        logger.info("Processing source documents...")
+        conversion_stats = process_source_documents(
+            sources_dir=SOURCES_DIR,
+            pdf_output_dir=PDF_DIR,
+            image_output_dir=IMAGE_DIR,
+            source_files=source_files,
+        )
+        logger.info(
+            f"Document processing completed: {conversion_stats['pdfs_copied']} PDFs copied, "
+            f"{conversion_stats['images_copied']} images copied, "
+            f"{conversion_stats['converted']} converted, "
+            f"{conversion_stats['skipped_existing']} skipped, "
+            f"{conversion_stats['failed']} failed"
+        )
+        return conversion_stats
+    except Exception as e:
+        logger.error(f"Document processing failed: {e}")
+        logger.warning("Continuing pipeline without source document processing")
+        return {}
+
+
+def _run_pdf_conversion(pdf_filter: list = None) -> dict:
+    """Stage 3: Convert PDFs to images."""
+    logger.info("Converting PDFs to images...")
+    pdf_stats = convert_pdf_to_image(PDF_DIR, IMAGE_DIR, pdf_filter=pdf_filter)
+    logger.info(
+        f"PDF conversion completed: {pdf_stats.get('success', 0)} PDFs, "
+        f"{pdf_stats.get('pages', 0)} pages"
+    )
+    return pdf_stats
+
+
+def _run_yolo_detection(
+    yolo_batch_size: int, use_yolo_batching: bool, pdf_filter: list = None
+) -> dict:
+    """Stage 4: YOLO object detection."""
+    batch_mode = "batch" if use_yolo_batching else "sequential"
+    logger.info(f"Running YOLO detection ({batch_mode} mode, batch_size={yolo_batch_size})...")
+    yolo_stats = extract_objects_from_image(
+        IMAGE_DIR,
+        DETECTION_DIR,
+        YOLO_MODEL_PATH,
+        YOLO_CONFIDENCE_THRESHOLD,
+        YOLO_IOU_THRESHOLD,
+        high_quality=True,
+        enable_fallback=True,
+        batch_size=yolo_batch_size,
+        use_batching=use_yolo_batching,
+        image_filter=pdf_filter,
+    )
+    logger.info("YOLO detection completed")
+    return yolo_stats
+
+
+async def _run_content_extraction(
+    extraction_provider: str, pdf_filter: list = None
+) -> tuple:
+    """Stage 5: Extract text and tables in parallel."""
+    logger.info(f"Extracting text and tables in parallel using {extraction_provider}...")
+    text_task = asyncio.to_thread(
+        parse_image_with_text,
+        image_dir=DETECTION_DIR,
+        output_dir=PROCESSED_DIR,
+        provider=extraction_provider,
+        image_filter=pdf_filter,
+    )
+    table_task = asyncio.to_thread(
+        parse_image_with_table,
+        image_dir=DETECTION_DIR,
+        output_dir=PROCESSED_DIR,
+        provider=extraction_provider,
+        image_filter=pdf_filter,
+    )
+    text_stats, table_stats = await asyncio.gather(text_task, table_task)
+    logger.info("Content extraction completed (parallel)")
+    return text_stats, table_stats
+
+
+async def _run_image_descriptions(
+    vision_provider: str, pdf_filter: list = None
+) -> dict:
+    """Stage 6: Generate image descriptions."""
+    try:
+        logger.info("Generating image descriptions...")
+        system_p = load_prompt(SYSTEM_PROMPT_IMAGE_DESC)
+        user_p = load_prompt(USER_PROMPT_IMAGE_DESC)
+        desc_stats = await create_image_descriptions_async(
+            image_dir=DETECTION_DIR,
+            output_dir=PROCESSED_DIR,
+            system_prompt=system_p,
+            description_prompt=user_p,
+            provider=vision_provider,
+            max_concurrency=5,
+            max_retries=3,
+            image_filter=pdf_filter,
+        )
+        logger.info("Image description completed")
+        return desc_stats
+    except Exception as e:
+        logger.error(f"Image description failed: {e}")
+        logger.warning("Continuing pipeline without image descriptions")
+        return {}
+
+
+async def _run_chunking(incremental_stems: list = None):
+    """Stage 7: Chunk text and table data in parallel."""
+    logger.info("Chunking text and table data in parallel...")
+    with open(TABLE_SUMMARY_PROMPT_PATH, encoding="utf-8") as f:
+        table_prompt = f.read()
+
+    def run_text_chunking():
+        chunk_text_data(
+            PROCESSED_DIR,
+            EMBED_MODEL,
+            MAX_CHUNK_SIZE,
+            None,
+            CHUNKS_DIR,
+            SEMANTIC_CHUNK_BUFFER,
+            SEMANTIC_BREAKPOINT_METHOD,
+            SEMANTIC_BREAKPOINT_VALUE,
+            SENTENCE_SPLIT_REGEX,
+            verbose=True,
+            file_filter=incremental_stems,
+        )
+
+    def run_table_chunking():
+        chunk_table_data(
+            table_prompt,
+            PROCESSED_DIR,
+            None,
+            MAX_CHUNK_SIZE,
+            int(0.25 * MAX_CHUNK_SIZE),
+            CHUNKS_DIR,
+            use_unified_llm=True,
+            temperature=TEMPERATURE_GENERATION,
+            file_filter=incremental_stems,
+        )
+
+    await asyncio.gather(
+        asyncio.to_thread(run_text_chunking),
+        asyncio.to_thread(run_table_chunking),
+    )
+    logger.info("Chunking completed (parallel)")
+
+
+def _run_embeddings(
+    use_cache: bool, force_reembed: bool, incremental_stems: list = None
+) -> dict:
+    """Stage 8: Generate embeddings."""
+    logger.info("Creating embeddings...")
+    embed_stats = create_embeddings(
+        CHUNKS_DIR,
+        EMBEDDINGS_DIR,
+        EMBED_MODEL,
+        use_cache=use_cache,
+        force_reembed=force_reembed,
+        file_filter=incremental_stems,
+    )
+    logger.info("Embedding generation completed")
+    return embed_stats
+
+
+def _run_index_building():
+    """Stage 9: Build vector indexes."""
+    logger.info("Building vector indexes...")
+    build_indexes(recreate=True)
+    logger.info("Index building completed")
+
+
 async def run_ingestion_pipeline_async(
     vision_provider: str = None,
     extraction_provider: str = "gemini",
@@ -558,219 +735,70 @@ async def run_ingestion_pipeline_async(
         if pdf_filter:
             logger.info(f"Will filter subsequent stages to {len(pdf_filter)} file(s): {pdf_filter}")
 
-    # 2. Process source documents (copy PDFs, copy images, convert documents)
+    # --- Stage 2: Document conversion ---
     if not skip_conversion:
         pipeline_timer.stage("document_conversion")
-        try:
-            logger.info("Processing source documents...")
-            conversion_stats = process_source_documents(
-                sources_dir=SOURCES_DIR,
-                pdf_output_dir=PDF_DIR,
-                image_output_dir=IMAGE_DIR,  # Images go directly to images folder
-                source_files=source_files,  # Limit to specific files if provided
-            )
-            stats["document_conversion"] = conversion_stats
-            logger.info(
-                f"Document processing completed: {conversion_stats['pdfs_copied']} PDFs copied, "
-                f"{conversion_stats['images_copied']} images copied, "
-                f"{conversion_stats['converted']} converted, "
-                f"{conversion_stats['skipped_existing']} skipped, "
-                f"{conversion_stats['failed']} failed"
-            )
-        except Exception as e:
-            logger.error(f"Document processing failed: {e}")
-            # Continue with pipeline - conversion failure shouldn't stop PDF processing
-            logger.warning("Continuing pipeline without source document processing")
+        stats["document_conversion"] = _run_document_conversion(source_files)
     else:
         logger.info("Skipping source document processing")
 
-    # 3. Convert PDFs to images
+    # --- Stage 3: PDF to images ---
     if not skip_pdf:
         pipeline_timer.stage("pdf_conversion")
-        try:
-            logger.info("Converting PDFs to images...")
-            pdf_stats = convert_pdf_to_image(PDF_DIR, IMAGE_DIR, pdf_filter=pdf_filter)
-            stats["pdf_conversion"] = pdf_stats
-            logger.info(f"PDF conversion completed: {pdf_stats.get('success', 0)} PDFs, {pdf_stats.get('pages', 0)} pages")
-        except Exception as e:
-            logger.error(f"PDF conversion failed: {e}")
-            raise
+        stats["pdf_conversion"] = _run_pdf_conversion(pdf_filter)
     else:
         logger.info("Skipping PDF conversion")
 
-    # 4. YOLO detection
+    # --- Stage 4: YOLO detection ---
     if not skip_yolo:
         pipeline_timer.stage("yolo_detection")
-        try:
-            batch_mode = "batch" if use_yolo_batching else "sequential"
-            logger.info(f"Running YOLO detection ({batch_mode} mode, batch_size={yolo_batch_size})...")
-            yolo_stats = extract_objects_from_image(
-                IMAGE_DIR,
-                DETECTION_DIR,
-                YOLO_MODEL_PATH,
-                YOLO_CONFIDENCE_THRESHOLD,
-                YOLO_IOU_THRESHOLD,
-                high_quality=True,
-                enable_fallback=True,
-                batch_size=yolo_batch_size,
-                use_batching=use_yolo_batching,
-                image_filter=pdf_filter,  # Filter to specific files if provided
-            )
-            stats["yolo_detection"] = yolo_stats
-            logger.info("YOLO detection completed")
-        except Exception as e:
-            logger.error(f"YOLO detection failed: {e}")
-            raise
+        stats["yolo_detection"] = _run_yolo_detection(
+            yolo_batch_size, use_yolo_batching, pdf_filter
+        )
     else:
         logger.info("Skipping YOLO detection")
 
-    # 5. Extract text and tables (in parallel for better performance)
+    # --- Stage 5: Content extraction ---
     if not skip_extraction:
         pipeline_timer.stage("content_extraction")
-        try:
-            logger.info(f"Extracting text and tables in parallel using {extraction_provider}...")
-
-            # Run text and table extraction concurrently using asyncio.to_thread
-            # These are independent operations on different file types (text regions vs table regions)
-            text_task = asyncio.to_thread(
-                parse_image_with_text,
-                image_dir=DETECTION_DIR,
-                output_dir=PROCESSED_DIR,
-                provider=extraction_provider,
-                image_filter=pdf_filter,
-            )
-            table_task = asyncio.to_thread(
-                parse_image_with_table,
-                image_dir=DETECTION_DIR,
-                output_dir=PROCESSED_DIR,
-                provider=extraction_provider,
-                image_filter=pdf_filter,
-            )
-
-            # Wait for both to complete
-            text_stats, table_stats = await asyncio.gather(text_task, table_task)
-
-            stats["text_extraction"] = text_stats
-            stats["table_extraction"] = table_stats
-            logger.info("Content extraction completed (parallel)")
-        except Exception as e:
-            logger.error(f"Content extraction failed: {e}")
-            raise
+        text_stats, table_stats = await _run_content_extraction(
+            extraction_provider, pdf_filter
+        )
+        stats["text_extraction"] = text_stats
+        stats["table_extraction"] = table_stats
     else:
         logger.info("Skipping content extraction")
 
-    # 6. Generate image descriptions
+    # --- Stage 6: Image descriptions ---
     if not skip_descriptions:
         pipeline_timer.stage("image_description")
-        try:
-            logger.info("Generating image descriptions...")
-            system_p = load_prompt(SYSTEM_PROMPT_IMAGE_DESC)
-            user_p = load_prompt(USER_PROMPT_IMAGE_DESC)
-
-            desc_stats = await create_image_descriptions_async(
-                image_dir=DETECTION_DIR,
-                output_dir=PROCESSED_DIR,
-                system_prompt=system_p,
-                description_prompt=user_p,
-                provider=vision_provider,
-                max_concurrency=5,
-                max_retries=3,
-                image_filter=pdf_filter,  # Filter to specific files if provided
-            )
-            stats["image_description"] = desc_stats
-            logger.info("Image description completed")
-        except Exception as e:
-            logger.error(f"Image description failed: {e}")
-            # Continue with pipeline even if descriptions fail
-            logger.warning("Continuing pipeline without image descriptions")
+        stats["image_description"] = await _run_image_descriptions(
+            vision_provider, pdf_filter
+        )
     else:
         logger.info("Skipping image descriptions")
 
-    # 7. Chunk text and tables (in parallel for better performance)
+    # --- Stage 7: Chunking ---
     if not skip_chunking:
-        pipeline_timer.stage("text_chunking")  # Combined stage for both
-        try:
-            logger.info("Chunking text and table data in parallel...")
-
-            # Prepare table chunking parameters
-            with open(TABLE_SUMMARY_PROMPT_PATH, encoding="utf-8") as f:
-                table_prompt = f.read()
-
-            # Define chunking functions to run in parallel
-            def run_text_chunking():
-                chunk_text_data(
-                    PROCESSED_DIR,
-                    EMBED_MODEL,
-                    MAX_CHUNK_SIZE,
-                    None,
-                    CHUNKS_DIR,
-                    SEMANTIC_CHUNK_BUFFER,
-                    SEMANTIC_BREAKPOINT_METHOD,
-                    SEMANTIC_BREAKPOINT_VALUE,
-                    SENTENCE_SPLIT_REGEX,
-                    verbose=True,
-                    file_filter=incremental_stems,
-                )
-
-            def run_table_chunking():
-                # Use unified LLM client (Gemini by default) for better quality
-                chunk_table_data(
-                    table_prompt,
-                    PROCESSED_DIR,
-                    None,
-                    MAX_CHUNK_SIZE,
-                    int(0.25 * MAX_CHUNK_SIZE),
-                    CHUNKS_DIR,
-                    use_unified_llm=True,
-                    temperature=TEMPERATURE_GENERATION,
-                    file_filter=incremental_stems,
-                )
-
-            # Run both chunking operations in parallel
-            text_chunk_task = asyncio.to_thread(run_text_chunking)
-            table_chunk_task = asyncio.to_thread(run_table_chunking)
-
-            await asyncio.gather(text_chunk_task, table_chunk_task)
-
-            logger.info("Chunking completed (parallel)")
-        except Exception as e:
-            logger.error(f"Chunking failed: {e}")
-            raise
+        pipeline_timer.stage("text_chunking")
+        await _run_chunking(incremental_stems)
     else:
         logger.info("Skipping chunking")
 
-    # 9. Generate embeddings
+    # --- Stage 8: Embeddings ---
     if not skip_embeddings:
         pipeline_timer.stage("embedding_generation")
-        try:
-            logger.info("Creating embeddings...")
-            embed_stats = create_embeddings(
-                CHUNKS_DIR,
-                EMBEDDINGS_DIR,
-                EMBED_MODEL,
-                use_cache=use_cache,
-                force_reembed=force_reembed,
-                file_filter=incremental_stems,
-            )
-            stats["embeddings"] = embed_stats
-            logger.info("Embedding generation completed")
-        except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
-            raise
+        stats["embeddings"] = _run_embeddings(
+            use_cache, force_reembed, incremental_stems
+        )
     else:
         logger.info("Skipping embeddings")
 
-    # 10. Build vector indexes
+    # --- Stage 9: Index building ---
     if not skip_indexing:
         pipeline_timer.stage("index_building")
-        try:
-            logger.info("Building vector indexes...")
-            build_indexes(recreate=True)
-            stats["indexing"] = {"status": "completed"}
-            logger.info("Index building completed")
-        except Exception as e:
-            logger.error(f"Index building failed: {e}")
-            raise
+        _run_index_building()
+        stats["indexing"] = {"status": "completed"}
     else:
         logger.info("Skipping index building")
 

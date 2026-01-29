@@ -701,20 +701,18 @@ class TestGenerateSchemaFromCorpusSync:
     def test_calls_async_version(self, tmp_path: Path):
         expected = {"domain": {"name": "Test"}, "entities": [], "relationships": []}
 
-        with patch("cognidoc.schema_wizard.generate_schema_from_corpus", return_value=expected) as mock_async:
-            # Make mock awaitable
-            mock_async.return_value = expected
-
-            # We need to patch asyncio.run since generate_schema_from_corpus is async
-            with patch("asyncio.run", return_value=expected) as mock_run:
-                result = generate_schema_from_corpus_sync(
-                    sources_dir=str(tmp_path),
-                    pdf_dir=str(tmp_path),
-                    language="fr",
-                    max_docs=50,
-                    max_pages=2,
-                    convert_first=False,
-                )
+        with patch(
+            "cognidoc.schema_wizard.generate_schema_from_corpus",
+            new=AsyncMock(return_value=expected),
+        ):
+            result = generate_schema_from_corpus_sync(
+                sources_dir=str(tmp_path),
+                pdf_dir=str(tmp_path),
+                language="fr",
+                max_docs=50,
+                max_pages=2,
+                convert_first=False,
+            )
 
         assert result == expected
 

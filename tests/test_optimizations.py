@@ -646,3 +646,175 @@ class TestOptimizationBenchmarks:
 
         # Expect at least 1.5x speedup with 4 workers
         assert speedup > 1.5
+
+
+# =============================================================================
+# 7. Reranking Parser Tests
+# =============================================================================
+
+class TestRerankingParser:
+    """Tests for LLM reranking response parsing robustness."""
+
+    def _make_docs(self, n=5):
+        """Create n mock documents for reranking."""
+        from cognidoc.utils.rag_utils import Document, NodeWithScore
+        docs = []
+        for i in range(n):
+            node = Document(text=f"Document content {i+1}", metadata={})
+            docs.append(NodeWithScore(node=node, score=0.5))
+        return docs
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_standard_format(self, mock_llm):
+        """Test parsing of standard 'Document N (score: X): summary' format."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "Document 2 (score: 9): Very relevant\n"
+            "Document 1 (score: 7): Somewhat relevant\n"
+            "Document 4 (score: 3): Less relevant"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 3
+        assert result[0].score == 9.0
+        assert result[1].score == 7.0
+        assert result[2].score == 3.0
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_score_with_equals(self, mock_llm):
+        """Test parsing with 'score = X' format."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "Document 3 (score = 8): good match\n"
+            "Document 1 (score = 5): ok match"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 2
+        assert result[0].score == 8.0
+        assert result[1].score == 5.0
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_no_score_defaults_to_five(self, mock_llm):
+        """Test that missing score defaults to 5.0."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "Document 1: very relevant content\n"
+            "Document 3: somewhat relevant content"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 2
+        assert all(r.score == 5.0 for r in result)
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_markdown_bold_format(self, mock_llm):
+        """Test parsing when LLM wraps 'Document' in markdown bold."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "**Document 2** (score: 9): relevant\n"
+            "**Document 1** (score: 6): ok"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 2
+        assert result[0].score == 9.0
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_numbered_list_format(self, mock_llm):
+        """Test parsing when LLM prefixes with numbered list."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "1. Document 3 (score: 10)\n"
+            "2. Document 1 (score: 7)\n"
+            "3. Document 5 (score: 4)"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 3
+        assert result[0].score == 10.0
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_lowercase_document(self, mock_llm):
+        """Test parsing with lowercase 'document'."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "document 2 (score: 8): relevant\n"
+            "document 4 (score: 5): ok"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 2
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_decimal_scores(self, mock_llm):
+        """Test parsing with decimal scores like 8.5."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "Document 1 (score: 8.5): great\n"
+            "Document 3 (score: 6.2): ok"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 2
+        assert result[0].score == 8.5
+        assert result[1].score == 6.2
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_out_of_range_doc_ignored(self, mock_llm):
+        """Test that doc numbers outside valid range are ignored."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "Document 0 (score: 9): invalid\n"
+            "Document 1 (score: 8): valid\n"
+            "Document 99 (score: 7): invalid"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 1
+        assert result[0].score == 8.0
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_empty_response_falls_back(self, mock_llm):
+        """Test that unparseable response returns original order."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = "I cannot rank these documents."
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 3
+        # Should be original order (first 3 docs)
+        assert result[0].node.text == "Document content 1"
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_llm_exception_falls_back(self, mock_llm):
+        """Test that LLM exception returns original order."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.side_effect = Exception("API error")
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        assert len(result) == 3
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_sorts_by_score_descending(self, mock_llm):
+        """Test that results are sorted by score descending."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = (
+            "Document 3 (score: 3)\n"
+            "Document 1 (score: 9)\n"
+            "Document 2 (score: 6)"
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=3)
+        scores = [r.score for r in result]
+        assert scores == sorted(scores, reverse=True)
+
+    @patch("cognidoc.utils.llm_client.llm_chat")
+    def test_top_n_limits_output(self, mock_llm):
+        """Test that top_n limits the number of returned docs."""
+        from cognidoc.utils.rag_utils import rerank_documents
+        mock_llm.return_value = "\n".join(
+            f"Document {i} (score: {10-i})" for i in range(1, 6)
+        )
+        docs = self._make_docs(5)
+        result = rerank_documents(docs, "test query", top_n=2)
+        assert len(result) == 2

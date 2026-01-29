@@ -445,7 +445,8 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_entity_resolution.py` | 34 | Entity resolution (blocking, matching, clustering, merging) |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing |
-| `test_optimizations.py` | 26 | Pipeline optimizations (concurrency, pooling) |
+| `test_optimizations.py` | 38 | Pipeline optimizations, reranking parser |
+| `test_pipeline_stages.py` | 22 | Individual pipeline stage unit tests |
 | `test_providers.py` | 32 | LLM/Embedding providers |
 | `test_schema_generation.py` | 75 | Corpus-based schema generation (sampling, LLM pipeline, fallbacks) |
 

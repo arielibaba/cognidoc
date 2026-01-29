@@ -18,11 +18,15 @@ Transform any document collection into a searchable knowledge base with intellig
 |---------|-------------|
 | **Hybrid RAG** | Combines vector similarity search with knowledge graph traversal |
 | **Agentic RAG** | Multi-step reasoning agent with 9 specialized tools |
+| **Incremental Ingestion** | Only processes new/modified documents (SHA-256 manifest tracking) |
+| **Auto Schema Generation** | Two-stage LLM pipeline generates GraphRAG schema from corpus analysis |
+| **Entity Resolution** | Semantic deduplication of graph entities (4-phase pipeline) |
 | **Multi-Format** | PDF, DOCX, PPTX, XLSX, HTML, Markdown, images |
 | **Multi-Language** | Automatic FR/EN/ES/DE detection and response |
 | **YOLO Detection** | Automatic table/image/text region detection (optional) |
 | **Conversation Memory** | Context-aware follow-up questions |
 | **Multi-Provider** | Gemini, OpenAI, Anthropic, Ollama |
+| **Metrics Dashboard** | Performance tracking with Plotly charts and CSV/JSON export |
 
 ---
 
@@ -255,6 +259,17 @@ python -m cognidoc.setup
 ```
 
 *YOLO is optional - falls back to page-level extraction if disabled or model not found.
+
+### Incremental Ingestion
+
+The pipeline is **incremental by default**. A manifest (`data/indexes/ingestion_manifest.json`) tracks files by path, size, and SHA-256 hash.
+
+| Scenario | Behavior |
+|----------|----------|
+| New files added | Only new files are processed |
+| Existing file modified | Old intermediates cleaned up, file reprocessed |
+| No changes detected | Pipeline exits immediately |
+| `--full-reindex` flag | Full pipeline, manifest rebuilt |
 
 ### Query Processing
 
@@ -564,7 +579,7 @@ uv run pylint src/cognidoc/
 ### Running Tests
 
 ```bash
-# All tests (286 total)
+# All tests
 pytest tests/ -v
 
 # Single test file
@@ -596,8 +611,9 @@ pytest tests/test_00_e2e_pipeline.py -v --run-slow
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_entity_resolution.py` | 34 | Entity resolution (blocking, matching, clustering, merging) |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing |
-| `test_optimizations.py` | 26 | Pipeline optimizations (concurrency, pooling) |
+| `test_optimizations.py` | 38 | Pipeline optimizations, reranking parser |
 | `test_providers.py` | 32 | LLM/Embedding providers |
+| `test_schema_generation.py` | 75 | Corpus-based schema generation |
 
 ### Benchmark with External Data
 
