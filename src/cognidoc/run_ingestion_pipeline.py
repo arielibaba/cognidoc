@@ -727,14 +727,12 @@ async def _run_community_and_resolution(
     processed_community_ids = set(checkpoint.community_summaries.processed_item_ids)
     checkpoint.community_summaries.total_items = len(kg.communities)
 
-    generated, skipped, quota_errors, summaries_interrupted = (
-        kg.generate_community_summaries(
-            compute_embeddings=True,
-            skip_existing=True,
-            processed_community_ids=processed_community_ids,
-            max_consecutive_quota_errors=max_consecutive_quota_errors,
-            save_interval=100,
-        )
+    generated, skipped, quota_errors, summaries_interrupted = kg.generate_community_summaries(
+        compute_embeddings=True,
+        skip_existing=True,
+        processed_community_ids=processed_community_ids,
+        max_consecutive_quota_errors=max_consecutive_quota_errors,
+        save_interval=100,
     )
 
     # Update checkpoint
@@ -748,8 +746,7 @@ async def _run_community_and_resolution(
         checkpoint.save(checkpoint_path)
         kg.save()  # Save partial graph
         logger.warning(
-            f"Community summary generation interrupted. "
-            f"Checkpoint saved to {checkpoint_path}."
+            f"Community summary generation interrupted. " f"Checkpoint saved to {checkpoint_path}."
         )
         stats["graph_building"] = {"status": "interrupted", "reason": "quota_exhausted"}
         return stats
@@ -896,16 +893,14 @@ async def _run_graph_building(
             }
         else:
             # Normal path: extract entities then build graph
-            extraction_results, extraction_interrupted, extraction_stats = (
-                _run_entity_extraction(
-                    checkpoint=checkpoint,
-                    checkpoint_path=checkpoint_path,
-                    graph_config=graph_config,
-                    use_async_extraction=use_async_extraction,
-                    entity_max_concurrent=entity_max_concurrent,
-                    max_consecutive_quota_errors=max_consecutive_quota_errors,
-                    incremental_stems=incremental_stems,
-                )
+            extraction_results, extraction_interrupted, extraction_stats = _run_entity_extraction(
+                checkpoint=checkpoint,
+                checkpoint_path=checkpoint_path,
+                graph_config=graph_config,
+                use_async_extraction=use_async_extraction,
+                entity_max_concurrent=entity_max_concurrent,
+                max_consecutive_quota_errors=max_consecutive_quota_errors,
+                incremental_stems=incremental_stems,
             )
             stats["graph_extraction"] = extraction_stats
 
