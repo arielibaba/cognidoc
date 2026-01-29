@@ -25,6 +25,7 @@ from .utils.rag_utils import get_embedding, get_query_embedding
 @dataclass
 class GraphRetrievalResult:
     """Result from graph retrieval."""
+
     query: str
     retrieval_type: str  # "entity", "relationship", "community", "path"
     entities: List[GraphNode] = field(default_factory=list)
@@ -132,9 +133,10 @@ OUTPUT:"""
 
         # Parse JSON list
         import json
+
         try:
             # Try to extract JSON array
-            match = re.search(r'\[.*?\]', result_text, re.DOTALL)
+            match = re.search(r"\[.*?\]", result_text, re.DOTALL)
             if match:
                 entity_names = json.loads(match.group(0))
                 for name in entity_names:

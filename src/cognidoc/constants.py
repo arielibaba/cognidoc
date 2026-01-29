@@ -33,8 +33,8 @@ BASE_DIR = PROJECT_DIR
 # Directory Paths (relative to DATA_DIR)
 # =============================================================================
 
-SOURCES_DIR = DATA_DIR / "sources"        # Input: documents to process
-PDF_DIR = DATA_DIR / "pdfs"               # Output: PDFs (copied or converted)
+SOURCES_DIR = DATA_DIR / "sources"  # Input: documents to process
+PDF_DIR = DATA_DIR / "pdfs"  # Output: PDFs (copied or converted)
 IMAGE_DIR = DATA_DIR / "images"
 DETECTION_DIR = DATA_DIR / "detections"
 PROCESSED_DIR = DATA_DIR / "processed"
@@ -56,8 +56,8 @@ YOLO_CONFIDENCE_THRESHOLD = 0.2
 YOLO_IOU_THRESHOLD = 0.8
 
 # Image filtering parameters (for extracted images)
-MIN_IMAGE_PIXELS = 10000            # Minimum pixel count to consider an image valid
-MIN_IMAGE_VARIANCE = 500            # Minimum pixel variance to avoid blank/uniform images
+MIN_IMAGE_PIXELS = 10000  # Minimum pixel count to consider an image valid
+MIN_IMAGE_VARIANCE = 500  # Minimum pixel variance to avoid blank/uniform images
 
 # =============================================================================
 # Docling Model Configuration (via Ollama)
@@ -92,7 +92,7 @@ OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b-q8_0")
 # Format: "Instruct: {task}\nQuery:{query}" - documents don't need instructions
 QWEN_EMBEDDING_TASK = os.getenv(
     "QWEN_EMBEDDING_TASK",
-    "Given a web search query, retrieve relevant passages that answer the query"
+    "Given a web search query, retrieve relevant passages that answer the query",
 )
 
 OPENAI_LLM_MODEL = os.getenv("OPENAI_LLM_MODEL", "gpt-4o")
@@ -119,8 +119,8 @@ MODEL_SPECS = {
     # -------------------------------------------------------------------------
     "gemini-2.5-flash": {
         "provider": "gemini",
-        "context_window": 1_048_576,      # 1M tokens
-        "max_output_tokens": 65_536,      # 65K with thinking, 8K standard
+        "context_window": 1_048_576,  # 1M tokens
+        "max_output_tokens": 65_536,  # 65K with thinking, 8K standard
         "default_temperature": 1.0,
         "default_top_p": 0.95,
         "default_top_k": 40,
@@ -130,7 +130,7 @@ MODEL_SPECS = {
     },
     "gemini-2.5-pro": {
         "provider": "gemini",
-        "context_window": 1_048_576,      # 1M tokens
+        "context_window": 1_048_576,  # 1M tokens
         "max_output_tokens": 65_536,
         "default_temperature": 1.0,
         "default_top_p": 0.95,
@@ -141,7 +141,7 @@ MODEL_SPECS = {
     },
     "gemini-2.0-flash": {
         "provider": "gemini",
-        "context_window": 1_048_576,      # 1M tokens
+        "context_window": 1_048_576,  # 1M tokens
         "max_output_tokens": 8_192,
         "default_temperature": 1.0,
         "default_top_p": 0.95,
@@ -152,7 +152,7 @@ MODEL_SPECS = {
     },
     "gemini-3-pro-preview": {
         "provider": "gemini",
-        "context_window": 1_048_576,      # 1M tokens
+        "context_window": 1_048_576,  # 1M tokens
         "max_output_tokens": 65_536,
         "default_temperature": 1.0,
         "default_top_p": 0.95,
@@ -163,7 +163,7 @@ MODEL_SPECS = {
     },
     "gemini-3-flash-preview": {
         "provider": "gemini",
-        "context_window": 1_048_576,      # 1M tokens
+        "context_window": 1_048_576,  # 1M tokens
         "max_output_tokens": 65_536,
         "default_temperature": 1.0,
         "default_top_p": 0.95,
@@ -172,7 +172,6 @@ MODEL_SPECS = {
         "supports_json_mode": True,
         "supports_streaming": True,
     },
-
     # -------------------------------------------------------------------------
     # OpenAI Models
     # -------------------------------------------------------------------------
@@ -206,18 +205,17 @@ MODEL_SPECS = {
         "supports_json_mode": True,
         "supports_streaming": True,
     },
-
     # -------------------------------------------------------------------------
     # Anthropic Models (Claude)
     # -------------------------------------------------------------------------
     "claude-sonnet-4-20250514": {
         "provider": "anthropic",
         "context_window": 200_000,
-        "max_output_tokens": 64_000,      # Extended thinking mode
+        "max_output_tokens": 64_000,  # Extended thinking mode
         "default_temperature": 1.0,
         "default_top_p": 0.999,
         "supports_vision": True,
-        "supports_json_mode": False,      # Via prompt instruction only
+        "supports_json_mode": False,  # Via prompt instruction only
         "supports_streaming": True,
     },
     "claude-opus-4-20250514": {
@@ -250,7 +248,6 @@ MODEL_SPECS = {
         "supports_json_mode": False,
         "supports_streaming": True,
     },
-
     # -------------------------------------------------------------------------
     # Ollama Models (Local)
     # -------------------------------------------------------------------------
@@ -437,8 +434,8 @@ USER_PROMPT_GENERATE_FINAL_ANSWER = PACKAGE_DIR / "prompts/user_prompt_generate_
 EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:4b-q8_0")
 MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "512"))
 SEMANTIC_CHUNK_BUFFER = int(os.getenv("SEMANTIC_CHUNK_BUFFER", "5"))  # Sentences buffer for context
-SEMANTIC_BREAKPOINT_METHOD = "percentile"   # Method for detecting semantic boundaries
-SEMANTIC_BREAKPOINT_VALUE = 0.95            # Threshold value (95th percentile)
+SEMANTIC_BREAKPOINT_METHOD = "percentile"  # Method for detecting semantic boundaries
+SEMANTIC_BREAKPOINT_VALUE = 0.95  # Threshold value (95th percentile)
 SENTENCE_SPLIT_REGEX = r"\n\n\n"
 
 # Chunk overlap for context continuity
@@ -473,9 +470,11 @@ MAX_SOURCE_CHUNKS_FROM_GRAPH = int(os.getenv("MAX_SOURCE_CHUNKS_FROM_GRAPH", "10
 
 # Hybrid Search: BM25 (sparse) + Dense vector fusion
 ENABLE_HYBRID_SEARCH = os.getenv("ENABLE_HYBRID_SEARCH", "true").lower() == "true"
-HYBRID_DENSE_WEIGHT = float(os.getenv("HYBRID_DENSE_WEIGHT", "0.6"))  # Dense vector weight (0.0-1.0)
+HYBRID_DENSE_WEIGHT = float(
+    os.getenv("HYBRID_DENSE_WEIGHT", "0.6")
+)  # Dense vector weight (0.0-1.0)
 BM25_K1 = float(os.getenv("BM25_K1", "1.5"))  # Term frequency saturation
-BM25_B = float(os.getenv("BM25_B", "0.75"))   # Length normalization
+BM25_B = float(os.getenv("BM25_B", "0.75"))  # Length normalization
 BM25_INDEX_PATH = str((Path(INDEX_DIR) / "bm25_index.json").resolve())
 
 # Cross-Encoder Reranking (uses Qwen3-Reranker via Ollama)
@@ -492,16 +491,17 @@ ENABLE_LOST_IN_MIDDLE_REORDER = os.getenv("ENABLE_LOST_IN_MIDDLE_REORDER", "true
 # Contextual Compression (extracts query-relevant content)
 # Disabled by default: pre-chunked text (512 tokens max) + reranking already filters noise effectively.
 # Enable via ENABLE_CONTEXTUAL_COMPRESSION=true for high-noise domains or very long documents.
-ENABLE_CONTEXTUAL_COMPRESSION = os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "false").lower() == "true"
+ENABLE_CONTEXTUAL_COMPRESSION = (
+    os.getenv("ENABLE_CONTEXTUAL_COMPRESSION", "false").lower() == "true"
+)
 COMPRESSION_MAX_TOKENS_PER_DOC = int(os.getenv("COMPRESSION_MAX_TOKENS_PER_DOC", "200"))
 # Skip ratio: skip compression for docs < (MAX_CHUNK_SIZE * ratio) tokens
 # Default 0.5 = skip docs under 50% of max chunk size (small docs not worth compressing)
 COMPRESSION_SKIP_RATIO = float(os.getenv("COMPRESSION_SKIP_RATIO", "0.5"))
 # Computed threshold in tokens (can be overridden directly via COMPRESSION_SKIP_THRESHOLD)
-COMPRESSION_SKIP_THRESHOLD = int(os.getenv(
-    "COMPRESSION_SKIP_THRESHOLD",
-    str(int(MAX_CHUNK_SIZE * COMPRESSION_SKIP_RATIO))
-))
+COMPRESSION_SKIP_THRESHOLD = int(
+    os.getenv("COMPRESSION_SKIP_THRESHOLD", str(int(MAX_CHUNK_SIZE * COMPRESSION_SKIP_RATIO)))
+)
 
 # Citation Verification
 ENABLE_CITATION_VERIFICATION = os.getenv("ENABLE_CITATION_VERIFICATION", "false").lower() == "true"
@@ -542,14 +542,10 @@ ENTITY_RESOLUTION_SIMILARITY_THRESHOLD = float(
 )
 
 # Minimum LLM confidence to merge entities
-ENTITY_RESOLUTION_LLM_CONFIDENCE = float(
-    os.getenv("ENTITY_RESOLUTION_LLM_CONFIDENCE", "0.7")
-)
+ENTITY_RESOLUTION_LLM_CONFIDENCE = float(os.getenv("ENTITY_RESOLUTION_LLM_CONFIDENCE", "0.7"))
 
 # Maximum concurrent LLM calls for entity resolution
-ENTITY_RESOLUTION_MAX_CONCURRENT = int(
-    os.getenv("ENTITY_RESOLUTION_MAX_CONCURRENT", "4")
-)
+ENTITY_RESOLUTION_MAX_CONCURRENT = int(os.getenv("ENTITY_RESOLUTION_MAX_CONCURRENT", "4"))
 
 # Use LLM to synthesize merged descriptions (vs simple concatenation)
 ENTITY_RESOLUTION_USE_LLM_DESCRIPTIONS = (
@@ -562,14 +558,10 @@ ENTITY_RESOLUTION_CACHE_ENABLED = (
 )
 
 # Cache TTL for resolution decisions (hours)
-ENTITY_RESOLUTION_CACHE_TTL_HOURS = int(
-    os.getenv("ENTITY_RESOLUTION_CACHE_TTL_HOURS", "24")
-)
+ENTITY_RESOLUTION_CACHE_TTL_HOURS = int(os.getenv("ENTITY_RESOLUTION_CACHE_TTL_HOURS", "24"))
 
 # Batch size for embedding computation
-ENTITY_RESOLUTION_BATCH_SIZE = int(
-    os.getenv("ENTITY_RESOLUTION_BATCH_SIZE", "500")
-)
+ENTITY_RESOLUTION_BATCH_SIZE = int(os.getenv("ENTITY_RESOLUTION_BATCH_SIZE", "500"))
 
 # Prompt files for entity resolution
 ENTITY_RESOLUTION_PROMPT = PACKAGE_DIR / "prompts/entity_resolution.txt"

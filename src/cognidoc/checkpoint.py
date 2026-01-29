@@ -63,9 +63,7 @@ class StageCheckpoint:
         return cls(
             total_items=data.get("total_items", 0),
             processed_item_ids=data.get("processed_item_ids", []),
-            failed_items=[
-                FailedItem.from_dict(f) for f in data.get("failed_items", [])
-            ],
+            failed_items=[FailedItem.from_dict(f) for f in data.get("failed_items", [])],
             consecutive_quota_errors=data.get("consecutive_quota_errors", 0),
         )
 
@@ -79,9 +77,7 @@ class StageCheckpoint:
             self.processed_item_ids.append(item_id)
         self.consecutive_quota_errors = 0  # Reset on success
 
-    def mark_failed(
-        self, item_id: str, error_type: str, error_message: str
-    ) -> None:
+    def mark_failed(self, item_id: str, error_type: str, error_message: str) -> None:
         """Mark an item as failed."""
         # Check if already in failed items
         for f in self.failed_items:
@@ -151,15 +147,9 @@ class PipelineCheckpoint:
             pipeline_stage=data.get("pipeline_stage", ""),
             status=data.get("status", "running"),
             interrupt_reason=data.get("interrupt_reason", ""),
-            entity_extraction=StageCheckpoint.from_dict(
-                data.get("entity_extraction", {})
-            ),
-            community_summaries=StageCheckpoint.from_dict(
-                data.get("community_summaries", {})
-            ),
-            entity_embeddings=StageCheckpoint.from_dict(
-                data.get("entity_embeddings", {})
-            ),
+            entity_extraction=StageCheckpoint.from_dict(data.get("entity_extraction", {})),
+            community_summaries=StageCheckpoint.from_dict(data.get("community_summaries", {})),
+            entity_embeddings=StageCheckpoint.from_dict(data.get("entity_embeddings", {})),
         )
 
     def update_timestamp(self) -> None:

@@ -25,6 +25,7 @@ load_dotenv()
 
 class EmbeddingProvider(str, Enum):
     """Supported embedding providers."""
+
     OLLAMA = "ollama"
     OPENAI = "openai"
     GEMINI = "gemini"
@@ -41,6 +42,7 @@ DEFAULT_EMBEDDING_MODELS = {
 @dataclass
 class EmbeddingConfig:
     """Configuration for embedding providers."""
+
     provider: EmbeddingProvider
     model: str
     api_key: Optional[str] = None
@@ -104,6 +106,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         self._timeout = config.timeout
         try:
             import ollama
+
             self.client = ollama.Client(
                 host=self._host,
                 timeout=self._timeout,
@@ -119,6 +122,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
     def _get_async_client(cls, timeout: float):
         """Get shared async client with connection pooling."""
         import httpx
+
         if cls._shared_async_client is None:
             # Create client with connection pooling (keeps connections alive)
             cls._shared_async_client = httpx.AsyncClient(
@@ -148,6 +152,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         # Only apply task instruction for Qwen3-Embedding models
         if "qwen" in self.config.model.lower() and "embedding" in self.config.model.lower():
             from cognidoc.constants import QWEN_EMBEDDING_TASK
+
             if task is None:
                 task = QWEN_EMBEDDING_TASK
             # Format: "Instruct: {task}\nQuery:{query}"
@@ -193,7 +198,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
             async with semaphore:
                 response = await client.post(
                     f"{self._host}/api/embeddings",
-                    json={"model": self.config.model, "prompt": text}
+                    json={"model": self.config.model, "prompt": text},
                 )
                 response.raise_for_status()
                 results[idx] = response.json()["embedding"]
@@ -209,6 +214,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         super().__init__(config)
         try:
             from openai import OpenAI
+
             api_key = config.api_key or os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("OPENAI_API_KEY not found in environment or config")
@@ -238,7 +244,7 @@ class OpenAIEmbeddingProvider(BaseEmbeddingProvider):
         # OpenAI supports batching up to ~8000 tokens total
         all_embeddings = []
         for i in range(0, len(texts), self.config.batch_size):
-            batch = texts[i:i + self.config.batch_size]
+            batch = texts[i : i + self.config.batch_size]
             response = self.client.embeddings.create(
                 model=self.config.model,
                 input=batch,
@@ -259,7 +265,9 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
 
             api_key = config.api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
             if not api_key:
-                raise ValueError("GOOGLE_API_KEY or GEMINI_API_KEY not found in environment or config")
+                raise ValueError(
+                    "GOOGLE_API_KEY or GEMINI_API_KEY not found in environment or config"
+                )
 
             self.client = genai.Client(api_key=api_key)
         except ImportError:
@@ -282,7 +290,7 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
         # Embed texts in batches
         all_embeddings = []
         for i in range(0, len(texts), self.config.batch_size):
-            batch = texts[i:i + self.config.batch_size]
+            batch = texts[i : i + self.config.batch_size]
             for text in batch:
                 embedding = self.embed_single(text)
                 all_embeddings.append(embedding)
@@ -322,16 +330,19 @@ def get_default_embedding_provider() -> BaseEmbeddingProvider:
     if model is None:
         model = DEFAULT_EMBEDDING_MODELS[provider]
 
-    return create_embedding_provider(EmbeddingConfig(
-        provider=provider,
-        model=model,
-    ))
+    return create_embedding_provider(
+        EmbeddingConfig(
+            provider=provider,
+            model=model,
+        )
+    )
 
 
 def is_ollama_available() -> bool:
     """Check if Ollama is installed and server is running."""
     try:
         import httpx
+
         resp = httpx.get("http://localhost:11434/api/tags", timeout=2)
         return resp.status_code == 200
     except Exception:
@@ -343,6 +354,7 @@ def is_provider_available(provider: EmbeddingProvider) -> bool:
     if provider == EmbeddingProvider.OLLAMA:
         try:
             import ollama
+
             return is_ollama_available()
         except ImportError:
             return False
@@ -350,6 +362,7 @@ def is_provider_available(provider: EmbeddingProvider) -> bool:
     elif provider == EmbeddingProvider.OPENAI:
         try:
             import openai
+
             return bool(os.getenv("OPENAI_API_KEY"))
         except ImportError:
             return False
@@ -357,6 +370,7 @@ def is_provider_available(provider: EmbeddingProvider) -> bool:
     elif provider == EmbeddingProvider.GEMINI:
         try:
             from google import genai
+
             return bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
         except ImportError:
             return False
@@ -392,15 +406,19 @@ def set_embedding_provider(provider: str, model: str = None) -> BaseEmbeddingPro
     try:
         provider_enum = EmbeddingProvider(provider.lower())
     except ValueError:
-        raise ValueError(f"Unknown provider: {provider}. Available: {[p.value for p in EmbeddingProvider]}")
+        raise ValueError(
+            f"Unknown provider: {provider}. Available: {[p.value for p in EmbeddingProvider]}"
+        )
 
     if model is None:
         model = DEFAULT_EMBEDDING_MODELS[provider_enum]
 
-    _embedding_provider = create_embedding_provider(EmbeddingConfig(
-        provider=provider_enum,
-        model=model,
-    ))
+    _embedding_provider = create_embedding_provider(
+        EmbeddingConfig(
+            provider=provider_enum,
+            model=model,
+        )
+    )
     logger.info(f"Embedding provider set to: {provider}/{model}")
     return _embedding_provider
 

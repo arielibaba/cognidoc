@@ -29,6 +29,7 @@ from .embedding_providers import get_embedding_provider
 # Query Embedding Cache (avoids redundant embedding computations)
 # =============================================================================
 
+
 class QueryEmbeddingCache:
     """
     Simple LRU cache for query embeddings.
@@ -97,6 +98,7 @@ _query_embedding_cache = QueryEmbeddingCache()
 # =============================================================================
 # Qdrant Query Result Cache (avoids redundant vector searches)
 # =============================================================================
+
 
 class QdrantResultCache:
     """
@@ -170,6 +172,7 @@ _qdrant_result_cache = QdrantResultCache()
 @dataclass
 class Document:
     """Simple document with text and metadata."""
+
     text: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid4()))
@@ -178,6 +181,7 @@ class Document:
 @dataclass
 class NodeWithScore:
     """Document with relevance score."""
+
     node: Document
     score: float = 0.0
 
@@ -185,6 +189,7 @@ class NodeWithScore:
 # =============================================================================
 # Embedding utilities
 # =============================================================================
+
 
 def get_embedding(text: str, model: str = None) -> List[float]:
     """
@@ -269,6 +274,7 @@ def get_embedding_dimension(model: str = None) -> int:
 # =============================================================================
 # Vector Index (replaces VectorStoreIndex)
 # =============================================================================
+
 
 class VectorIndex:
     """
@@ -362,14 +368,16 @@ class VectorIndex:
             self._documents[doc.id] = doc
 
             # Create Qdrant point
-            points.append(PointStruct(
-                id=doc.id,
-                vector=vector,
-                payload={
-                    "text": doc.text,
-                    "metadata": doc.metadata,
-                }
-            ))
+            points.append(
+                PointStruct(
+                    id=doc.id,
+                    vector=vector,
+                    payload={
+                        "text": doc.text,
+                        "metadata": doc.metadata,
+                    },
+                )
+            )
 
         # Batch upsert
         if points:
@@ -432,12 +440,14 @@ class VectorIndex:
 
             doc = Document(text=text, metadata=metadata, id=doc_id)
             nodes.append(NodeWithScore(node=doc, score=score))
-            cache_data.append({
-                "text": text,
-                "metadata": metadata,
-                "id": doc_id,
-                "score": score,
-            })
+            cache_data.append(
+                {
+                    "text": text,
+                    "metadata": metadata,
+                    "id": doc_id,
+                    "score": score,
+                }
+            )
 
         # Store in cache
         if use_cache:
@@ -510,6 +520,7 @@ class VectorIndex:
 # =============================================================================
 # Keyword Index (replaces SimpleKeywordTableIndex)
 # =============================================================================
+
 
 class KeywordIndex:
     """
@@ -666,14 +677,15 @@ def rerank_documents(
         #   "1. Document 1 (score: 8)"
         #   "**Document 1** (score: 8)"
         import re as _re
+
         reranked = []
         # Regex: captures doc number and optional score
         # Matches "Document <N>" with optional surrounding markers, then optional "(score: <S>)"
         doc_pattern = _re.compile(
-            r'[Dd]ocument\s*(\d+)'   # "Document 1" or "document 1"
-            r'(?:.*?score\s*[:=]\s*'  # optional "... score: " or "score = "
-            r'(\d+(?:\.\d+)?)'        # capture numeric score
-            r')?',                     # score group is optional
+            r"[Dd]ocument\s*(\d+)"  # "Document 1" or "document 1"
+            r"(?:.*?score\s*[:=]\s*"  # optional "... score: " or "score = "
+            r"(\d+(?:\.\d+)?)"  # capture numeric score
+            r")?",  # score group is optional
         )
         for line in result_text.split("\n"):
             line = line.strip()
@@ -711,6 +723,7 @@ def rerank_documents(
 # =============================================================================
 # Streaming LLM response
 # =============================================================================
+
 
 def stream_chat(
     messages: List[Dict[str, str]],

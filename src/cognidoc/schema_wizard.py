@@ -26,6 +26,7 @@ _QUESTIONARY_AVAILABLE = False
 try:
     import questionary
     from questionary import Style
+
     _QUESTIONARY_AVAILABLE = True
 except ImportError:
     questionary = None
@@ -35,21 +36,31 @@ except ImportError:
 # Default wizard style
 WIZARD_STYLE = None
 if _QUESTIONARY_AVAILABLE:
-    WIZARD_STYLE = Style([
-        ('qmark', 'fg:cyan bold'),
-        ('question', 'fg:white bold'),
-        ('answer', 'fg:green bold'),
-        ('pointer', 'fg:cyan bold'),
-        ('highlighted', 'fg:cyan bold'),
-        ('selected', 'fg:green'),
-    ])
+    WIZARD_STYLE = Style(
+        [
+            ("qmark", "fg:cyan bold"),
+            ("question", "fg:white bold"),
+            ("answer", "fg:green bold"),
+            ("pointer", "fg:cyan bold"),
+            ("highlighted", "fg:cyan bold"),
+            ("selected", "fg:green"),
+        ]
+    )
 
 
 # Predefined domain templates
 DOMAIN_TEMPLATES = {
     "technical": {
         "name": "Technical Documentation",
-        "entities": ["Product", "Technology", "Feature", "Component", "Process", "API", "Configuration"],
+        "entities": [
+            "Product",
+            "Technology",
+            "Feature",
+            "Component",
+            "Process",
+            "API",
+            "Configuration",
+        ],
         "relationships": ["USES", "IMPLEMENTS", "PART_OF", "DEPENDS_ON", "PRODUCES", "CONFIGURES"],
     },
     "legal": {
@@ -59,28 +70,87 @@ DOMAIN_TEMPLATES = {
     },
     "medical": {
         "name": "Medical/Healthcare",
-        "entities": ["Disease", "Symptom", "Treatment", "Medication", "Procedure", "Patient", "Doctor"],
-        "relationships": ["TREATS", "CAUSES", "INDICATES", "PRESCRIBES", "DIAGNOSES", "CONTRAINDICATED"],
+        "entities": [
+            "Disease",
+            "Symptom",
+            "Treatment",
+            "Medication",
+            "Procedure",
+            "Patient",
+            "Doctor",
+        ],
+        "relationships": [
+            "TREATS",
+            "CAUSES",
+            "INDICATES",
+            "PRESCRIBES",
+            "DIAGNOSES",
+            "CONTRAINDICATED",
+        ],
     },
     "scientific": {
         "name": "Scientific Research",
-        "entities": ["Concept", "Theory", "Experiment", "Result", "Researcher", "Institution", "Publication"],
-        "relationships": ["SUPPORTS", "CONTRADICTS", "CITES", "CONDUCTED_BY", "PUBLISHED_IN", "PROVES"],
+        "entities": [
+            "Concept",
+            "Theory",
+            "Experiment",
+            "Result",
+            "Researcher",
+            "Institution",
+            "Publication",
+        ],
+        "relationships": [
+            "SUPPORTS",
+            "CONTRADICTS",
+            "CITES",
+            "CONDUCTED_BY",
+            "PUBLISHED_IN",
+            "PROVES",
+        ],
     },
     "business": {
         "name": "Business/Corporate",
-        "entities": ["Company", "Product", "Service", "Person", "Department", "Project", "Strategy"],
-        "relationships": ["OWNS", "MANAGES", "WORKS_FOR", "PARTNERS_WITH", "COMPETES_WITH", "PROVIDES"],
+        "entities": [
+            "Company",
+            "Product",
+            "Service",
+            "Person",
+            "Department",
+            "Project",
+            "Strategy",
+        ],
+        "relationships": [
+            "OWNS",
+            "MANAGES",
+            "WORKS_FOR",
+            "PARTNERS_WITH",
+            "COMPETES_WITH",
+            "PROVIDES",
+        ],
     },
     "educational": {
         "name": "Educational Content",
         "entities": ["Topic", "Concept", "Course", "Lesson", "Instructor", "Student", "Assessment"],
-        "relationships": ["TEACHES", "PREREQUISITE_FOR", "COVERS", "ASSESSES", "ENROLLED_IN", "PART_OF"],
+        "relationships": [
+            "TEACHES",
+            "PREREQUISITE_FOR",
+            "COVERS",
+            "ASSESSES",
+            "ENROLLED_IN",
+            "PART_OF",
+        ],
     },
     "generic": {
         "name": "Generic/Mixed",
         "entities": ["Entity", "Concept", "Person", "Organization", "Process", "Document", "Event"],
-        "relationships": ["RELATED_TO", "PART_OF", "CREATED_BY", "REFERENCES", "OCCURS_IN", "INVOLVES"],
+        "relationships": [
+            "RELATED_TO",
+            "PART_OF",
+            "CREATED_BY",
+            "REFERENCES",
+            "OCCURS_IN",
+            "INVOLVES",
+        ],
     },
 }
 
@@ -134,6 +204,7 @@ def is_generic_name(name: str) -> bool:
 # PDF text extraction (PyMuPDF)
 # ---------------------------------------------------------------------------
 
+
 def extract_pdf_text(pdf_path: Path, max_pages: int = 3, max_chars: int = 3000) -> str:
     """
     Extract text from the first N pages of a PDF using PyMuPDF.
@@ -172,6 +243,7 @@ def extract_pdf_text(pdf_path: Path, max_pages: int = 3, max_chars: int = 3000) 
 # ---------------------------------------------------------------------------
 # Intelligent PDF sampling for schema generation
 # ---------------------------------------------------------------------------
+
 
 def sample_pdfs_for_schema(
     sources_dir: Path,
@@ -282,11 +354,13 @@ def sample_pdfs_for_schema(
         if not content.strip():
             continue
 
-        samples.append({
-            "filename": source_file.name,
-            "content": content,
-            "subfolder": subfolder,
-        })
+        samples.append(
+            {
+                "filename": source_file.name,
+                "content": content,
+                "subfolder": subfolder,
+            }
+        )
 
         # Collect non-generic names
         if not is_generic_name(source_file.name):
@@ -310,12 +384,11 @@ def sample_pdfs_for_schema(
 # Two-stage LLM pipeline for schema generation
 # ---------------------------------------------------------------------------
 
+
 async def _llm_chat_async(messages: List[Dict[str, str]], **kwargs) -> str:
     """Run llm_chat in a thread pool for async usage."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        None, lambda: llm_chat(messages, **kwargs)
-    )
+    return await loop.run_in_executor(None, lambda: llm_chat(messages, **kwargs))
 
 
 def _parse_json_response(response: str) -> Optional[Dict[str, Any]]:
@@ -336,6 +409,7 @@ def _parse_json_response(response: str) -> Optional[Dict[str, Any]]:
     # Try json_repair if available
     try:
         from json_repair import repair_json
+
         repaired = repair_json(text, return_objects=True)
         if isinstance(repaired, dict):
             return repaired
@@ -422,7 +496,9 @@ Rules:
         )
         result = _parse_json_response(response)
         if result and "entity_types" in result:
-            logger.debug(f"Batch {batch_index}: found {len(result.get('entity_types', []))} entity types")
+            logger.debug(
+                f"Batch {batch_index}: found {len(result.get('entity_types', []))} entity types"
+            )
             return result
         else:
             logger.warning(f"Batch {batch_index}: invalid JSON response from LLM")
@@ -453,7 +529,7 @@ async def run_batch_analysis(
     # Split into batches
     batches = []
     for i in range(0, len(samples), batch_size):
-        batches.append(samples[i:i + batch_size])
+        batches.append(samples[i : i + batch_size])
 
     logger.info(f"Schema analysis: {len(samples)} documents in {len(batches)} batches")
 
@@ -607,9 +683,7 @@ Rules:
                 _ensure_schema_defaults(schema)
                 return schema
             else:
-                logger.warning(
-                    f"Schema synthesis attempt {attempt + 1}: invalid YAML structure"
-                )
+                logger.warning(f"Schema synthesis attempt {attempt + 1}: invalid YAML structure")
         except Exception as e:
             logger.warning(f"Schema synthesis attempt {attempt + 1} failed: {e}")
 
@@ -647,6 +721,7 @@ def _ensure_schema_defaults(schema: Dict[str, Any]):
 # ---------------------------------------------------------------------------
 # Corpus-based schema generation orchestrator
 # ---------------------------------------------------------------------------
+
 
 async def generate_schema_from_corpus(
     sources_dir: str = None,
@@ -687,6 +762,7 @@ async def generate_schema_from_corpus(
     if convert_first:
         try:
             from .convert_to_pdf import process_source_documents
+
             logger.info("Converting source documents to PDF for schema analysis...")
             pdf_path.mkdir(parents=True, exist_ok=True)
             process_source_documents(
@@ -698,7 +774,10 @@ async def generate_schema_from_corpus(
 
     # Step 2: Sample PDFs
     samples, folder_names, file_names = sample_pdfs_for_schema(
-        sources_path, pdf_path, max_docs=max_docs, max_pages=max_pages,
+        sources_path,
+        pdf_path,
+        max_docs=max_docs,
+        max_pages=max_pages,
     )
 
     if not samples:
@@ -760,6 +839,7 @@ def generate_schema_from_corpus_sync(
     if loop and loop.is_running():
         # Already in async context — run in a new thread
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
                 asyncio.run,
@@ -789,6 +869,7 @@ def generate_schema_from_corpus_sync(
 # ---------------------------------------------------------------------------
 # Existing functions (kept for backward compatibility)
 # ---------------------------------------------------------------------------
+
 
 def is_wizard_available() -> bool:
     """Check if interactive wizard is available (questionary installed)."""
@@ -844,12 +925,16 @@ def get_document_sample(
         files_per_folder = max(1, max_files // len(subfolders))
         for folder in subfolders:
             folder_files = [f for f in all_files if f.relative_to(sources_path).parts[0] == folder]
-            sampled_files.extend(random.sample(folder_files, min(files_per_folder, len(folder_files))))
+            sampled_files.extend(
+                random.sample(folder_files, min(files_per_folder, len(folder_files)))
+            )
 
         # Fill remaining slots
         remaining = [f for f in all_files if f not in sampled_files]
         if remaining and len(sampled_files) < max_files:
-            sampled_files.extend(random.sample(remaining, min(max_files - len(sampled_files), len(remaining))))
+            sampled_files.extend(
+                random.sample(remaining, min(max_files - len(sampled_files), len(remaining)))
+            )
     else:
         sampled_files = random.sample(all_files, min(max_files, len(all_files)))
 
@@ -858,10 +943,12 @@ def get_document_sample(
     for file_path in sampled_files:
         try:
             content = file_path.read_text(encoding="utf-8", errors="ignore")[:max_chars_per_file]
-            samples.append({
-                "filename": file_path.name,
-                "content": content,
-            })
+            samples.append(
+                {
+                    "filename": file_path.name,
+                    "content": content,
+                }
+            )
         except Exception as e:
             logger.warning(f"Could not read {file_path}: {e}")
 
@@ -890,10 +977,7 @@ def generate_schema_from_documents(
         return generate_schema_from_answers("generic", language, [], [])
 
     # Prepare document excerpts for LLM
-    excerpts = "\n\n".join([
-        f"=== {s['filename']} ===\n{s['content'][:1500]}"
-        for s in samples[:5]
-    ])
+    excerpts = "\n\n".join([f"=== {s['filename']} ===\n{s['content'][:1500]}" for s in samples[:5]])
 
     prompt = f"""Analyze these document excerpts and identify the main entity types and relationship types present.
 
@@ -1068,7 +1152,9 @@ def run_interactive_wizard(sources_dir: str = None) -> Optional[Dict[str, Any]]:
         Generated schema dict, or None if cancelled
     """
     if not is_wizard_available():
-        logger.error("Interactive wizard requires 'questionary'. Install with: pip install cognidoc[wizard]")
+        logger.error(
+            "Interactive wizard requires 'questionary'. Install with: pip install cognidoc[wizard]"
+        )
         return None
 
     print("\n" + "=" * 60)
@@ -1092,8 +1178,7 @@ def run_interactive_wizard(sources_dir: str = None) -> Optional[Dict[str, Any]]:
 
     # Step 2: Domain
     domain_choices = [
-        f"{key.capitalize()}: {template['name']}"
-        for key, template in DOMAIN_TEMPLATES.items()
+        f"{key.capitalize()}: {template['name']}" for key, template in DOMAIN_TEMPLATES.items()
     ]
     domain_answer = questionary.select(
         "What best describes your document domain?",
@@ -1141,7 +1226,9 @@ def run_interactive_wizard(sources_dir: str = None) -> Optional[Dict[str, Any]]:
             style=WIZARD_STYLE,
         ).ask()
         if rel_input:
-            custom_relationships = [r.strip().upper().replace(" ", "_") for r in rel_input.split(",") if r.strip()]
+            custom_relationships = [
+                r.strip().upper().replace(" ", "_") for r in rel_input.split(",") if r.strip()
+            ]
 
     # Step 5: Offer automatic generation
     print("\n" + "-" * 60)
@@ -1157,15 +1244,21 @@ def run_interactive_wizard(sources_dir: str = None) -> Optional[Dict[str, Any]]:
         samples, subfolders = get_document_sample(sources_dir)
 
         if samples:
-            print(f"Found {len(samples)} documents to analyze" +
-                  (f" from {len(subfolders)} subfolders" if subfolders else ""))
+            print(
+                f"Found {len(samples)} documents to analyze"
+                + (f" from {len(subfolders)} subfolders" if subfolders else "")
+            )
             schema = generate_schema_from_documents(samples, language)
             print("Schema generated from document analysis!")
         else:
             print("No readable documents found. Using template-based schema.")
-            schema = generate_schema_from_answers(domain, language, custom_entities, custom_relationships)
+            schema = generate_schema_from_answers(
+                domain, language, custom_entities, custom_relationships
+            )
     else:
-        schema = generate_schema_from_answers(domain, language, custom_entities, custom_relationships)
+        schema = generate_schema_from_answers(
+            domain, language, custom_entities, custom_relationships
+        )
 
     # Step 6: Save
     save_path = save_schema(schema)

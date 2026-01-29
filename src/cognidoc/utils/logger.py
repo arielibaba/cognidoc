@@ -135,6 +135,7 @@ def timer(operation: str):
 
 def timed(func: Callable) -> Callable:
     """Decorator for timing function execution."""
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs) -> Any:
         start = time.perf_counter()
@@ -148,11 +149,13 @@ def timed(func: Callable) -> Callable:
             elapsed = time.perf_counter() - start
             logger.error(f"{func.__name__} failed after {elapsed:.2f}s: {e}")
             raise
+
     return wrapper
 
 
 async def timed_async(func: Callable) -> Callable:
     """Decorator for timing async function execution."""
+
     @functools.wraps(func)
     async def wrapper(*args, **kwargs) -> Any:
         start = time.perf_counter()
@@ -166,6 +169,7 @@ async def timed_async(func: Callable) -> Callable:
             elapsed = time.perf_counter() - start
             logger.error(f"{func.__name__} failed after {elapsed:.2f}s: {e}")
             raise
+
     return wrapper
 
 

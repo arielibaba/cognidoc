@@ -44,7 +44,8 @@ class EmbeddingCache:
     def _init_db(self):
         """Initialize the SQLite database."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS embeddings (
                     content_hash TEXT PRIMARY KEY,
                     embedding TEXT NOT NULL,
@@ -53,13 +54,18 @@ class EmbeddingCache:
                     content_length INTEGER,
                     source_file TEXT
                 )
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_model ON embeddings(model)
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_created_at ON embeddings(created_at)
-            """)
+            """
+            )
             conn.commit()
 
     @staticmethod
@@ -86,7 +92,7 @@ class EmbeddingCache:
                 SELECT embedding FROM embeddings
                 WHERE content_hash = ? AND model = ?
                 """,
-                (content_hash, model)
+                (content_hash, model),
             )
             row = cursor.fetchone()
 
@@ -98,11 +104,7 @@ class EmbeddingCache:
         return None
 
     def set(
-        self,
-        content: str,
-        embedding: list[float],
-        model: str,
-        source_file: Optional[str] = None
+        self, content: str, embedding: list[float], model: str, source_file: Optional[str] = None
     ):
         """
         Store embedding in cache.
@@ -128,8 +130,8 @@ class EmbeddingCache:
                     model,
                     datetime.now().isoformat(),
                     len(content),
-                    source_file
-                )
+                    source_file,
+                ),
             )
             conn.commit()
 
@@ -145,7 +147,7 @@ class EmbeddingCache:
                 SELECT 1 FROM embeddings
                 WHERE content_hash = ? AND model = ?
                 """,
-                (content_hash, model)
+                (content_hash, model),
             )
             return cursor.fetchone() is not None
 
@@ -206,10 +208,7 @@ class EmbeddingCache:
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
 
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "DELETE FROM embeddings WHERE created_at < ?",
-                (cutoff,)
-            )
+            cursor = conn.execute("DELETE FROM embeddings WHERE created_at < ?", (cutoff,))
             deleted = cursor.rowcount
             conn.commit()
 
@@ -236,6 +235,7 @@ def get_embedding_cache(cache_dir: Optional[str] = None) -> EmbeddingCache:
     if _cache_instance is None:
         if cache_dir is None:
             from ..constants import CACHE_DIR
+
             cache_dir = CACHE_DIR
 
         _cache_instance = EmbeddingCache(cache_dir)

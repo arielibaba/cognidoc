@@ -31,16 +31,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 console = Console()
 
 # Custom questionary style
-custom_style = Style([
-    ('qmark', 'fg:cyan bold'),
-    ('question', 'bold'),
-    ('answer', 'fg:cyan'),
-    ('pointer', 'fg:cyan bold'),
-    ('highlighted', 'fg:cyan bold'),
-    ('selected', 'fg:green'),
-    ('separator', 'fg:gray'),
-    ('instruction', 'fg:gray'),
-])
+custom_style = Style(
+    [
+        ("qmark", "fg:cyan bold"),
+        ("question", "bold"),
+        ("answer", "fg:cyan"),
+        ("pointer", "fg:cyan bold"),
+        ("highlighted", "fg:cyan bold"),
+        ("selected", "fg:green"),
+        ("separator", "fg:gray"),
+        ("instruction", "fg:gray"),
+    ]
+)
 
 # Provider configurations
 PROVIDERS = {
@@ -105,11 +107,13 @@ class SetupWizard:
     def print_header(self):
         """Print the wizard header."""
         console.print()
-        console.print(Panel.fit(
-            "[bold cyan]CogniDoc Setup Wizard[/bold cyan]\n"
-            "[dim]Configuration interactive pour votre assistant documentaire[/dim]",
-            border_style="cyan",
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]CogniDoc Setup Wizard[/bold cyan]\n"
+                "[dim]Configuration interactive pour votre assistant documentaire[/dim]",
+                border_style="cyan",
+            )
+        )
         console.print()
 
     def print_step(self, step: int, total: int, title: str):
@@ -128,10 +132,7 @@ class SetupWizard:
 
         # Select provider
         choices = [
-            questionary.Choice(
-                title=f"{PROVIDERS[p]['name']}",
-                value=p
-            )
+            questionary.Choice(title=f"{PROVIDERS[p]['name']}", value=p)
             for p in ["ollama", "gemini", "openai", "anthropic"]
         ]
 
@@ -221,6 +222,7 @@ class SetupWizard:
         """Check if Ollama is running."""
         try:
             import ollama
+
             client = ollama.Client()
             client.list()
             console.print("[green]✓[/green] Ollama connecté")
@@ -235,6 +237,7 @@ class SetupWizard:
         try:
             from google import genai
             from google.genai import types
+
             client = genai.Client(api_key=api_key)
             config = types.GenerateContentConfig(max_output_tokens=5)
             client.models.generate_content(
@@ -252,6 +255,7 @@ class SetupWizard:
         """Validate OpenAI API key."""
         try:
             from openai import OpenAI
+
             client = OpenAI(api_key=api_key)
             client.models.list()
             console.print("[green]✓[/green] Clé API OpenAI validée")
@@ -264,6 +268,7 @@ class SetupWizard:
         """Validate Anthropic API key."""
         try:
             import anthropic
+
             client = anthropic.Anthropic(api_key=api_key)
             # Just check auth works
             client.messages.create(
@@ -347,15 +352,18 @@ class SetupWizard:
         # Check Ollama connection
         try:
             import ollama
+
             client = ollama.Client()
             response = client.list()
             # Handle both old dict API and new object API
-            if hasattr(response, 'models'):
+            if hasattr(response, "models"):
                 # New API: ListResponse with models attribute
                 available_models = [m.model for m in response.models]
             else:
                 # Old API: dict with 'models' key
-                available_models = [m.get("name", m.get("model", "")) for m in response.get("models", [])]
+                available_models = [
+                    m.get("name", m.get("model", "")) for m in response.get("models", [])
+                ]
             available = {m.split(":")[0]: m for m in available_models}
         except Exception as e:
             console.print(f"[red]Impossible de se connecter à Ollama: {e}[/red]")
@@ -423,7 +431,9 @@ class SetupWizard:
                         console.print(f"[red]Erreur: {e}[/red]")
                         return False
             else:
-                console.print("[yellow]Les modèles manquants sont requis pour le traitement[/yellow]")
+                console.print(
+                    "[yellow]Les modèles manquants sont requis pour le traitement[/yellow]"
+                )
                 return False
 
         console.print("[green]✓[/green] Tous les modèles sont disponibles")
@@ -490,15 +500,19 @@ class SetupWizard:
     def show_documents(self, pdfs: list[Path]) -> tuple[list[Path], dict]:
         """Show detected documents and get user confirmation."""
         console.print()
-        console.print(Panel.fit(
-            "[bold cyan]Traitement de documents[/bold cyan]",
-            border_style="cyan",
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]Traitement de documents[/bold cyan]",
+                border_style="cyan",
+            )
+        )
         console.print()
 
         if not pdfs:
             console.print(f"[yellow]Aucun document trouvé dans {self.pdf_dir}[/yellow]")
-            console.print(f"[dim]Ajoutez vos fichiers PDF dans ce dossier et relancez le wizard[/dim]")
+            console.print(
+                f"[dim]Ajoutez vos fichiers PDF dans ce dossier et relancez le wizard[/dim]"
+            )
             return [], {}
 
         # Show documents
@@ -511,7 +525,9 @@ class SetupWizard:
         for i, pdf in enumerate(pdfs, 1):
             size = pdf.stat().st_size
             total_size += size
-            size_str = f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.0f} KB"
+            size_str = (
+                f"{size / 1024 / 1024:.1f} MB" if size > 1024 * 1024 else f"{size / 1024:.0f} KB"
+            )
             table.add_row(str(i), pdf.name, size_str)
 
         console.print(table)
@@ -522,7 +538,7 @@ class SetupWizard:
         console.print()
         console.print(f"[bold]Estimation:[/bold]")
         console.print(f"  [dim]Temps:[/dim] ~{estimates['time_minutes']:.0f} minutes")
-        if estimates['cost'] > 0:
+        if estimates["cost"] > 0:
             console.print(f"  [dim]Coût API:[/dim] ~${estimates['cost']:.2f}")
 
         return pdfs, estimates
@@ -603,7 +619,9 @@ class SetupWizard:
 
             # Show stats
             if stats.get("embeddings"):
-                console.print(f"  [dim]Chunks créés:[/dim] {stats['embeddings'].get('total_chunks', 'N/A')}")
+                console.print(
+                    f"  [dim]Chunks créés:[/dim] {stats['embeddings'].get('total_chunks', 'N/A')}"
+                )
             if stats.get("graph_building"):
                 gb = stats["graph_building"]
                 console.print(f"  [dim]Entités extraites:[/dim] {gb.get('total_nodes', 'N/A')}")
@@ -614,6 +632,7 @@ class SetupWizard:
         except Exception as e:
             console.print(f"[red]Erreur pendant le traitement: {e}[/red]")
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
             return False
 
@@ -625,10 +644,12 @@ class SetupWizard:
         """Show the action menu after processing."""
         while True:
             console.print()
-            console.print(Panel.fit(
-                "[bold cyan]Que faire ensuite ?[/bold cyan]",
-                border_style="cyan",
-            ))
+            console.print(
+                Panel.fit(
+                    "[bold cyan]Que faire ensuite ?[/bold cyan]",
+                    border_style="cyan",
+                )
+            )
 
             action = questionary.select(
                 "Choisissez une action:",
@@ -669,6 +690,7 @@ class SetupWizard:
 
         try:
             from .cognidoc_app import main as run_app
+
             run_app()
         except KeyboardInterrupt:
             console.print("\n[dim]Application arrêtée[/dim]")
@@ -722,7 +744,9 @@ class SetupWizard:
                 self.process_documents(pdfs)
             else:
                 console.print()
-                console.print(f"[yellow]Ajoutez vos PDFs dans {self.pdf_dir} pour les traiter[/yellow]")
+                console.print(
+                    f"[yellow]Ajoutez vos PDFs dans {self.pdf_dir} pour les traiter[/yellow]"
+                )
 
             # Action menu
             self.show_action_menu()
@@ -732,6 +756,7 @@ class SetupWizard:
         except Exception as e:
             console.print(f"[red]Erreur: {e}[/red]")
             import traceback
+
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
 
 

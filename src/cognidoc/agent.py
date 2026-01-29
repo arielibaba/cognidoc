@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 class AgentState(str, Enum):
     """Agent execution states."""
+
     THINKING = "thinking"
     ACTING = "acting"
     OBSERVING = "observing"
@@ -51,6 +52,7 @@ class AgentState(str, Enum):
 @dataclass
 class AgentStep:
     """A single step in the agent's reasoning chain."""
+
     step_number: int
     thought: str = ""
     action: Optional[ToolCall] = None
@@ -74,6 +76,7 @@ class AgentStep:
 @dataclass
 class AgentContext:
     """Context accumulated during agent execution."""
+
     query: str
     steps: List[AgentStep] = field(default_factory=list)
     gathered_context: List[str] = field(default_factory=list)
@@ -101,6 +104,7 @@ class AgentContext:
 @dataclass
 class AgentResult:
     """Final result from agent execution."""
+
     query: str
     answer: str
     steps: List[AgentStep]
@@ -193,6 +197,7 @@ ARGUMENTS:"""
 # CogniDocAgent
 # =============================================================================
 
+
 class CogniDocAgent:
     """
     ReAct-style agent for complex query handling.
@@ -222,10 +227,14 @@ class CogniDocAgent:
         # Create tool registry
         self.tools = create_tool_registry(
             retriever=retriever,
-            graph_retriever=retriever._graph_retriever if hasattr(retriever, '_graph_retriever') else None,
+            graph_retriever=(
+                retriever._graph_retriever if hasattr(retriever, "_graph_retriever") else None
+            ),
         )
 
-        logger.info(f"CogniDocAgent initialized with {len(self.tools.tools)} tools, max_steps={max_steps}")
+        logger.info(
+            f"CogniDocAgent initialized with {len(self.tools.tools)} tools, max_steps={max_steps}"
+        )
 
     def run(
         self,
@@ -441,7 +450,9 @@ class CogniDocAgent:
         action = None
 
         # Extract thought
-        thought_match = re.search(r"THOUGHT:\s*(.+?)(?=ACTION:|$)", response, re.DOTALL | re.IGNORECASE)
+        thought_match = re.search(
+            r"THOUGHT:\s*(.+?)(?=ACTION:|$)", response, re.DOTALL | re.IGNORECASE
+        )
         if thought_match:
             thought = thought_match.group(1).strip()
 
@@ -523,7 +534,10 @@ Provide the best possible answer with the available information. If some aspects
                 step = AgentStep(step_number=step_count)
 
                 # 1. THINK - Show that we're analyzing
-                yield (AgentState.THINKING, f"[Step {step_count}/{self.max_steps}] Analyzing query...")
+                yield (
+                    AgentState.THINKING,
+                    f"[Step {step_count}/{self.max_steps}] Analyzing query...",
+                )
 
                 thought, action = self._think_and_decide(context)
                 step.thought = thought
@@ -533,7 +547,7 @@ Provide the best possible answer with the available information. If some aspects
                     break
 
                 # Show the thought process (truncated for readability)
-                thought_preview = thought[:150].replace('\n', ' ') if thought else "..."
+                thought_preview = thought[:150].replace("\n", " ") if thought else "..."
                 yield (AgentState.THINKING, f"Thought: {thought_preview}")
 
                 # 2. Check terminal actions
@@ -577,7 +591,9 @@ Provide the best possible answer with the available information. If some aspects
                     )
 
                 # 3. ACT - Show which tool is being called
-                tool_args_preview = ", ".join(f"{k}={v}" for k, v in list(action.arguments.items())[:2])
+                tool_args_preview = ", ".join(
+                    f"{k}={v}" for k, v in list(action.arguments.items())[:2]
+                )
                 yield (AgentState.ACTING, f"Calling {action.tool.value}({tool_args_preview[:50]})")
 
                 step.action = action
@@ -588,7 +604,9 @@ Provide the best possible answer with the available information. If some aspects
                 cached_indicator = " [cached]" if result.metadata.get("cached") else ""
 
                 # 4. OBSERVE - Show result summary
-                obs_preview = step.observation[:120].replace('\n', ' ') if step.observation else "No result"
+                obs_preview = (
+                    step.observation[:120].replace("\n", " ") if step.observation else "No result"
+                )
                 yield (AgentState.OBSERVING, f"Result{cached_indicator}: {obs_preview}")
 
                 # 5. REFLECT (parallel) - Start reflection while storing context
@@ -611,7 +629,7 @@ Provide the best possible answer with the available information. If some aspects
 
                 # Show reflection (only if meaningful)
                 if reflection and len(reflection) > 10:
-                    refl_preview = reflection[:100].replace('\n', ' ')
+                    refl_preview = reflection[:100].replace("\n", " ")
                     yield (AgentState.REFLECTING, f"Analysis: {refl_preview}")
 
             # Max steps - force conclusion
@@ -642,6 +660,7 @@ Provide the best possible answer with the available information. If some aspects
 # =============================================================================
 # Factory Function
 # =============================================================================
+
 
 def create_agent(
     retriever: "HybridRetriever",

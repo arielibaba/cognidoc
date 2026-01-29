@@ -23,15 +23,17 @@ from .utils.logger import logger
 
 class ComplexityLevel(Enum):
     """Complexity levels for routing decisions."""
-    SIMPLE = "simple"          # Fast path: standard RAG
-    MODERATE = "moderate"      # Fast path with enhanced retrieval
-    COMPLEX = "complex"        # Agent path: multi-step reasoning
-    AMBIGUOUS = "ambiguous"    # Agent path: needs clarification
+
+    SIMPLE = "simple"  # Fast path: standard RAG
+    MODERATE = "moderate"  # Fast path with enhanced retrieval
+    COMPLEX = "complex"  # Agent path: multi-step reasoning
+    AMBIGUOUS = "ambiguous"  # Agent path: needs clarification
 
 
 @dataclass
 class ComplexityScore:
     """Result of complexity evaluation."""
+
     score: float  # 0.0 (simple) to 1.0 (complex)
     level: ComplexityLevel
     factors: dict = field(default_factory=dict)
@@ -71,7 +73,6 @@ COMPLEX_KEYWORDS = [
     r"\bimpact[s]?\b",
     r"\beffet[s]?\b",
     r"\beffect[s]?\b",
-
     # Analytical
     r"\banalyse[rz]?\b",
     r"\banalyz[es]?\b",
@@ -81,7 +82,6 @@ COMPLEX_KEYWORDS = [
     r"\bexplain\b",
     r"\bjustifi[ez]?\b",
     r"\bjustify\b",
-
     # Comparative
     r"\bcompare[rz]?\b",
     r"\bcompare\b",
@@ -94,7 +94,6 @@ COMPLEX_KEYWORDS = [
     r"\bmeilleur[es]?\b",
     r"\bbetter\b",
     r"\bbest\b",
-
     # Multi-step
     r"\bétape[s]?\b",
     r"\bstep[s]?\b",
@@ -102,7 +101,6 @@ COMPLEX_KEYWORDS = [
     r"\bprocess\b",
     r"\bcomment .+ puis\b",
     r"\bfirst .+ then\b",
-
     # Synthesis
     r"\brésume[rz]?\b",
     r"\bsummariz[es]?\b",
@@ -115,7 +113,7 @@ COMPLEX_KEYWORDS = [
 # Patterns indicating ambiguous/unclear queries
 AMBIGUOUS_PATTERNS = [
     r"^.{1,15}$",  # Very short queries (< 15 chars)
-    r"\?.*\?",     # Multiple question marks
+    r"\?.*\?",  # Multiple question marks
     r"\bou\b.*\bou\b",  # Multiple "or" (ambiguous choice)
     r"\bor\b.*\bor\b",
 ]
@@ -133,7 +131,6 @@ DATABASE_META_PATTERNS = [
     r"\bstatistiques?\b.*\bbase\b",  # "statistiques de la base"
     r"\bcette base\b.*\bcombien\b",  # "cette base...combien"
     r"\bla base\b.*\bcombien\b",  # "la base...combien"
-
     # French patterns - listing documents
     r"\bliste[rz]?\b.*\bdoc",  # "liste les documents", "lister les docs"
     r"\bnoms?\b.*\bdoc",  # "noms des documents", "nom des docs"
@@ -142,7 +139,6 @@ DATABASE_META_PATTERNS = [
     r"\b[eé]num[eè]re[rz]?\b.*\bdoc",  # "énumère les documents"
     r"\bquels?\b.*\bdoc",  # "quels documents", "quels sont les docs"
     r"\bdonne.*\bnoms?\b",  # "donne-moi les noms", "donne leurs noms"
-
     # Spanish patterns - document count
     r"\bcu[aá]ntos? doc",  # "cuántos documentos", "cuantos docs"
     r"\bcu[aá]ntos?.{0,20}base\b",  # "cuántos hay en la base"
@@ -153,7 +149,6 @@ DATABASE_META_PATTERNS = [
     r"\bestad[ií]sticas?\b.*\bbase\b",  # "estadísticas de la base"
     r"\besta base\b.*\bcu[aá]ntos?\b",  # "esta base...cuántos"
     r"\bla base\b.*\bcu[aá]ntos?\b",  # "la base...cuántos"
-
     # Spanish patterns - listing documents
     r"\blista[r]?\b.*\bdoc",  # "lista los documentos", "listar docs"
     r"\bnombres?\b.*\bdoc",  # "nombres de los documentos"
@@ -163,7 +158,6 @@ DATABASE_META_PATTERNS = [
     r"\bqu[eé] doc",  # "qué documentos hay"
     r"\bcu[aá]les?\b.*\bdoc",  # "cuáles documentos"
     r"\bdame.*\bnombres?\b",  # "dame los nombres"
-
     # German patterns - document count
     r"\bwie viele? doc",  # "wie viele Dokumente"
     r"\bwie viele? dok",  # "wie viele Dokumente" (German spelling)
@@ -175,7 +169,6 @@ DATABASE_META_PATTERNS = [
     r"\bgr[oö][sß]e der (?:datenbank|basis)\b",  # "Größe der Datenbank"
     r"\bstatistik(?:en)?\b.*\b(?:datenbank|basis)\b",  # "Statistiken der Datenbank"
     r"\bdiese (?:datenbank|basis)\b.*\bwie viele?\b",  # "diese Datenbank...wie viele"
-
     # German patterns - listing documents
     r"\bliste[n]?\b.*\bdok",  # "liste die Dokumente", "listen"
     r"\bnamen?\b.*\bdok",  # "Namen der Dokumente"
@@ -186,7 +179,6 @@ DATABASE_META_PATTERNS = [
     r"\bwas f[uü]r\b.*\bdok",  # "was für Dokumente"
     r"\bgib mir.*\bnamen?\b",  # "gib mir die Namen"
     r"\bzeig(?:e|en)?\b.*\bdok",  # "zeige die Dokumente"
-
     # English patterns
     r"\bhow many doc",  # "how many documents/docs"
     r"\bdocument count\b",
@@ -195,14 +187,12 @@ DATABASE_META_PATTERNS = [
     r"\btotal (?:de )?(?:documents?|fichiers?)\b",
     r"\btotal (?:documents?|files?)\b",
     r"\bnumber of doc",  # "number of documents"
-
     # English patterns - listing documents
     r"\blist\b.*\bdoc",  # "list the documents", "list all docs"
     r"\bnames?\b.*\bdoc",  # "names of documents"
     r"\bdoc.*\bnames?\b",  # "document names"
     r"\bwhat\b.*\bdoc",  # "what documents are there"
     r"\bwhich\b.*\bdoc",  # "which documents"
-
     # Generic database meta patterns (all languages)
     r"\b(?:database|base|datenbank|basis)\b.*\b(?:size|taille|tama[ñn]o|gr[oö][sß]e|count|nombre|n[uú]mero|anzahl)\b",
     r"\b(?:count|nombre|n[uú]mero|anzahl)\b.*\b(?:database|base|datenbank|basis)\b",
@@ -228,6 +218,7 @@ LOW_CONFIDENCE_THRESHOLD = 0.4
 # =============================================================================
 # Complexity Evaluation Functions
 # =============================================================================
+
 
 def count_complex_keywords(query: str) -> Tuple[int, List[str]]:
     """
@@ -361,10 +352,7 @@ def evaluate_complexity(
     factors["low_confidence"] = confidence_score
 
     # Calculate weighted score
-    total_score = sum(
-        factors[k] * COMPLEXITY_WEIGHTS[k]
-        for k in COMPLEXITY_WEIGHTS
-    )
+    total_score = sum(factors[k] * COMPLEXITY_WEIGHTS[k] for k in COMPLEXITY_WEIGHTS)
 
     # Check for database meta-questions (force agent path)
     if is_database_meta_question(query):
@@ -422,8 +410,7 @@ def should_use_agent(
 
     if use_agent:
         logger.info(
-            f"Agent path triggered: score={complexity.score:.2f}, "
-            f"reason={complexity.reasoning}"
+            f"Agent path triggered: score={complexity.score:.2f}, " f"reason={complexity.reasoning}"
         )
 
     return use_agent, complexity
@@ -433,9 +420,11 @@ def should_use_agent(
 # Configuration
 # =============================================================================
 
+
 @dataclass
 class ComplexityConfig:
     """Configuration for complexity evaluation."""
+
     agent_threshold: float = AGENT_THRESHOLD
     moderate_threshold: float = MODERATE_THRESHOLD
     min_entities_for_complex: int = MIN_ENTITIES_FOR_COMPLEX

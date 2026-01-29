@@ -21,10 +21,20 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
 
 from .graph_config import get_graph_config, GraphConfig
-from .constants import CHUNKS_DIR, PROCESSED_DIR, MAX_CONSECUTIVE_QUOTA_ERRORS, CHECKPOINT_SAVE_INTERVAL
+from .constants import (
+    CHUNKS_DIR,
+    PROCESSED_DIR,
+    MAX_CONSECUTIVE_QUOTA_ERRORS,
+    CHECKPOINT_SAVE_INTERVAL,
+)
 from .utils.llm_client import llm_chat, llm_chat_async
 from .utils.logger import logger
-from .utils.error_classifier import classify_error, is_quota_or_rate_error, ErrorType, get_error_info
+from .utils.error_classifier import (
+    classify_error,
+    is_quota_or_rate_error,
+    ErrorType,
+    get_error_info,
+)
 
 
 def get_optimal_concurrency() -> int:
@@ -51,6 +61,7 @@ def get_optimal_concurrency() -> int:
 @dataclass
 class Entity:
     """Extracted entity from text."""
+
     id: str = field(default_factory=lambda: str(uuid4()))
     name: str = ""
     type: str = ""
@@ -66,6 +77,7 @@ class Entity:
 @dataclass
 class Relationship:
     """Extracted relationship between entities."""
+
     id: str = field(default_factory=lambda: str(uuid4()))
     source_entity: str = ""  # Entity name
     target_entity: str = ""  # Entity name
@@ -81,6 +93,7 @@ class Relationship:
 @dataclass
 class ExtractionResult:
     """Result of entity/relationship extraction from a chunk."""
+
     chunk_id: str
     chunk_text: str
     entities: List[Entity] = field(default_factory=list)
@@ -89,7 +102,9 @@ class ExtractionResult:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "chunk_id": self.chunk_id,
-            "chunk_text": self.chunk_text[:200] + "..." if len(self.chunk_text) > 200 else self.chunk_text,
+            "chunk_text": (
+                self.chunk_text[:200] + "..." if len(self.chunk_text) > 200 else self.chunk_text
+            ),
             "entities": [e.to_dict() for e in self.entities],
             "relationships": [r.to_dict() for r in self.relationships],
         }
@@ -104,9 +119,7 @@ def build_entity_extraction_prompt(
     entity_types_desc = []
     for et in config.entities:
         examples_str = ", ".join(et.examples[:3]) if et.examples else "N/A"
-        entity_types_desc.append(
-            f"- {et.name}: {et.description} (examples: {examples_str})"
-        )
+        entity_types_desc.append(f"- {et.name}: {et.description} (examples: {examples_str})")
     entity_types_str = "\n".join(entity_types_desc)
 
     # Use custom prompt if provided
@@ -168,9 +181,7 @@ def build_relationship_extraction_prompt(
     rel_types_desc = []
     for rt in config.relationships:
         examples_str = "; ".join(rt.examples[:2]) if rt.examples else "N/A"
-        rel_types_desc.append(
-            f"- {rt.name}: {rt.description} (examples: {examples_str})"
-        )
+        rel_types_desc.append(f"- {rt.name}: {rt.description} (examples: {examples_str})")
     rel_types_str = "\n".join(rel_types_desc)
 
     # Build entities list
@@ -301,7 +312,13 @@ def extract_json_from_response(response: str, key: str = "entities") -> Dict[str
                         norm_item["confidence"] = v
                     elif k_lower in ("source", "source_entity", "entite_source", "entité_source"):
                         norm_item["source"] = v
-                    elif k_lower in ("target", "target_entity", "cible", "entite_cible", "entité_cible"):
+                    elif k_lower in (
+                        "target",
+                        "target_entity",
+                        "cible",
+                        "entite_cible",
+                        "entité_cible",
+                    ):
                         norm_item["target"] = v
                     elif k_lower in ("relation", "type", "relationship_type", "type_relation"):
                         norm_item["type"] = v
@@ -339,7 +356,10 @@ def extract_entities_from_text(
     try:
         result_text = llm_chat(
             messages=[
-                {"role": "system", "content": "You are a JSON entity extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after."},
+                {
+                    "role": "system",
+                    "content": "You are a JSON entity extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after.",
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=config.extraction.extraction_temperature,
@@ -365,7 +385,7 @@ def extract_entities_from_text(
                 entities.append(entity)
 
         # Limit to max entities
-        return entities[:config.extraction.max_entities_per_chunk]
+        return entities[: config.extraction.max_entities_per_chunk]
 
     except Exception as e:
         logger.error(f"Entity extraction failed: {e}")
@@ -403,7 +423,10 @@ def extract_relationships_from_text(
     try:
         result_text = llm_chat(
             messages=[
-                {"role": "system", "content": "You are a JSON relationship extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after."},
+                {
+                    "role": "system",
+                    "content": "You are a JSON relationship extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after.",
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=config.extraction.extraction_temperature,
@@ -439,7 +462,7 @@ def extract_relationships_from_text(
             relationships.append(rel)
 
         # Limit to max relationships
-        return relationships[:config.extraction.max_relationships_per_chunk]
+        return relationships[: config.extraction.max_relationships_per_chunk]
 
     except Exception as e:
         logger.error(f"Relationship extraction failed: {e}")
@@ -524,7 +547,9 @@ def extract_from_chunks_dir(
             continue
 
         # Classify chunk type
-        is_parent_only = "_parent_chunk_" in chunk_file.name and "_child_chunk_" not in chunk_file.name
+        is_parent_only = (
+            "_parent_chunk_" in chunk_file.name and "_child_chunk_" not in chunk_file.name
+        )
         is_child = "_child_chunk_" in chunk_file.name
         is_description = "_description" in chunk_file.name
 
@@ -594,7 +619,10 @@ async def extract_entities_from_text_async(
     try:
         result_text = await llm_chat_async(
             messages=[
-                {"role": "system", "content": "You are a JSON entity extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after."},
+                {
+                    "role": "system",
+                    "content": "You are a JSON entity extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after.",
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=config.extraction.extraction_temperature,
@@ -620,7 +648,7 @@ async def extract_entities_from_text_async(
                 entities.append(entity)
 
         # Limit to max entities
-        return entities[:config.extraction.max_entities_per_chunk]
+        return entities[: config.extraction.max_entities_per_chunk]
 
     except Exception as e:
         logger.error(f"Async entity extraction failed for {chunk_id}: {e}")
@@ -658,7 +686,10 @@ async def extract_relationships_from_text_async(
     try:
         result_text = await llm_chat_async(
             messages=[
-                {"role": "system", "content": "You are a JSON relationship extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after."},
+                {
+                    "role": "system",
+                    "content": "You are a JSON relationship extractor. You MUST respond with ONLY valid JSON, no explanations or text before/after.",
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=config.extraction.extraction_temperature,
@@ -694,7 +725,7 @@ async def extract_relationships_from_text_async(
             relationships.append(rel)
 
         # Limit to max relationships
-        return relationships[:config.extraction.max_relationships_per_chunk]
+        return relationships[: config.extraction.max_relationships_per_chunk]
 
     except Exception as e:
         logger.error(f"Async relationship extraction failed for {chunk_id}: {e}")
@@ -730,7 +761,9 @@ async def extract_from_chunk_async(
         entities = await extract_entities_from_text_async(text, chunk_id, config)
 
         # Then extract relationships using found entities
-        relationships = await extract_relationships_from_text_async(text, entities, chunk_id, config)
+        relationships = await extract_relationships_from_text_async(
+            text, entities, chunk_id, config
+        )
 
         result = ExtractionResult(
             chunk_id=chunk_id,
@@ -811,7 +844,12 @@ async def extract_from_chunks_dir_async(
     chunks_path = Path(chunks_dir)
     if not chunks_path.exists():
         logger.warning(f"Chunks directory not found: {chunks_dir}")
-        return [], {"processed_chunk_ids": set(), "failed_chunks": [], "consecutive_quota_errors": 0, "interrupted": False}
+        return [], {
+            "processed_chunk_ids": set(),
+            "failed_chunks": [],
+            "consecutive_quota_errors": 0,
+            "interrupted": False,
+        }
 
     # Initialize checkpoint state
     if processed_chunk_ids is None:
@@ -842,7 +880,9 @@ async def extract_from_chunks_dir_async(
             continue
 
         # Classify chunk type
-        is_parent_only = "_parent_chunk_" in chunk_file.name and "_child_chunk_" not in chunk_file.name
+        is_parent_only = (
+            "_parent_chunk_" in chunk_file.name and "_child_chunk_" not in chunk_file.name
+        )
         is_child = "_child_chunk_" in chunk_file.name
         is_description = "_description" in chunk_file.name
 
@@ -869,7 +909,9 @@ async def extract_from_chunks_dir_async(
     if max_concurrent is None:
         max_concurrent = get_optimal_concurrency()
 
-    logger.info(f"Starting async extraction for {len(chunk_files)} chunks (max_concurrent={max_concurrent})")
+    logger.info(
+        f"Starting async extraction for {len(chunk_files)} chunks (max_concurrent={max_concurrent})"
+    )
 
     # Semaphore to limit concurrent extractions
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -914,11 +956,13 @@ async def extract_from_chunks_dir_async(
 
                     async with quota_error_lock:
                         # Record failed chunk
-                        checkpoint_state["failed_chunks"].append({
-                            "chunk_id": chunk_id,
-                            "error_type": error_type.value,
-                            "error_message": error_message[:200],
-                        })
+                        checkpoint_state["failed_chunks"].append(
+                            {
+                                "chunk_id": chunk_id,
+                                "error_type": error_type.value,
+                                "error_message": error_message[:200],
+                            }
+                        )
 
                         # Check if quota/rate error
                         if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
@@ -970,11 +1014,13 @@ async def extract_from_chunks_dir_async(
                 logger.error(f"Error processing {chunk_file.name}: {e}")
 
                 async with quota_error_lock:
-                    checkpoint_state["failed_chunks"].append({
-                        "chunk_id": chunk_id,
-                        "error_type": error_type.value,
-                        "error_message": error_message[:200],
-                    })
+                    checkpoint_state["failed_chunks"].append(
+                        {
+                            "chunk_id": chunk_id,
+                            "error_type": error_type.value,
+                            "error_message": error_message[:200],
+                        }
+                    )
 
                     if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
                         consecutive_quota_errors += 1
@@ -1001,7 +1047,9 @@ async def extract_from_chunks_dir_async(
         pbar = tqdm(total=len(chunk_files), desc="Entity extraction", unit="chunk")
 
     # Create all tasks upfront - semaphore controls actual concurrency
-    tasks = {asyncio.create_task(process_chunk(chunk_file)): chunk_file for chunk_file in chunk_files}
+    tasks = {
+        asyncio.create_task(process_chunk(chunk_file)): chunk_file for chunk_file in chunk_files
+    }
     pending = set(tasks.keys())
 
     try:
@@ -1117,6 +1165,7 @@ def run_extraction_async(
         loop = asyncio.get_running_loop()
         # We're in an async context, use ThreadPoolExecutor to avoid conflicts
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
                 asyncio.run,
@@ -1132,7 +1181,7 @@ def run_extraction_async(
                     max_consecutive_quota_errors=max_consecutive_quota_errors,
                     on_progress_callback=on_progress_callback,
                     file_filter=file_filter,
-                )
+                ),
             )
             return future.result()
     except RuntimeError:
@@ -1206,11 +1255,13 @@ def load_extraction_results(input_path: str) -> List[ExtractionResult]:
             )
             for rel in r.get("relationships", [])
         ]
-        results.append(ExtractionResult(
-            chunk_id=r["chunk_id"],
-            chunk_text=r.get("chunk_text", ""),
-            entities=entities,
-            relationships=relationships,
-        ))
+        results.append(
+            ExtractionResult(
+                chunk_id=r["chunk_id"],
+                chunk_text=r.get("chunk_text", ""),
+                entities=entities,
+                relationships=relationships,
+            )
+        )
 
     return results

@@ -44,6 +44,7 @@ class GraphNode:
         aliases: Alternative names for this entity (populated by entity resolution)
         merged_from: List of original entity IDs that were merged into this one
     """
+
     id: str
     name: str
     type: str
@@ -76,6 +77,7 @@ class GraphNode:
 @dataclass
 class GraphEdge:
     """Edge in the knowledge graph."""
+
     source_id: str
     target_id: str
     relationship_type: str
@@ -96,6 +98,7 @@ class Community:
         level: Hierarchical level (0 = base level)
         embedding: Pre-computed embedding of the summary for fast similarity search
     """
+
     id: int
     node_ids: List[str] = field(default_factory=list)
     summary: str = ""
@@ -377,7 +380,11 @@ class KnowledgeGraph:
                 continue
 
             # Skip communities with existing valid summaries
-            if skip_existing and community.summary and not community.summary.startswith("Community of "):
+            if (
+                skip_existing
+                and community.summary
+                and not community.summary.startswith("Community of ")
+            ):
                 skipped += 1
                 continue
 
@@ -399,9 +406,7 @@ class KnowledgeGraph:
                     tgt_node = self.nodes.get(tgt)
                     if src_node and tgt_node:
                         rel_type = data.get("relationship_type", "RELATED_TO")
-                        relationships_info.append(
-                            f"- {src_node.name} {rel_type} {tgt_node.name}"
-                        )
+                        relationships_info.append(f"- {src_node.name} {rel_type} {tgt_node.name}")
 
             rels_str = "\n".join(relationships_info[:15])  # Limit relationships
 
@@ -459,8 +464,11 @@ SUMMARY:"""
 
         # Batch compute embeddings for all communities at once
         if communities_to_embed and not interrupted:
-            logger.info(f"Computing embeddings for {len(communities_to_embed)} community summaries...")
+            logger.info(
+                f"Computing embeddings for {len(communities_to_embed)} community summaries..."
+            )
             from .utils.embedding_providers import get_embedding_provider, OllamaEmbeddingProvider
+
             provider = get_embedding_provider()
 
             if isinstance(provider, OllamaEmbeddingProvider):
@@ -472,6 +480,7 @@ SUMMARY:"""
                         loop = asyncio.get_running_loop()
                         # Already in an event loop — run in a new thread
                         import concurrent.futures
+
                         with concurrent.futures.ThreadPoolExecutor() as pool:
                             embeddings = loop.run_until_complete(
                                 loop.run_in_executor(pool, lambda: asyncio.run(coro))
@@ -486,7 +495,9 @@ SUMMARY:"""
                     logger.warning(f"Batch embedding failed: {e}, falling back to sequential")
                     for comm_id, summary in communities_to_embed:
                         try:
-                            self.communities[comm_id].embedding = get_embedding(summary, EMBED_MODEL)
+                            self.communities[comm_id].embedding = get_embedding(
+                                summary, EMBED_MODEL
+                            )
                         except Exception as e2:
                             logger.warning(f"Failed to embed community {comm_id}: {e2}")
             else:
@@ -571,10 +582,13 @@ SUMMARY:"""
             logger.info(f"Entity embeddings: 0 computed, {skipped} skipped (all cached)")
             return 0, skipped, 0, False
 
-        logger.info(f"Computing embeddings for {len(to_embed)} entities (batch_size={batch_size})...")
+        logger.info(
+            f"Computing embeddings for {len(to_embed)} entities (batch_size={batch_size})..."
+        )
 
         # Get embedding provider
         from .utils.embedding_providers import get_embedding_provider, OllamaEmbeddingProvider
+
         provider = get_embedding_provider()
 
         computed = 0
@@ -590,7 +604,7 @@ SUMMARY:"""
                 if interrupted:
                     break
 
-                batch = to_embed[i:i + batch_size]
+                batch = to_embed[i : i + batch_size]
                 batch_texts = [text for _, text in batch]
 
                 try:
@@ -599,6 +613,7 @@ SUMMARY:"""
                     try:
                         loop = asyncio.get_running_loop()
                         import concurrent.futures
+
                         with concurrent.futures.ThreadPoolExecutor() as pool:
                             embeddings = loop.run_until_complete(
                                 loop.run_in_executor(pool, lambda c=coro: asyncio.run(c))
@@ -642,7 +657,9 @@ SUMMARY:"""
                             consecutive_quota_errors = 0
                         except Exception as e2:
                             error_type2, _ = get_error_info(e2)
-                            logger.warning(f"Failed to compute embedding for {self.nodes[node_id].name}: {e2}")
+                            logger.warning(
+                                f"Failed to compute embedding for {self.nodes[node_id].name}: {e2}"
+                            )
                             errors += 1
 
                             if error_type2 in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
@@ -663,7 +680,9 @@ SUMMARY:"""
                     consecutive_quota_errors = 0
                 except Exception as e:
                     error_type, _ = get_error_info(e)
-                    logger.warning(f"Failed to compute embedding for {self.nodes[node_id].name}: {e}")
+                    logger.warning(
+                        f"Failed to compute embedding for {self.nodes[node_id].name}: {e}"
+                    )
                     errors += 1
 
                     if error_type in (ErrorType.QUOTA_EXHAUSTED, ErrorType.RATE_LIMITED):
@@ -681,7 +700,9 @@ SUMMARY:"""
                 f"{quota_errors} quota errors. Resume to continue."
             )
         else:
-            logger.info(f"Entity embeddings: {computed} computed, {skipped} skipped, {errors} errors")
+            logger.info(
+                f"Entity embeddings: {computed} computed, {skipped} skipped, {errors} errors"
+            )
 
         return computed, skipped, quota_errors, interrupted
 
@@ -826,12 +847,14 @@ SUMMARY:"""
 
         try:
             # Find all simple paths
-            paths = list(nx.all_simple_paths(
-                self.graph,
-                source_id,
-                target_id,
-                cutoff=max_depth,
-            ))
+            paths = list(
+                nx.all_simple_paths(
+                    self.graph,
+                    source_id,
+                    target_id,
+                    cutoff=max_depth,
+                )
+            )
 
             result = []
             for path in paths[:10]:  # Limit to 10 paths
@@ -859,11 +882,7 @@ SUMMARY:"""
         if not community:
             return []
 
-        return [
-            self.nodes[nid]
-            for nid in community.node_ids
-            if nid in self.nodes
-        ]
+        return [self.nodes[nid] for nid in community.node_ids if nid in self.nodes]
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get graph statistics."""
@@ -875,7 +894,8 @@ SUMMARY:"""
             "relationship_types": dict(self._count_relationship_types()),
             "avg_degree": (
                 sum(dict(self.graph.degree()).values()) / len(self.graph)
-                if len(self.graph) > 0 else 0
+                if len(self.graph) > 0
+                else 0
             ),
         }
 
@@ -906,30 +926,36 @@ SUMMARY:"""
             pickle.dump(self.graph, f, pickle.HIGHEST_PROTOCOL)
 
         # Save nodes (including pre-computed embeddings and resolution data)
-        nodes_data = {nid: {
-            "id": n.id,
-            "name": n.name,
-            "type": n.type,
-            "description": n.description,
-            "attributes": n.attributes,
-            "source_chunks": n.source_chunks,
-            "community_id": n.community_id,
-            "embedding": n.embedding,
-            "aliases": n.aliases,
-            "merged_from": n.merged_from,
-        } for nid, n in self.nodes.items()}
+        nodes_data = {
+            nid: {
+                "id": n.id,
+                "name": n.name,
+                "type": n.type,
+                "description": n.description,
+                "attributes": n.attributes,
+                "source_chunks": n.source_chunks,
+                "community_id": n.community_id,
+                "embedding": n.embedding,
+                "aliases": n.aliases,
+                "merged_from": n.merged_from,
+            }
+            for nid, n in self.nodes.items()
+        }
 
         with open(save_path / "nodes.json", "w", encoding="utf-8") as f:
             json.dump(nodes_data, f, ensure_ascii=False, indent=2)
 
         # Save communities (including pre-computed embeddings)
-        communities_data = {str(cid): {
-            "id": c.id,
-            "node_ids": c.node_ids,
-            "summary": c.summary,
-            "level": c.level,
-            "embedding": c.embedding,
-        } for cid, c in self.communities.items()}
+        communities_data = {
+            str(cid): {
+                "id": c.id,
+                "node_ids": c.node_ids,
+                "summary": c.summary,
+                "level": c.level,
+                "embedding": c.embedding,
+            }
+            for cid, c in self.communities.items()
+        }
 
         with open(save_path / "communities.json", "w", encoding="utf-8") as f:
             json.dump(communities_data, f, ensure_ascii=False, indent=2)
@@ -1247,18 +1273,21 @@ def list_knowledge_graph_backups(backup_dir: str = None) -> List[Dict[str, Any]]
                 # Parse timestamp from name
                 ts_str = d.name.replace("kg_backup_", "")
                 from datetime import datetime
+
                 timestamp = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
 
                 stats = get_knowledge_graph_stats(str(d))
 
-                backups.append({
-                    "path": str(d),
-                    "name": d.name,
-                    "timestamp": timestamp.isoformat(),
-                    "nodes": stats["nodes"],
-                    "edges": stats["edges"],
-                    "communities": stats["communities"],
-                })
+                backups.append(
+                    {
+                        "path": str(d),
+                        "name": d.name,
+                        "timestamp": timestamp.isoformat(),
+                        "nodes": stats["nodes"],
+                        "edges": stats["edges"],
+                        "communities": stats["communities"],
+                    }
+                )
             except Exception:
                 continue
 

@@ -26,6 +26,7 @@ import json
 # BM25 Tokenization Cache (module-level for reuse across instances)
 # =============================================================================
 
+
 @lru_cache(maxsize=1000)
 def _cached_tokenize(text: str) -> tuple:
     """
@@ -35,8 +36,9 @@ def _cached_tokenize(text: str) -> tuple:
     Same query always produces same tokens - safe to cache.
     """
     text_lower = text.lower()
-    tokens = tuple(re.findall(r'\b\w+\b', text_lower))
+    tokens = tuple(re.findall(r"\b\w+\b", text_lower))
     return tokens
+
 
 from .logger import logger
 from .llm_client import llm_chat
@@ -45,6 +47,7 @@ from .llm_client import llm_chat
 # =============================================================================
 # Reranking Cache
 # =============================================================================
+
 
 class RerankingCache:
     """
@@ -150,6 +153,7 @@ def clear_reranking_cache() -> None:
 # BM25 Sparse Index for Hybrid Search (#7)
 # =============================================================================
 
+
 class BM25Index:
     """
     BM25 sparse retrieval index.
@@ -179,7 +183,7 @@ class BM25Index:
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenization: lowercase, split on non-alphanumeric."""
         text = text.lower()
-        tokens = re.findall(r'\b\w+\b', text)
+        tokens = re.findall(r"\b\w+\b", text)
         return tokens
 
     def add_documents(self, documents: List[Dict[str, Any]]):
@@ -190,7 +194,7 @@ class BM25Index:
             documents: List of dicts with 'text' and 'metadata' keys
         """
         for doc in documents:
-            text = doc.get('text', '')
+            text = doc.get("text", "")
             tokens = self._tokenize(text)
 
             self.documents.append(doc)
@@ -271,35 +275,35 @@ class BM25Index:
     def save(self, path: str):
         """Save index to disk."""
         data = {
-            'k1': self.k1,
-            'b': self.b,
-            'documents': self.documents,
-            'doc_lengths': self.doc_lengths,
-            'avg_doc_length': self.avg_doc_length,
-            'doc_freqs': self.doc_freqs,
-            'term_freqs': self.term_freqs,
-            'vocab': list(self.vocab),
-            'N': self.N,
+            "k1": self.k1,
+            "b": self.b,
+            "documents": self.documents,
+            "doc_lengths": self.doc_lengths,
+            "avg_doc_length": self.avg_doc_length,
+            "doc_freqs": self.doc_freqs,
+            "term_freqs": self.term_freqs,
+            "vocab": list(self.vocab),
+            "N": self.N,
         }
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(data, f)
         logger.info(f"BM25 index saved to {path}")
 
     @classmethod
-    def load(cls, path: str) -> 'BM25Index':
+    def load(cls, path: str) -> "BM25Index":
         """Load index from disk."""
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             data = json.load(f)
 
-        index = cls(k1=data['k1'], b=data['b'])
-        index.documents = data['documents']
-        index.doc_lengths = data['doc_lengths']
-        index.avg_doc_length = data['avg_doc_length']
-        index.doc_freqs = data['doc_freqs']
-        index.term_freqs = data['term_freqs']
-        index.vocab = set(data['vocab'])
-        index.N = data['N']
+        index = cls(k1=data["k1"], b=data["b"])
+        index.documents = data["documents"]
+        index.doc_lengths = data["doc_lengths"]
+        index.avg_doc_length = data["avg_doc_length"]
+        index.doc_freqs = data["doc_freqs"]
+        index.term_freqs = data["term_freqs"]
+        index.vocab = set(data["vocab"])
+        index.N = data["N"]
 
         logger.info(f"BM25 index loaded from {path}: {index.N} documents")
         return index
@@ -308,6 +312,7 @@ class BM25Index:
 # =============================================================================
 # Hybrid Search: Combine BM25 + Dense (#7)
 # =============================================================================
+
 
 def hybrid_search_fusion(
     dense_results: List[Tuple[Any, float]],
@@ -333,10 +338,10 @@ def hybrid_search_fusion(
 
     # Build score maps using document text as key
     def get_doc_key(doc):
-        if hasattr(doc, 'text'):
+        if hasattr(doc, "text"):
             return doc.text[:200]  # Use first 200 chars as key
         elif isinstance(doc, dict):
-            return doc.get('text', str(doc))[:200]
+            return doc.get("text", str(doc))[:200]
         return str(doc)[:200]
 
     scores = {}
@@ -423,9 +428,9 @@ Judge whether the Document meets the requirements based on the Query and the Ins
                 "prompt": prompt,
                 "raw": True,
                 "stream": False,
-                "options": {"num_predict": 3, "temperature": 0}
+                "options": {"num_predict": 3, "temperature": 0},
             },
-            timeout=30
+            timeout=30,
         )
         result = response.json()
         answer = result.get("response", "").strip().lower()
@@ -478,7 +483,7 @@ def cross_encoder_rerank(
     # Extract document texts for cache key
     docs_texts = []
     for doc in documents:
-        text = doc.text if hasattr(doc, 'text') else str(doc)
+        text = doc.text if hasattr(doc, "text") else str(doc)
         docs_texts.append(text[:500])  # Use first 500 chars for hash
 
     # Check cache
@@ -494,7 +499,7 @@ def cross_encoder_rerank(
     def _score_doc(idx_doc: Tuple[int, Any]) -> Tuple[int, Any, float]:
         """Score a single document and return (index, doc, score)."""
         idx, doc = idx_doc
-        text = doc.text if hasattr(doc, 'text') else str(doc)
+        text = doc.text if hasattr(doc, "text") else str(doc)
         # Truncate for efficiency (Qwen3-Reranker supports 32k but shorter is faster)
         text = text[:2000]
         score = _score_single_document(query, text, model)
@@ -504,6 +509,7 @@ def cross_encoder_rerank(
     # Adaptive batch size: use min(batch_size, num_docs, cpu_count * 2)
     # No need for more workers than documents or more than 2x CPU cores
     import os
+
     cpu_count = os.cpu_count() or 4
     effective_batch_size = min(batch_size, len(documents), cpu_count * 2)
     scored_docs = []
@@ -544,6 +550,7 @@ def cross_encoder_rerank(
 # Lost-in-the-Middle Reordering (#14)
 # =============================================================================
 
+
 def reorder_lost_in_middle(documents: List[Any]) -> List[Any]:
     """
     Reorder documents to mitigate the "lost in the middle" problem.
@@ -583,6 +590,7 @@ def reorder_lost_in_middle(documents: List[Any]) -> List[Any]:
 # Contextual Compression (#13)
 # =============================================================================
 
+
 def compress_context(
     query: str,
     documents: List[Any],
@@ -614,13 +622,14 @@ def compress_context(
     # Import skip threshold from config if not specified
     if skip_threshold is None:
         from ..constants import COMPRESSION_SKIP_THRESHOLD
+
         skip_threshold = COMPRESSION_SKIP_THRESHOLD
 
     t_start = time.perf_counter()
 
     def _compress_single(doc_idx: int, doc: Any) -> Tuple[int, Optional[str]]:
         """Compress a single document. Returns (index, compressed_text or None)."""
-        text = doc.text if hasattr(doc, 'text') else str(doc)
+        text = doc.text if hasattr(doc, "text") else str(doc)
 
         # Skip if already short enough (avoids expensive LLM calls for small docs)
         # Estimate tokens as len(text) / 4 (approx 4 chars per token)
@@ -659,8 +668,7 @@ Relevant extract:"""
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_compress_single, idx, doc): idx
-            for idx, doc in enumerate(documents)
+            executor.submit(_compress_single, idx, doc): idx for idx, doc in enumerate(documents)
         }
 
         for future in as_completed(futures):
@@ -671,11 +679,7 @@ Relevant extract:"""
                 logger.error(f"Compression task failed: {e}")
 
     # Rebuild list in original order, filtering out None (not relevant)
-    compressed = [
-        results[idx]
-        for idx in sorted(results.keys())
-        if results[idx] is not None
-    ]
+    compressed = [results[idx] for idx in sorted(results.keys()) if results[idx] is not None]
 
     t_elapsed = time.perf_counter() - t_start
     logger.debug(
@@ -690,9 +694,11 @@ Relevant extract:"""
 # Citation Verification (#15)
 # =============================================================================
 
+
 @dataclass
 class CitationResult:
     """Result of citation verification."""
+
     claim: str
     supported: bool
     supporting_doc_idx: Optional[int] = None
@@ -724,7 +730,7 @@ def verify_citations(
     # Build context from documents
     context = ""
     for i, doc in enumerate(documents):
-        text = doc.text if hasattr(doc, 'text') else str(doc)
+        text = doc.text if hasattr(doc, "text") else str(doc)
         context += f"\n[Doc {i+1}]: {text[:500]}\n"
 
     prompt = f"""Verify if the claims in the ANSWER are supported by the SOURCE DOCUMENTS.
@@ -755,23 +761,25 @@ Verification:"""
         ).strip()
 
         # Try to parse JSON
-        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        json_match = re.search(r"\{[\s\S]*\}", response_text)
         if json_match:
             result = json.loads(json_match.group())
 
             claims = []
-            for c in result.get('claims', []):
-                claims.append(CitationResult(
-                    claim=c.get('claim', ''),
-                    supported=c.get('supported', False),
-                    supporting_doc_idx=c.get('doc_idx'),
-                    confidence=c.get('confidence', 0.0),
-                ))
+            for c in result.get("claims", []):
+                claims.append(
+                    CitationResult(
+                        claim=c.get("claim", ""),
+                        supported=c.get("supported", False),
+                        supporting_doc_idx=c.get("doc_idx"),
+                        confidence=c.get("confidence", 0.0),
+                    )
+                )
 
             return (
-                result.get('overall_supported', True),
+                result.get("overall_supported", True),
                 claims,
-                result.get('summary', 'Verification complete'),
+                result.get("summary", "Verification complete"),
             )
 
     except Exception as e:
@@ -784,9 +792,11 @@ Verification:"""
 # Metadata Filtering (#16)
 # =============================================================================
 
+
 @dataclass
 class MetadataFilter:
     """Filter for metadata-based document filtering."""
+
     field: str
     value: Any
     operator: str = "eq"  # eq, ne, gt, lt, gte, lte, contains, in
@@ -812,9 +822,9 @@ def filter_by_metadata(
         return documents
 
     def matches_filter(doc: Any, f: MetadataFilter) -> bool:
-        metadata = doc.metadata if hasattr(doc, 'metadata') else {}
+        metadata = doc.metadata if hasattr(doc, "metadata") else {}
         if isinstance(doc, dict):
-            metadata = doc.get('metadata', {})
+            metadata = doc.get("metadata", {})
 
         value = metadata.get(f.field)
         if value is None:
@@ -855,9 +865,11 @@ def filter_by_metadata(
 # Multi-Index Manager (#17)
 # =============================================================================
 
+
 @dataclass
 class ContentTypeIndex:
     """Configuration for a content-type specific index."""
+
     content_type: str  # "text", "table", "image"
     index_name: str
     weight: float = 1.0  # Weight in combined search
@@ -930,7 +942,10 @@ class MultiIndexManager:
                 sparse_results = bm25_index.search(query, top_k=top_k)
 
                 # Convert to common format
-                dense_list = [(r.node if hasattr(r, 'node') else r, r.score if hasattr(r, 'score') else 0) for r in dense_results]
+                dense_list = [
+                    (r.node if hasattr(r, "node") else r, r.score if hasattr(r, "score") else 0)
+                    for r in dense_results
+                ]
                 sparse_list = sparse_results
 
                 fused = hybrid_search_fusion(dense_list, sparse_list, alpha=0.6, top_k=top_k)
@@ -939,8 +954,8 @@ class MultiIndexManager:
                     all_results.append((doc, score * weight, ctype))
             else:
                 for r in dense_results:
-                    doc = r.node if hasattr(r, 'node') else r
-                    score = r.score if hasattr(r, 'score') else 0
+                    doc = r.node if hasattr(r, "node") else r
+                    score = r.score if hasattr(r, "score") else 0
                     all_results.append((doc, score * weight, ctype))
 
         # Sort by weighted score
@@ -952,6 +967,7 @@ class MultiIndexManager:
 # =============================================================================
 # Overlapping Chunks Utility (#2)
 # =============================================================================
+
 
 def create_overlapping_chunks(
     text: str,

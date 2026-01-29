@@ -55,14 +55,14 @@ def clean_table_output(text: str) -> str:
 
     # Remove markdown code block wrappers if present
     if text.startswith("```markdown"):
-        text = text[len("```markdown"):].strip()
+        text = text[len("```markdown") :].strip()
     if text.startswith("```"):
         text = text[3:].strip()
     if text.endswith("```"):
         text = text[:-3].strip()
 
     # Clean up excessive whitespace
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.strip()
 
     return text
@@ -199,10 +199,11 @@ def parse_image_with_table(
         # Detections are named {prefix}_page_{n}_Table_{idx}.jpg where prefix may include
         # subdirectory encoding: {subdir}__{stem}_page_{n}_Table_{idx}.jpg
         table_images = [
-            p for p in table_images
-            if any(f"{stem}_page_" in p.stem for stem in image_filter)
+            p for p in table_images if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
-        logger.info(f"Filtered to {len(table_images)} table images (from {original_count}) matching filter")
+        logger.info(
+            f"Filtered to {len(table_images)} table images (from {original_count}) matching filter"
+        )
     logger.info(f"Found {len(table_images)} table images to process")
 
     for image_path in table_images:

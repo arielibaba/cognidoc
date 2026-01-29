@@ -57,14 +57,16 @@ def load_embeddings_with_documents(
         with open(child_doc_path, "r", encoding="utf-8") as f:
             child_text = f.read()
 
-        child_docs.append(Document(
-            text=child_text,
-            metadata={
-                "name": child_name,
-                "parent": embedding_json["metadata"]["parent"],
-                "source": embedding_json["metadata"]["source"],
-            }
-        ))
+        child_docs.append(
+            Document(
+                text=child_text,
+                metadata={
+                    "name": child_name,
+                    "parent": embedding_json["metadata"]["parent"],
+                    "source": embedding_json["metadata"]["source"],
+                },
+            )
+        )
 
         # Get parent document
         parent_name = embedding_json["metadata"]["parent"]
@@ -76,13 +78,15 @@ def load_embeddings_with_documents(
         with open(parent_doc_path, "r", encoding="utf-8") as f:
             parent_text = f.read()
 
-        parent_docs.append(Document(
-            text=parent_text,
-            metadata={
-                "name": parent_name,
-                "source": embedding_json["metadata"]["source"],
-            }
-        ))
+        parent_docs.append(
+            Document(
+                text=parent_text,
+                metadata={
+                    "name": parent_name,
+                    "source": embedding_json["metadata"]["source"],
+                },
+            )
+        )
 
     logger.info(f"Loaded {len(embeddings)} embeddings with documents")
     return embeddings, child_docs, parent_docs

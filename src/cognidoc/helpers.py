@@ -54,6 +54,7 @@ def clear_pytorch_cache():
     """Clears MPS cache in PyTorch if available."""
     try:
         import torch
+
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
         logger.debug("PyTorch cache cleared")
@@ -68,15 +69,14 @@ def load_prompt(filepath):
 
 
 def is_relevant_image(
-    image_path: Path,
-    image_pixel_threshold: int,
-    image_pixel_variance_threshold: float
+    image_path: Path, image_pixel_threshold: int, image_pixel_variance_threshold: float
 ) -> bool:
     """
     Determines if an image is relevant based on non-white pixel count and color variance.
     """
     try:
         from PIL import Image, ImageStat
+
         with Image.open(image_path) as img:
             grayscale = img.convert("L")
             histogram = grayscale.histogram()
@@ -105,28 +105,18 @@ def markdown_to_plain_text(markdown_text: str) -> str:
 
 
 def ask_LLM_with_JSON(
-    prompt: str,
-    ollama_client: "ollama.Client",
-    model: str,
-    model_options: Dict[str, Any]
+    prompt: str, ollama_client: "ollama.Client", model: str, model_options: Dict[str, Any]
 ) -> str:
     """Asks the LLM to generate a JSON response using a specific Ollama client."""
     messages = [
         {"role": "system", "content": "You are a helpful assistant. Output JSON."},
-        {"role": "user", "content": prompt}
+        {"role": "user", "content": prompt},
     ]
-    response = ollama_client.chat(
-        model=model,
-        messages=messages,
-        options=model_options
-    )
+    response = ollama_client.chat(model=model, messages=messages, options=model_options)
     return response["message"]["content"]
 
 
-def ask_llm_json_unified(
-    prompt: str,
-    temperature: float = 0.7
-) -> str:
+def ask_llm_json_unified(prompt: str, temperature: float = 0.7) -> str:
     """
     Asks the LLM to generate a JSON response using the unified LLM client.
 
@@ -142,14 +132,14 @@ def ask_llm_json_unified(
     """
     messages = [
         {"role": "system", "content": "You are a helpful assistant. Output valid JSON only."},
-        {"role": "user", "content": prompt}
+        {"role": "user", "content": prompt},
     ]
     return llm_chat(messages, temperature=temperature, json_mode=True)
 
 
 def recover_json(json_str: str, verbose: bool = False) -> Any:
     """Attempts to recover a JSON object from a potentially malformed string."""
-    if '{' not in json_str:
+    if "{" not in json_str:
         return json_str
 
     json_str = extract_json(json_str)
@@ -172,37 +162,29 @@ def extract_json(s: str) -> str:
 
 def extract_markdown_tables(text: str) -> List[str]:
     """Finds all Markdown tables in the text."""
-    table_pattern = (
-        r'(?:^[ \t]*\|.*\r?\n)'
-        r'(?:^[ \t]*\|[-\s|:]+\r?\n)'
-        r'(?:^[ \t]*\|.*\r?\n?)+'
-    )
+    table_pattern = r"(?:^[ \t]*\|.*\r?\n)" r"(?:^[ \t]*\|[-\s|:]+\r?\n)" r"(?:^[ \t]*\|.*\r?\n?)+"
     return re.findall(table_pattern, text, flags=re.MULTILINE)
 
 
 def remove_markdown_tables(text: str) -> str:
     """Removes all Markdown tables from the text."""
-    table_pattern = (
-        r'(?:^[ \t]*\|.*\r?\n)'
-        r'(?:^[ \t]*\|[-\s|:]+\r?\n)'
-        r'(?:^[ \t]*\|.*\r?\n?)+'
-    )
-    return re.sub(table_pattern, '', text, flags=re.MULTILINE)
+    table_pattern = r"(?:^[ \t]*\|.*\r?\n)" r"(?:^[ \t]*\|[-\s|:]+\r?\n)" r"(?:^[ \t]*\|.*\r?\n?)+"
+    return re.sub(table_pattern, "", text, flags=re.MULTILINE)
 
 
 def remove_code_blocks(text: str) -> str:
     """Strips out any fenced code block."""
-    return re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+    return re.sub(r"```.*?```", "", text, flags=re.DOTALL)
 
 
 def remove_mermaid_blocks(text: str) -> str:
     """Strips out any mermaid block."""
-    return re.sub(r'```mermaid.*?```', '', text, flags=re.DOTALL)
+    return re.sub(r"```mermaid.*?```", "", text, flags=re.DOTALL)
 
 
 def remove_extracted_text_blocks(text: str) -> str:
     """Removes any EXTRACTED TEXT sections."""
-    return re.sub(r'```EXTRACTED TEXT.*?```', '', text, flags=re.DOTALL)
+    return re.sub(r"```EXTRACTED TEXT.*?```", "", text, flags=re.DOTALL)
 
 
 def clean_up_text(text: str) -> str:
@@ -226,6 +208,7 @@ def get_token_count(input_text: str) -> int:
     if _tiktoken_available is None:
         try:
             import tiktoken
+
             _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
             _tiktoken_available = True
         except Exception as e:
@@ -241,9 +224,7 @@ def get_token_count(input_text: str) -> int:
 
 
 def load_embeddings_with_associated_documents(
-    embeddings_dir: str,
-    chunks_dir: str,
-    docs_dir: str
+    embeddings_dir: str, chunks_dir: str, docs_dir: str
 ) -> Tuple[List, List[Dict], List[Dict]]:
     """
     Loads embeddings and associated documents from directories.
@@ -275,8 +256,8 @@ def load_embeddings_with_associated_documents(
             "metadata": {
                 "name": embedding_json["metadata"]["child"],
                 "parent": embedding_json["metadata"]["parent"],
-                "source": embedding_json["metadata"]["source"]
-            }
+                "source": embedding_json["metadata"]["source"],
+            },
         }
         child_docs.append(child_doc)
 
@@ -291,10 +272,7 @@ def load_embeddings_with_associated_documents(
             parent_doc_text = f.read()
         parent_doc = {
             "text": parent_doc_text,
-            "metadata": {
-                "name": parent_doc_name,
-                "source": embedding_json["metadata"]["source"]
-            }
+            "metadata": {"name": parent_doc_name, "source": embedding_json["metadata"]["source"]},
         }
         parent_docs.append(parent_doc)
 
@@ -355,8 +333,13 @@ def run_streaming(messages: List[Dict[str, str]], temperature: float = 0.7):
     # Convert ChatMessage objects to dicts if needed
     msg_list = []
     for m in messages:
-        if hasattr(m, 'role') and hasattr(m, 'content'):
-            msg_list.append({"role": str(m.role.value) if hasattr(m.role, 'value') else str(m.role), "content": m.content})
+        if hasattr(m, "role") and hasattr(m, "content"):
+            msg_list.append(
+                {
+                    "role": str(m.role.value) if hasattr(m.role, "value") else str(m.role),
+                    "content": m.content,
+                }
+            )
         else:
             msg_list.append(m)
 
@@ -383,8 +366,7 @@ def rewrite_query(user_query: str, conversation_history_str: str = "") -> str:
         user_message = u_prompt.read()
 
     user_prompt = user_message.format(
-        conversation_history=conversation_history_str,
-        question=user_query
+        conversation_history=conversation_history_str, question=user_query
     )
 
     response = llm_chat(
@@ -406,9 +388,9 @@ def parse_rewritten_query(text: str) -> List[str]:
     for line in lines:
         stripped = line.strip()
         # Handle both - and * bullet styles
-        if stripped.startswith('- '):
+        if stripped.startswith("- "):
             bullets.append(stripped[2:].strip())
-        elif stripped.startswith('* '):
+        elif stripped.startswith("* "):
             bullets.append(stripped[2:].strip())
     return bullets
 
@@ -520,8 +502,7 @@ def parallel_rewrite_and_classify(
         rewrite_user_template = u_prompt.read()
 
     rewrite_user = rewrite_user_template.format(
-        conversation_history=conversation_history_str,
-        question=user_query
+        conversation_history=conversation_history_str, question=user_query
     )
 
     rewrite_messages = [
@@ -530,16 +511,16 @@ def parallel_rewrite_and_classify(
     ]
 
     # Build classify messages
-    classify_messages = [
-        {"role": "user", "content": CLASSIFIER_PROMPT.format(query=user_query)}
-    ]
+    classify_messages = [{"role": "user", "content": CLASSIFIER_PROMPT.format(query=user_query)}]
 
     # Run both in parallel
     try:
-        results = run_parallel_sync([
-            ("rewrite", rewrite_messages, 0.3),
-            ("classify", classify_messages, 0.1),
-        ])
+        results = run_parallel_sync(
+            [
+                ("rewrite", rewrite_messages, 0.3),
+                ("classify", classify_messages, 0.1),
+            ]
+        )
 
         # Parse rewrite result
         rewritten = results.get("rewrite", "").strip()
@@ -615,5 +596,6 @@ def parallel_rewrite_and_classify(
         # Fall back to sequential execution
         rewritten = rewrite_query(user_query, conversation_history_str)
         from .query_orchestrator import route_query
+
         decision = route_query(user_query)
         return rewritten, decision

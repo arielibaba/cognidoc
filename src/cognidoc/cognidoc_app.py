@@ -77,12 +77,14 @@ def warmup_models_and_indexes():
     - Loading the hybrid retriever (vector + keyword indexes)
     """
     import time
+
     t_start = time.perf_counter()
     logger.info("Starting warm-up...")
 
     # 1. Initialize LLM client (triggers model loading)
     try:
         from .utils.llm_client import get_llm_client
+
         client = get_llm_client()
         logger.info(f"  LLM client ready: {client.config.provider.value}/{client.config.model}")
     except Exception as e:
@@ -91,6 +93,7 @@ def warmup_models_and_indexes():
     # 2. Initialize embedding provider
     try:
         from .utils.embedding_providers import get_embedding_provider
+
         provider = get_embedding_provider()
         # Trigger dimension computation (embeds "test")
         dim = provider.dimension
@@ -101,6 +104,7 @@ def warmup_models_and_indexes():
     # 3. Load hybrid retriever (indexes)
     try:
         from .hybrid_retriever import get_hybrid_retriever
+
         retriever = get_hybrid_retriever()
         stats = retriever.get_statistics()
         logger.info(f"  Hybrid retriever ready: {stats}")
@@ -111,6 +115,7 @@ def warmup_models_and_indexes():
     try:
         from .constants import CROSS_ENCODER_MODEL
         import httpx
+
         # Single dummy rerank call to load model into Ollama's memory
         httpx.post(
             "http://localhost:11434/api/embeddings",
@@ -134,38 +139,158 @@ def detect_query_language(query: str) -> str:
     """
     # Spanish indicators
     spanish_indicators = [
-        " es ", " son ", " que ", " qué ", " cómo ", " cuánto ", " cuántos ",
-        " dónde ", " quién ", " cuál ", " cuáles ", " por qué ", " para ",
-        " los ", " las ", " una ", " del ", " esta ", " este ", " estos ",
-        " tengo ", " tiene ", " tienen ", " puedo ", " puede ", " hay ",
-        " está ", " están ", "¿", " muy ", " también ", " pero ", " porque ",
-        " esto ", " eso ", " aquí ", " ahí ", " ahora ", " hacer ", " ser ",
-        " como ", " cuando ", " donde ", " quien ", " cual ",
-        "ícame ", "ácame ", "éame ", "íame ",  # imperative + pronoun (explícame, dígame)
-        "ámelo", "émelo", "ímelo",  # imperative + pronoun endings
-        " documentos ", " datos ", " lista ", " archivo ",  # common nouns
+        " es ",
+        " son ",
+        " que ",
+        " qué ",
+        " cómo ",
+        " cuánto ",
+        " cuántos ",
+        " dónde ",
+        " quién ",
+        " cuál ",
+        " cuáles ",
+        " por qué ",
+        " para ",
+        " los ",
+        " las ",
+        " una ",
+        " del ",
+        " esta ",
+        " este ",
+        " estos ",
+        " tengo ",
+        " tiene ",
+        " tienen ",
+        " puedo ",
+        " puede ",
+        " hay ",
+        " está ",
+        " están ",
+        "¿",
+        " muy ",
+        " también ",
+        " pero ",
+        " porque ",
+        " esto ",
+        " eso ",
+        " aquí ",
+        " ahí ",
+        " ahora ",
+        " hacer ",
+        " ser ",
+        " como ",
+        " cuando ",
+        " donde ",
+        " quien ",
+        " cual ",
+        "ícame ",
+        "ácame ",
+        "éame ",
+        "íame ",  # imperative + pronoun (explícame, dígame)
+        "ámelo",
+        "émelo",
+        "ímelo",  # imperative + pronoun endings
+        " documentos ",
+        " datos ",
+        " lista ",
+        " archivo ",  # common nouns
     ]
 
     # German indicators
     german_indicators = [
-        " ist ", " sind ", " das ", " der ", " die ", " den ", " dem ",
-        " ein ", " eine ", " einer ", " und ", " oder ", " aber ", " nicht ",
-        " auch ", " sehr ", " wie ", " was ", " wer ", " wo ", " wann ",
-        " warum ", " welche ", " welcher ", " können ", " haben ", " werden ",
-        " gibt ", " muss ", " kann ", " soll ", " wird ", " habe ", " hat ",
-        "ß", "ä", "ö", "ü",
-        " auf ", " aus ", " bei ", " mit ", " nach ", " von ", " zu ",
-        " mir ", " dir ", " uns ", " euch ", " ihr ", " ihm ", " ihr ",
-        " dokumente ", " datenbank ",
+        " ist ",
+        " sind ",
+        " das ",
+        " der ",
+        " die ",
+        " den ",
+        " dem ",
+        " ein ",
+        " eine ",
+        " einer ",
+        " und ",
+        " oder ",
+        " aber ",
+        " nicht ",
+        " auch ",
+        " sehr ",
+        " wie ",
+        " was ",
+        " wer ",
+        " wo ",
+        " wann ",
+        " warum ",
+        " welche ",
+        " welcher ",
+        " können ",
+        " haben ",
+        " werden ",
+        " gibt ",
+        " muss ",
+        " kann ",
+        " soll ",
+        " wird ",
+        " habe ",
+        " hat ",
+        "ß",
+        "ä",
+        "ö",
+        "ü",
+        " auf ",
+        " aus ",
+        " bei ",
+        " mit ",
+        " nach ",
+        " von ",
+        " zu ",
+        " mir ",
+        " dir ",
+        " uns ",
+        " euch ",
+        " ihr ",
+        " ihm ",
+        " ihr ",
+        " dokumente ",
+        " datenbank ",
     ]
 
     # French indicators
     french_indicators = [
-        " est ", " sont ", " que ", " qui ", " dans ", " pour ", " avec ",
-        " les ", " des ", " une ", " sur ", " pas ", " plus ", " cette ",
-        " ces ", " vous ", " nous ", " leur ", " quoi ", " comment ",
-        " pourquoi ", " combien ", " quand ", "qu'", "d'", "l'", "n'",
-        "-tu ", "-vous ", "-moi ", "-elle ", "-il ", " je ", " tu ",
+        " est ",
+        " sont ",
+        " que ",
+        " qui ",
+        " dans ",
+        " pour ",
+        " avec ",
+        " les ",
+        " des ",
+        " une ",
+        " sur ",
+        " pas ",
+        " plus ",
+        " cette ",
+        " ces ",
+        " vous ",
+        " nous ",
+        " leur ",
+        " quoi ",
+        " comment ",
+        " pourquoi ",
+        " combien ",
+        " quand ",
+        "qu'",
+        "d'",
+        "l'",
+        "n'",
+        "-tu ",
+        "-vous ",
+        "-moi ",
+        "-elle ",
+        "-il ",
+        " je ",
+        " tu ",
     ]
 
     query_lower = query.lower()
@@ -188,7 +313,7 @@ def detect_query_language(query: str) -> str:
         french_count += 2
 
     # Sort by count descending, return language with highest count if >= 2
-    counts = [('es', spanish_count), ('de', german_count), ('fr', french_count)]
+    counts = [("es", spanish_count), ("de", german_count), ("fr", french_count)]
     counts.sort(key=lambda x: x[1], reverse=True)
 
     if counts[0][1] >= 2:
@@ -214,7 +339,9 @@ def get_no_info_message(lang: str) -> str:
         "es": "No he encontrado información relevante en la base documental para responder a esta pregunta.",
         "de": "Ich habe keine relevanten Informationen in der Dokumentenbasis gefunden, um diese Frage zu beantworten.",
     }
-    return messages.get(lang, "I could not find relevant information in the document base to answer this question.")
+    return messages.get(
+        lang, "I could not find relevant information in the document base to answer this question."
+    )
 
 
 # Prefixes used by the LLM to indicate "no information found" (for reference detection)
@@ -269,14 +396,14 @@ def format_sources_html(sources: list[dict]) -> str:
 
     # Use a spacer div with explicit height for guaranteed visual separation
     # This ensures the gap before sources is always larger than paragraph gaps
-    html = f'''<div class="sources-spacer"></div>
+    html = f"""<div class="sources-spacer"></div>
 <div class="sources-section">
 <div class="sources-divider"></div>
 <div class="sources-title">Sources</div>
 <div class="sources-list">
 {sources_list}
 </div>
-</div>'''
+</div>"""
 
     return html
 
@@ -882,23 +1009,14 @@ def parse_args():
     parser.add_argument(
         "--no-rerank",
         action="store_true",
-        help="Disable LLM reranking (faster but may reduce quality)"
+        help="Disable LLM reranking (faster but may reduce quality)",
     )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=7860,
-        help="Port to run the Gradio app on"
-    )
-    parser.add_argument(
-        "--share",
-        action="store_true",
-        help="Create a public shareable link"
-    )
+    parser.add_argument("--port", type=int, default=7860, help="Port to run the Gradio app on")
+    parser.add_argument("--share", action="store_true", help="Create a public shareable link")
     parser.add_argument(
         "--no-agent",
         action="store_true",
-        help="Disable agentic RAG for complex queries (faster, simpler)"
+        help="Disable agentic RAG for complex queries (faster, simpler)",
     )
     return parser.parse_args()
 
@@ -975,7 +1093,9 @@ def chat_conversation(
         history = flat
 
     history.append({"role": "user", "content": user_message})
-    history = limit_chat_history(history)  # Uses dynamic memory window based on LLM's context_window
+    history = limit_chat_history(
+        history
+    )  # Uses dynamic memory window based on LLM's context_window
     conv_history = "".join(f"{m['role'].capitalize()}: {m['content']}\n" for m in history)
 
     # Parallel query rewriting and classification (uses unified LLM client)
@@ -986,10 +1106,12 @@ def chat_conversation(
         logger.info(f"Rewritten query ({len(rewritten.split(chr(10)))} parts):\n{rewritten}")
     except Exception as e:
         logger.error(f"Query rewrite failed: {e}")
-        history.append({
-            "role": "assistant",
-            "content": "I apologize, but the service is temporarily unavailable. Please try again in a moment."
-        })
+        history.append(
+            {
+                "role": "assistant",
+                "content": "I apologize, but the service is temporarily unavailable. Please try again in a moment.",
+            }
+        )
         yield convert_history_to_tuples(history)
         return
 
@@ -1060,7 +1182,9 @@ def chat_conversation(
                                 progress_lines.append(f"{state_emoji} {message}")
                                 # Show progress (last 5 lines) in UI
                                 progress_display = "\n".join(progress_lines[-5:])
-                                history[-1]["content"] = f"*Processing query...*\n\n{progress_display}"
+                                history[-1][
+                                    "content"
+                                ] = f"*Processing query...*\n\n{progress_display}"
                                 yield convert_history_to_tuples(history)
                                 logger.debug(f"Agent [{state.value}]: {message[:100]}")
                     except StopIteration as e:
@@ -1088,7 +1212,11 @@ def chat_conversation(
                         cache_stats = get_performance_metrics().get_session_cache_stats()
                         agent_metrics = QueryMetrics(
                             path="agent",
-                            query_type=str(routing_decision.query_type) if routing_decision and routing_decision.query_type else None,
+                            query_type=(
+                                str(routing_decision.query_type)
+                                if routing_decision and routing_decision.query_type
+                                else None
+                            ),
                             complexity_score=complexity.score if complexity else None,
                             total_time_ms=total_time * 1000,
                             rewrite_time_ms=(t2 - t1) * 1000,
@@ -1104,7 +1232,9 @@ def chat_conversation(
                         return
                     else:
                         # Agent didn't return successful result - fall through to standard path
-                        logger.warning(f"Agent returned no result or failed, falling back to standard path")
+                        logger.warning(
+                            f"Agent returned no result or failed, falling back to standard path"
+                        )
                         history.pop()
 
                 except Exception as e:
@@ -1119,8 +1249,12 @@ def chat_conversation(
     # Show processing indicator immediately for better perceived performance
     # Extended streaming prefetch: show retrieval mode for better user feedback
     if enable_graph and hybrid_retriever.is_loaded():
-        search_mode = "vector + graph" if routing_decision and not routing_decision.skip_graph else "vector"
-        history.append({"role": "assistant", "content": f"*🔍 Searching knowledge base ({search_mode})...*"})
+        search_mode = (
+            "vector + graph" if routing_decision and not routing_decision.skip_graph else "vector"
+        )
+        history.append(
+            {"role": "assistant", "content": f"*🔍 Searching knowledge base ({search_mode})...*"}
+        )
     else:
         history.append({"role": "assistant", "content": "*🔍 Searching knowledge base...*"})
     yield convert_history_to_tuples(history)
@@ -1202,7 +1336,9 @@ def chat_conversation(
             )
             t_rerank_end = time.perf_counter()
             rerank_time = t_rerank_end - t_rerank_start
-            logger.info(f"Reranking: {len(unique)} -> {len(reranked)} parents in {rerank_time:.2f}s")
+            logger.info(
+                f"Reranking: {len(unique)} -> {len(reranked)} parents in {rerank_time:.2f}s"
+            )
         else:
             # No reranking: use top-k from unique
             reranked = [NodeWithScore(node=p, score=0.0) for p in unique[:TOP_K_RERANKED_PARENTS]]
@@ -1231,6 +1367,7 @@ def chat_conversation(
 
     # Group pages by document for cleaner references
     from collections import OrderedDict
+
     doc_pages = OrderedDict()  # Preserve order of first appearance
     for nws in reranked:
         source = nws.node.metadata.get("source", {})
@@ -1248,7 +1385,8 @@ def chat_conversation(
             except (ValueError, TypeError):
                 # Page might be a string like "5 2" - extract first number
                 import re
-                match = re.search(r'\d+', str(page))
+
+                match = re.search(r"\d+", str(page))
                 if match:
                     doc_pages[doc].add(int(match.group()))
 
@@ -1259,10 +1397,10 @@ def chat_conversation(
         # doc may contain path separators for subdirectories (e.g., "projet_A/doc")
         # Normalize to NFC to ensure consistent Unicode representation
         # (macOS often uses NFD, but URLs and most systems expect NFC)
-        doc_normalized = unicodedata.normalize('NFC', doc)
+        doc_normalized = unicodedata.normalize("NFC", doc)
         pdf_filename = f"{doc_normalized}.pdf"
         # Use safe='/' to preserve path separators in the URL
-        encoded_filename = urllib.parse.quote(pdf_filename, safe='/')
+        encoded_filename = urllib.parse.quote(pdf_filename, safe="/")
         # Use /pdfs/ path for FastAPI static file serving
         base_url = f"/pdfs/{encoded_filename}"
 
@@ -1290,18 +1428,15 @@ def chat_conversation(
                 if sorted_pages == list(range(first_page, max(sorted_pages) + 1)):
                     page_display = f"pp. {first_page}-{max(sorted_pages)}"
                 else:
-                    page_display = f"pp. {', '.join(map(str, sorted_pages[:3]))}" + ("..." if len(sorted_pages) > 3 else "")
+                    page_display = f"pp. {', '.join(map(str, sorted_pages[:3]))}" + (
+                        "..." if len(sorted_pages) > 3 else ""
+                    )
                 url = f"{base_url}#page={first_page}"
             else:
                 page_display = f"pp. {', '.join(map(str, list(pages)[:3]))}"
                 url = base_url
 
-        sources.append({
-            "url": url,
-            "title": title,
-            "folder": folder,
-            "page_display": page_display
-        })
+        sources.append({"url": url, "title": title, "folder": folder, "page_display": page_display})
 
         if len(sources) >= TOP_K_REFS:
             break
@@ -1314,15 +1449,10 @@ def chat_conversation(
         user_msg_template = f.read()
 
     user_prompt = user_msg_template.format(
-        conversation_history=conv_history,
-        user_question=user_message,
-        refined_context=context
+        conversation_history=conv_history, user_question=user_message, refined_context=context
     )
 
-    msgs = [
-        {"role": "system", "content": system_msg},
-        {"role": "user", "content": user_prompt}
-    ]
+    msgs = [{"role": "system", "content": system_msg}, {"role": "user", "content": user_prompt}]
 
     t5 = time.perf_counter()
 
@@ -1360,7 +1490,8 @@ def chat_conversation(
     history[-1]["content"] = final
 
     # Log performance
-    logger.info(f"""
+    logger.info(
+        f"""
     Performance Stats:
     - Query Rewriting:      {t2 - t1:.2f}s
     - Retrieval:            {retrieval_time:.2f}s
@@ -1368,13 +1499,18 @@ def chat_conversation(
     - Prompt Construction:  {t5 - t4:.2f}s
     - LLM Inference:        {t6 - t5:.2f}s
     - TOTAL:                {t6 - t0:.2f}s
-    """)
+    """
+    )
 
     # Log metrics for fast/enhanced path
     path_type = "enhanced" if complexity and complexity.score >= 0.35 else "fast"
     fast_metrics = QueryMetrics(
         path=path_type,
-        query_type=str(routing_decision.query_type) if routing_decision and routing_decision.query_type else None,
+        query_type=(
+            str(routing_decision.query_type)
+            if routing_decision and routing_decision.query_type
+            else None
+        ),
         complexity_score=complexity.score if complexity else None,
         total_time_ms=(t6 - t0) * 1000,
         rewrite_time_ms=(t2 - t1) * 1000,
@@ -1391,6 +1527,7 @@ def chat_conversation(
 # Dashboard Helper Functions
 # =============================================================================
 
+
 def create_latency_by_path_chart():
     """Create bar chart of average latency by path."""
     stats = get_performance_metrics().get_global_stats()
@@ -1398,8 +1535,15 @@ def create_latency_by_path_chart():
 
     if not path_stats:
         fig = go.Figure()
-        fig.add_annotation(text="No data yet", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=20))
+        fig.add_annotation(
+            text="No data yet",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=20),
+        )
         fig.update_layout(height=300)
         return fig
 
@@ -1410,17 +1554,19 @@ def create_latency_by_path_chart():
     colors = {"fast": "#22c55e", "enhanced": "#eab308", "agent": "#ef4444"}
     bar_colors = [colors.get(p, "#667eea") for p in paths]
 
-    fig = go.Figure(data=[
-        go.Bar(
-            x=paths,
-            y=latencies,
-            text=[f"{l:.0f}ms" for l in latencies],
-            textposition="outside",
-            marker_color=bar_colors,
-            hovertemplate="<b>%{x}</b><br>Avg: %{y:.0f}ms<br>Count: %{customdata}<extra></extra>",
-            customdata=counts,
-        )
-    ])
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=paths,
+                y=latencies,
+                text=[f"{l:.0f}ms" for l in latencies],
+                textposition="outside",
+                marker_color=bar_colors,
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.0f}ms<br>Count: %{customdata}<extra></extra>",
+                customdata=counts,
+            )
+        ]
+    )
     fig.update_layout(
         title="Average Latency by Path",
         xaxis_title="Path",
@@ -1437,8 +1583,15 @@ def create_latency_over_time_chart():
 
     if not data:
         fig = go.Figure()
-        fig.add_annotation(text="No data yet", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=20))
+        fig.add_annotation(
+            text="No data yet",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=20),
+        )
         fig.update_layout(height=300)
         return fig
 
@@ -1450,14 +1603,16 @@ def create_latency_over_time_chart():
     fig = go.Figure()
     for path in df["path"].unique():
         path_df = df[df["path"] == path]
-        fig.add_trace(go.Scatter(
-            x=path_df["timestamp"],
-            y=path_df["total_time_ms"],
-            mode="lines+markers",
-            name=path,
-            line=dict(color=colors.get(path, "#667eea")),
-            hovertemplate="<b>%{x}</b><br>%{y:.0f}ms<extra></extra>",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=path_df["timestamp"],
+                y=path_df["total_time_ms"],
+                mode="lines+markers",
+                name=path,
+                line=dict(color=colors.get(path, "#667eea")),
+                hovertemplate="<b>%{x}</b><br>%{y:.0f}ms<extra></extra>",
+            )
+        )
 
     fig.update_layout(
         title="Latency Over Time",
@@ -1476,20 +1631,31 @@ def create_path_distribution_chart():
 
     if not distribution:
         fig = go.Figure()
-        fig.add_annotation(text="No data yet", xref="paper", yref="paper",
-                          x=0.5, y=0.5, showarrow=False, font=dict(size=20))
+        fig.add_annotation(
+            text="No data yet",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(size=20),
+        )
         fig.update_layout(height=300)
         return fig
 
     colors = {"fast": "#22c55e", "enhanced": "#eab308", "agent": "#ef4444"}
 
-    fig = go.Figure(data=[go.Pie(
-        labels=list(distribution.keys()),
-        values=list(distribution.values()),
-        marker_colors=[colors.get(p, "#667eea") for p in distribution.keys()],
-        textinfo="label+percent",
-        hovertemplate="<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>",
-    )])
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=list(distribution.keys()),
+                values=list(distribution.values()),
+                marker_colors=[colors.get(p, "#667eea") for p in distribution.keys()],
+                textinfo="label+percent",
+                hovertemplate="<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>",
+            )
+        ]
+    )
     fig.update_layout(
         title="Query Distribution by Path",
         height=300,
@@ -1506,14 +1672,16 @@ def get_recent_queries_dataframe():
         return pd.DataFrame(columns=["Time", "Path", "Type", "Latency (ms)", "Cache Hits", "Steps"])
 
     df = pd.DataFrame(queries)
-    df = df.rename(columns={
-        "timestamp": "Time",
-        "path": "Path",
-        "query_type": "Type",
-        "latency_ms": "Latency (ms)",
-        "cache_hits": "Cache Hits",
-        "agent_steps": "Steps",
-    })
+    df = df.rename(
+        columns={
+            "timestamp": "Time",
+            "path": "Path",
+            "query_type": "Type",
+            "latency_ms": "Latency (ms)",
+            "cache_hits": "Cache Hits",
+            "agent_steps": "Steps",
+        }
+    )
     return df[["Time", "Path", "Type", "Latency (ms)", "Cache Hits", "Steps"]]
 
 
@@ -1563,8 +1731,8 @@ def create_fastapi_app(demo: gr.Blocks) -> "FastAPI":
     async def serve_pdf(file_path: str):
         decoded = urllib.parse.unquote(file_path)
         # Normalize Unicode (macOS uses NFD, URLs typically use NFC)
-        decoded_nfc = unicodedata.normalize('NFC', decoded)
-        decoded_nfd = unicodedata.normalize('NFD', decoded)
+        decoded_nfc = unicodedata.normalize("NFC", decoded)
+        decoded_nfd = unicodedata.normalize("NFD", decoded)
         for candidate in (decoded, decoded_nfc, decoded_nfd):
             full_path = (_pdf_dir / candidate).resolve()
             # Path traversal protection
@@ -1597,11 +1765,12 @@ def create_gradio_app(default_reranking: bool = True):
             secondary_hue="slate",
             neutral_hue="slate",
             font=gr.themes.GoogleFont("Inter"),
-        )
+        ),
     ) as demo:
 
         # Header with dark mode toggle
-        gr.HTML("""
+        gr.HTML(
+            """
         <div class="header-container">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
@@ -1682,7 +1851,8 @@ def create_gradio_app(default_reranking: bool = True):
             // Also run after Gradio finishes rendering
             setTimeout(initDarkMode, 500);
         </script>
-        """)
+        """
+        )
 
         with gr.Tabs():
             # =====================================================================
@@ -1724,15 +1894,18 @@ def create_gradio_app(default_reranking: bool = True):
                                 size="sm",
                                 elem_classes=["secondary-btn"],
                             )
-                            gr.HTML("""
+                            gr.HTML(
+                                """
                                 <div style="flex: 1; text-align: right; color: #94a3b8; font-size: 0.8rem; padding: 8px;">
                                     Press Enter to send • Shift+Enter for new line
                                 </div>
-                            """)
+                            """
+                            )
 
                     # Settings panel
                     with gr.Column(scale=1, min_width=280):
-                        gr.HTML("""
+                        gr.HTML(
+                            """
                         <div class="settings-title">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="12" cy="12" r="3"/>
@@ -1740,7 +1913,8 @@ def create_gradio_app(default_reranking: bool = True):
                             </svg>
                             Retrieval Settings
                         </div>
-                        """)
+                        """
+                        )
 
                         rerank_toggle = gr.Checkbox(
                             label="🎯 Smart Reranking",
@@ -1758,7 +1932,8 @@ def create_gradio_app(default_reranking: bool = True):
 
                         gr.HTML('<div class="settings-divider"></div>')
 
-                        gr.HTML("""
+                        gr.HTML(
+                            """
                         <div class="info-card">
                             <div class="info-card-title">💡 How it works</div>
                             <div class="info-card-text">
@@ -1770,15 +1945,22 @@ def create_gradio_app(default_reranking: bool = True):
                                 "How is X related to Y?"
                             </div>
                         </div>
-                        """)
+                        """
+                        )
 
                         gr.HTML('<div class="settings-divider"></div>')
 
                         # System status
                         graph_status = "active" if hybrid_status.get("graph", False) else "inactive"
-                        vector_status = "active" if hybrid_status.get("vector_index", False) or hybrid_status.get("keyword_index", False) else "inactive"
+                        vector_status = (
+                            "active"
+                            if hybrid_status.get("vector_index", False)
+                            or hybrid_status.get("keyword_index", False)
+                            else "inactive"
+                        )
 
-                        gr.HTML(f"""
+                        gr.HTML(
+                            f"""
                         <div style="font-size: 0.8rem; color: #64748b;">
                             <div style="margin-bottom: 8px; font-weight: 600;">System Status</div>
                             <div style="display: flex; flex-direction: column; gap: 6px;">
@@ -1790,7 +1972,8 @@ def create_gradio_app(default_reranking: bool = True):
                                 </div>
                             </div>
                         </div>
-                        """)
+                        """
+                        )
 
             # =====================================================================
             # Metrics Tab
@@ -1834,6 +2017,7 @@ def create_gradio_app(default_reranking: bool = True):
                     """Export metrics to CSV file."""
                     import tempfile
                     from datetime import datetime
+
                     metrics = get_performance_metrics()
                     csv_content = metrics.export_to_csv()
                     if not csv_content:
@@ -1841,7 +2025,7 @@ def create_gradio_app(default_reranking: bool = True):
                     # Write to temp file
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filepath = tempfile.gettempdir() + f"/cognidoc_metrics_{timestamp}.csv"
-                    with open(filepath, 'w', encoding='utf-8') as f:
+                    with open(filepath, "w", encoding="utf-8") as f:
                         f.write(csv_content)
                     return gr.update(value=filepath, visible=True)
 
@@ -1849,21 +2033,32 @@ def create_gradio_app(default_reranking: bool = True):
                     """Export metrics to JSON file."""
                     import tempfile
                     from datetime import datetime
+
                     metrics = get_performance_metrics()
                     json_content = metrics.export_to_json()
-                    if not json_content or json_content == '{"exported_at": "", "total_records": 0, "global_stats": {}, "queries": []}':
+                    if (
+                        not json_content
+                        or json_content
+                        == '{"exported_at": "", "total_records": 0, "global_stats": {}, "queries": []}'
+                    ):
                         return gr.update(visible=False)
                     # Write to temp file
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filepath = tempfile.gettempdir() + f"/cognidoc_metrics_{timestamp}.json"
-                    with open(filepath, 'w', encoding='utf-8') as f:
+                    with open(filepath, "w", encoding="utf-8") as f:
                         f.write(json_content)
                     return gr.update(value=filepath, visible=True)
 
                 refresh_btn.click(
                     refresh_metrics,
                     inputs=[],
-                    outputs=[stats_display, latency_chart, distribution_chart, timeline_chart, queries_table],
+                    outputs=[
+                        stats_display,
+                        latency_chart,
+                        distribution_chart,
+                        timeline_chart,
+                        queries_table,
+                    ],
                 )
 
                 export_csv_btn.click(
@@ -1879,7 +2074,8 @@ def create_gradio_app(default_reranking: bool = True):
                 )
 
         # Footer
-        gr.HTML("""
+        gr.HTML(
+            """
         <div class="footer">
             <span>Powered by Hybrid RAG</span>
             <span style="margin: 0 8px;">•</span>
@@ -1887,7 +2083,8 @@ def create_gradio_app(default_reranking: bool = True):
             <span style="margin: 0 8px;">•</span>
             <span>Local LLM Inference</span>
         </div>
-        """)
+        """
+        )
 
         # Event handlers
         def submit_handler(user_msg, history, rerank, use_graph):

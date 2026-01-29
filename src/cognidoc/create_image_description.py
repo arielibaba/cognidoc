@@ -64,11 +64,9 @@ async def _describe_single_image_with_provider(
             return description
         except Exception as e:
             last_error = e
-            logger.warning(
-                f"Attempt {attempt + 1}/{max_retries} failed for {image_path.name}: {e}"
-            )
+            logger.warning(f"Attempt {attempt + 1}/{max_retries} failed for {image_path.name}: {e}")
             if attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                await asyncio.sleep(2**attempt)  # Exponential backoff
 
     logger.error(f"All attempts failed for {image_path.name}: {last_error}")
     raise last_error
@@ -96,20 +94,13 @@ async def _describe_single_image_ollama(
     Returns:
         Description text
     """
+
     def sync_chat() -> str:
         messages = [
             {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": description_prompt,
-                "images": [str(image_path)]
-            }
+            {"role": "user", "content": description_prompt, "images": [str(image_path)]},
         ]
-        resp = client.chat(
-            model=model,
-            messages=messages,
-            options=model_options
-        )
+        resp = client.chat(model=model, messages=messages, options=model_options)
         return resp["message"]["content"]
 
     description = await asyncio.to_thread(sync_chat)
@@ -236,11 +227,10 @@ async def create_image_descriptions_async(
         original_count = len(images)
         # Detections are named {prefix}_page_{n}_Picture_{idx}.jpg where prefix may include
         # subdirectory encoding: {subdir}__{stem}_page_{n}_Picture_{idx}.jpg
-        images = [
-            p for p in images
-            if any(f"{stem}_page_" in p.stem for stem in image_filter)
-        ]
-        logger.info(f"Filtered to {len(images)} picture images (from {original_count}) matching filter")
+        images = [p for p in images if any(f"{stem}_page_" in p.stem for stem in image_filter)]
+        logger.info(
+            f"Filtered to {len(images)} picture images (from {original_count}) matching filter"
+        )
 
     stats["total_images"] = len(images)
 
@@ -269,7 +259,8 @@ async def create_image_descriptions_async(
     # End timing
     pipeline_timer.end()
 
-    logger.info(f"""
+    logger.info(
+        f"""
     Image Description Complete:
     - Total images: {stats['total_images']}
     - Described: {stats['described']}
@@ -277,6 +268,7 @@ async def create_image_descriptions_async(
     - Tables extracted: {stats['tables_extracted']}
     - Errors: {stats['errors']}
     - Output: {output_dir}
-    """)
+    """
+    )
 
     return stats

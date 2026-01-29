@@ -67,7 +67,7 @@ def cmd_query(args):
     if args.show_sources and result.sources:
         print(f"\nSources ({len(result.sources)}):")
         for i, source in enumerate(result.sources, 1):
-            page = f" (p.{source['page']})" if source.get('page') else ""
+            page = f" (p.{source['page']})" if source.get("page") else ""
             print(f"  [{i}] {source['source']}{page}")
 
 

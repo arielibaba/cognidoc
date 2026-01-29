@@ -23,6 +23,7 @@ DEFAULT_CONFIG_PATH = PROJECT_DIR / "config/graph_schema.yaml"
 @dataclass
 class EntityType:
     """Definition of an entity type."""
+
     name: str
     description: str
     examples: List[str] = field(default_factory=list)
@@ -32,6 +33,7 @@ class EntityType:
 @dataclass
 class RelationshipType:
     """Definition of a relationship type."""
+
     name: str
     description: str
     source_types: List[str] = field(default_factory=list)
@@ -42,6 +44,7 @@ class RelationshipType:
 @dataclass
 class DomainConfig:
     """Domain configuration."""
+
     name: str = "General Knowledge Base"
     description: str = "General-purpose document collection"
     language: str = "en"
@@ -51,6 +54,7 @@ class DomainConfig:
 @dataclass
 class ExtractionConfig:
     """Entity/relationship extraction settings."""
+
     max_entities_per_chunk: int = 15
     max_relationships_per_chunk: int = 20
     min_confidence: float = 0.7
@@ -62,6 +66,7 @@ class ExtractionConfig:
 @dataclass
 class GraphSettings:
     """Knowledge graph settings."""
+
     merge_similar_entities: bool = True
     entity_similarity_threshold: float = 0.85
     enable_communities: bool = True
@@ -74,6 +79,7 @@ class GraphSettings:
 @dataclass
 class RoutingConfig:
     """Query routing settings."""
+
     strategy: str = "hybrid"
     graph_query_patterns: List[str] = field(default_factory=list)
     vector_weight: float = 0.5
@@ -84,6 +90,7 @@ class RoutingConfig:
 @dataclass
 class CustomPrompts:
     """Custom extraction prompts."""
+
     entity_extraction: str = ""
     relationship_extraction: str = ""
     community_summary: str = ""
@@ -100,6 +107,7 @@ class EntityResolutionConfig:
     3. Clustering: Build equivalence clusters via transitive closure
     4. Merging: Merge entities with full information enrichment
     """
+
     # Enable/disable entity resolution
     enabled: bool = True
 
@@ -140,6 +148,7 @@ class EntityResolutionConfig:
             ENTITY_RESOLUTION_CACHE_TTL_HOURS,
             ENTITY_RESOLUTION_BATCH_SIZE,
         )
+
         return cls(
             enabled=ENABLE_ENTITY_RESOLUTION,
             similarity_threshold=ENTITY_RESOLUTION_SIMILARITY_THRESHOLD,
@@ -155,6 +164,7 @@ class EntityResolutionConfig:
 @dataclass
 class GraphConfig:
     """Complete graph configuration."""
+
     domain: DomainConfig = field(default_factory=DomainConfig)
     entities: List[EntityType] = field(default_factory=list)
     relationships: List[RelationshipType] = field(default_factory=list)
@@ -223,23 +233,27 @@ def load_graph_config(config_path: Optional[str] = None) -> GraphConfig:
     # Parse entities
     entities = []
     for e in data.get("entities", []):
-        entities.append(EntityType(
-            name=e.get("name", ""),
-            description=e.get("description", ""),
-            examples=e.get("examples", []),
-            attributes=e.get("attributes", []),
-        ))
+        entities.append(
+            EntityType(
+                name=e.get("name", ""),
+                description=e.get("description", ""),
+                examples=e.get("examples", []),
+                attributes=e.get("attributes", []),
+            )
+        )
 
     # Parse relationships
     relationships = []
     for r in data.get("relationships", []):
-        relationships.append(RelationshipType(
-            name=r.get("name", ""),
-            description=r.get("description", ""),
-            source_types=r.get("source_types", []),
-            target_types=r.get("target_types", []),
-            examples=r.get("examples", []),
-        ))
+        relationships.append(
+            RelationshipType(
+                name=r.get("name", ""),
+                description=r.get("description", ""),
+                source_types=r.get("source_types", []),
+                target_types=r.get("target_types", []),
+                examples=r.get("examples", []),
+            )
+        )
 
     # Parse extraction settings
     extraction_data = data.get("extraction", {})

@@ -43,7 +43,7 @@ def clean_extracted_text(text: str) -> str:
 
     # Remove markdown code block wrappers if present
     if text.startswith("```markdown"):
-        text = text[len("```markdown"):].strip()
+        text = text[len("```markdown") :].strip()
     if text.startswith("```"):
         text = text[3:].strip()
     if text.endswith("```"):
@@ -60,7 +60,7 @@ def clean_extracted_text(text: str) -> str:
         text = text.replace(marker, "")
 
     # Clean up excessive whitespace
-    text = re.sub(r'\n{4,}', '\n\n\n', text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
     text = text.strip()
 
     return text
@@ -198,10 +198,11 @@ def parse_image_with_text(
         # Detections are named {prefix}_page_{n}_Text.jpg where prefix may include
         # subdirectory encoding: {subdir}__{stem}_page_{n}_Text.jpg
         text_images = [
-            p for p in text_images
-            if any(f"{stem}_page_" in p.stem for stem in image_filter)
+            p for p in text_images if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
-        logger.info(f"Filtered to {len(text_images)} text images (from {original_count}) matching filter")
+        logger.info(
+            f"Filtered to {len(text_images)} text images (from {original_count}) matching filter"
+        )
     logger.info(f"Found {len(text_images)} text images to process")
 
     for image_path in text_images:

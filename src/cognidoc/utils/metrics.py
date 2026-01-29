@@ -70,6 +70,7 @@ class PerformanceMetrics:
 
         if db_path is None:
             from ..constants import METRICS_DB
+
             db_path = METRICS_DB
 
         self.db_path = Path(db_path)
@@ -86,7 +87,8 @@ class PerformanceMetrics:
     def _init_db(self):
         """Initialize the SQLite database."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS query_metrics (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp REAL NOT NULL,
@@ -112,13 +114,18 @@ class PerformanceMetrics:
                     agent_steps INTEGER,
                     tools_used TEXT
                 )
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_timestamp ON query_metrics(timestamp)
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_path ON query_metrics(path)
-            """)
+            """
+            )
             conn.commit()
 
     def log_query(self, query: str, metrics: QueryMetrics) -> None:
@@ -157,11 +164,13 @@ class PerformanceMetrics:
                     metrics.cache_misses,
                     metrics.agent_steps,
                     json.dumps(metrics.tools_used) if metrics.tools_used else None,
-                )
+                ),
             )
             conn.commit()
 
-        logger.debug(f"Logged metrics for query {query_hash}: {metrics.path}, {metrics.total_time_ms:.0f}ms")
+        logger.debug(
+            f"Logged metrics for query {query_hash}: {metrics.path}, {metrics.total_time_ms:.0f}ms"
+        )
 
     def record_cache_hit(self) -> None:
         """Record a cache hit in the current session."""
@@ -216,28 +225,36 @@ class PerformanceMetrics:
             avg_latency = cursor.fetchone()["avg"] or 0
 
             # Latency by path
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT path, AVG(total_time_ms) as avg_latency, COUNT(*) as count
                 FROM query_metrics
                 GROUP BY path
-            """)
-            path_stats = {row["path"]: {"avg_latency_ms": round(row["avg_latency"], 1), "count": row["count"]}
-                         for row in cursor.fetchall()}
+            """
+            )
+            path_stats = {
+                row["path"]: {"avg_latency_ms": round(row["avg_latency"], 1), "count": row["count"]}
+                for row in cursor.fetchall()
+            }
 
             # Query type distribution
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT query_type, COUNT(*) as count
                 FROM query_metrics
                 WHERE query_type IS NOT NULL
                 GROUP BY query_type
-            """)
+            """
+            )
             query_types = {row["query_type"]: row["count"] for row in cursor.fetchall()}
 
             # Cache stats
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT SUM(cache_hits) as hits, SUM(cache_misses) as misses
                 FROM query_metrics
-            """)
+            """
+            )
             row = cursor.fetchone()
             total_hits = row["hits"] or 0
             total_misses = row["misses"] or 0
@@ -245,11 +262,13 @@ class PerformanceMetrics:
             cache_hit_rate = (total_hits / total_cache_ops * 100) if total_cache_ops > 0 else 0
 
             # Agent stats
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT AVG(agent_steps) as avg_steps, COUNT(*) as agent_queries
                 FROM query_metrics
                 WHERE agent_steps IS NOT NULL
-            """)
+            """
+            )
             row = cursor.fetchone()
             avg_agent_steps = row["avg_steps"] or 0
             agent_queries = row["agent_queries"] or 0
@@ -285,7 +304,7 @@ class PerformanceMetrics:
                 ORDER BY timestamp DESC
                 LIMIT ?
                 """,
-                (limit,)
+                (limit,),
             )
             rows = cursor.fetchall()
 
@@ -320,7 +339,7 @@ class PerformanceMetrics:
                 ORDER BY timestamp DESC
                 LIMIT ?
                 """,
-                (limit,)
+                (limit,),
             )
             rows = cursor.fetchall()
 
@@ -342,11 +361,13 @@ class PerformanceMetrics:
     def get_path_distribution(self) -> Dict[str, int]:
         """Get query count by path for pie chart."""
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT path, COUNT(*) as count
                 FROM query_metrics
                 GROUP BY path
-            """)
+            """
+            )
             return dict(cursor.fetchall())
 
     def clear(self) -> None:
@@ -373,7 +394,8 @@ class PerformanceMetrics:
 
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     datetime(timestamp, 'unixepoch', 'localtime') as datetime,
                     query_hash, path, query_type, complexity_score,
@@ -383,7 +405,8 @@ class PerformanceMetrics:
                     agent_steps, tools_used
                 FROM query_metrics
                 ORDER BY timestamp DESC
-            """)
+            """
+            )
             rows = cursor.fetchall()
 
         if not rows:
@@ -403,7 +426,7 @@ class PerformanceMetrics:
 
         # Save to file if path provided
         if filepath:
-            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+            with open(filepath, "w", newline="", encoding="utf-8") as f:
                 f.write(csv_content)
             logger.info(f"Exported {len(rows)} metrics to {filepath}")
 
@@ -421,7 +444,8 @@ class PerformanceMetrics:
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 SELECT
                     datetime(timestamp, 'unixepoch', 'localtime') as datetime,
                     timestamp, query_hash, path, query_type, complexity_score,
@@ -431,7 +455,8 @@ class PerformanceMetrics:
                     agent_steps, tools_used
                 FROM query_metrics
                 ORDER BY timestamp DESC
-            """)
+            """
+            )
             rows = cursor.fetchall()
 
         # Convert to list of dicts
@@ -458,7 +483,7 @@ class PerformanceMetrics:
 
         # Save to file if path provided
         if filepath:
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(json_content)
             logger.info(f"Exported {len(data)} metrics to {filepath}")
 

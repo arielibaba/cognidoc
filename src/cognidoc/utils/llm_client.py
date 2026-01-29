@@ -36,7 +36,9 @@ def get_llm_client() -> BaseLLMProvider:
     global _llm_client
     if _llm_client is None:
         _llm_client = get_default_generation_provider()
-        logger.info(f"LLM client initialized: {_llm_client.config.provider.value}/{_llm_client.config.model}")
+        logger.info(
+            f"LLM client initialized: {_llm_client.config.provider.value}/{_llm_client.config.model}"
+        )
     return _llm_client
 
 
@@ -70,10 +72,12 @@ def set_llm_provider(provider: str, model: str = None) -> BaseLLMProvider:
     model = model or default_models.get(provider, "gemini-2.5-flash")
 
     # Use from_model to auto-load specs
-    _llm_client = create_llm_provider(LLMConfig.from_model(
-        model=model,
-        provider=provider,
-    ))
+    _llm_client = create_llm_provider(
+        LLMConfig.from_model(
+            model=model,
+            provider=provider,
+        )
+    )
     logger.info(f"LLM client set to: {provider}/{model}")
     return _llm_client
 
@@ -162,10 +166,7 @@ async def llm_chat_async(
         Response text from LLM
     """
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
-        _executor,
-        lambda: llm_chat(messages, temperature, json_mode)
-    )
+    return await loop.run_in_executor(_executor, lambda: llm_chat(messages, temperature, json_mode))
 
 
 # Ingestion-specific LLM client (uses INGESTION_LLM_MODEL for higher quality)
@@ -185,10 +186,13 @@ def get_ingestion_llm_client() -> BaseLLMProvider:
     global _ingestion_llm_client
     if _ingestion_llm_client is None:
         from ..constants import INGESTION_LLM_MODEL
-        _ingestion_llm_client = create_llm_provider(LLMConfig.from_model(
-            model=INGESTION_LLM_MODEL,
-            provider="gemini",
-        ))
+
+        _ingestion_llm_client = create_llm_provider(
+            LLMConfig.from_model(
+                model=INGESTION_LLM_MODEL,
+                provider="gemini",
+            )
+        )
         logger.info(f"Ingestion LLM client initialized: gemini/{INGESTION_LLM_MODEL}")
     return _ingestion_llm_client
 
@@ -249,8 +253,7 @@ async def llm_chat_async_ingestion(
     """
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
-        _executor,
-        lambda: llm_chat_ingestion(messages, temperature, json_mode)
+        _executor, lambda: llm_chat_ingestion(messages, temperature, json_mode)
     )
 
 
@@ -274,7 +277,10 @@ async def run_parallel_llm_calls(
         rewritten = results["rewrite"]
         classification = results["classify"]
     """
-    async def call_with_name(name: str, messages: List[Dict[str, str]], temp: Optional[float]) -> Tuple[str, str]:
+
+    async def call_with_name(
+        name: str, messages: List[Dict[str, str]], temp: Optional[float]
+    ) -> Tuple[str, str]:
         result = await llm_chat_async(messages, temp)
         return (name, result)
 
@@ -309,6 +315,7 @@ def run_parallel_sync(
         if loop.is_running():
             # If already in async context, use thread pool
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, run_parallel_llm_calls(calls))
                 return future.result()

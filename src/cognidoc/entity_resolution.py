@@ -42,9 +42,11 @@ from .utils.tool_cache import PersistentToolCache
 # Data Structures
 # =============================================================================
 
+
 @dataclass
 class CandidatePair:
     """Candidate pair for LLM verification."""
+
     entity_a_id: str
     entity_b_id: str
     similarity_score: float
@@ -53,6 +55,7 @@ class CandidatePair:
 @dataclass
 class ResolutionDecision:
     """Decision from LLM verification."""
+
     same_entity: bool
     confidence: float
     canonical_name: str
@@ -62,6 +65,7 @@ class ResolutionDecision:
 @dataclass
 class MergedEntity:
     """Result of merging a cluster of entities."""
+
     canonical_id: str
     canonical_name: str
     type: str
@@ -76,6 +80,7 @@ class MergedEntity:
 @dataclass
 class EntityResolutionResult:
     """Complete resolution result with statistics."""
+
     original_entity_count: int
     final_entity_count: int
     candidates_found: int
@@ -91,6 +96,7 @@ class EntityResolutionResult:
 # =============================================================================
 # Phase 1: Blocking (Embedding Similarity)
 # =============================================================================
+
 
 async def compute_resolution_embeddings(
     entities: List[GraphNode],
@@ -132,7 +138,7 @@ async def compute_resolution_embeddings(
         logger.info(f"Computing embeddings for {len(texts)} entities (sync)...")
         embeddings = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+            batch = texts[i : i + batch_size]
             batch_embeddings = provider.embed(batch)
             embeddings.extend(batch_embeddings)
 
@@ -182,11 +188,13 @@ def find_candidate_pairs(
             # Find indices above threshold (only upper triangle)
             for cand_idx in range(entity_idx + 1, n):
                 if sim_scores[cand_idx] >= similarity_threshold:
-                    candidates.append(CandidatePair(
-                        entity_a_id=entities[entity_idx].id,
-                        entity_b_id=entities[cand_idx].id,
-                        similarity_score=float(sim_scores[cand_idx]),
-                    ))
+                    candidates.append(
+                        CandidatePair(
+                            entity_a_id=entities[entity_idx].id,
+                            entity_b_id=entities[cand_idx].id,
+                            similarity_score=float(sim_scores[cand_idx]),
+                        )
+                    )
 
     # Sort by similarity (highest first) for prioritization
     candidates.sort(key=lambda c: c.similarity_score, reverse=True)
@@ -197,6 +205,7 @@ def find_candidate_pairs(
 # =============================================================================
 # Phase 2: Matching (LLM Verification)
 # =============================================================================
+
 
 def get_entity_relations_summary(
     entity: GraphNode,
@@ -322,12 +331,15 @@ async def verify_candidate_pair(
 
     except Exception as e:
         logger.warning(f"LLM verification failed for {entity_a.name} vs {entity_b.name}: {e}")
-        return ResolutionDecision(
-            same_entity=False,
-            confidence=0.0,
-            canonical_name=entity_a.name,
-            reasoning=f"Error: {str(e)}",
-        ), False
+        return (
+            ResolutionDecision(
+                same_entity=False,
+                confidence=0.0,
+                canonical_name=entity_a.name,
+                reasoning=f"Error: {str(e)}",
+            ),
+            False,
+        )
 
 
 def _parse_resolution_response(response: str, fallback_name: str) -> Dict[str, Any]:
@@ -438,6 +450,7 @@ async def verify_candidates_batch(
 # Phase 3: Clustering (Union-Find)
 # =============================================================================
 
+
 class UnionFind:
     """Union-Find data structure with canonical name tracking."""
 
@@ -488,7 +501,7 @@ class UnionFind:
 
 
 def build_entity_clusters(
-    verified_pairs: List[Tuple[CandidatePair, ResolutionDecision]]
+    verified_pairs: List[Tuple[CandidatePair, ResolutionDecision]],
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """
     Build clusters from verified pairs using Union-Find.
@@ -516,6 +529,7 @@ def build_entity_clusters(
 # =============================================================================
 # Phase 4: Merging (Enrichment)
 # =============================================================================
+
 
 async def merge_descriptions(
     descriptions: List[str],
@@ -575,7 +589,7 @@ def _concatenate_descriptions_smart(descriptions: List[str]) -> str:
 
     for desc in descriptions:
         # Split into sentences
-        sentences = re.split(r'(?<=[.!?])\s+', desc)
+        sentences = re.split(r"(?<=[.!?])\s+", desc)
         for sent in sentences:
             sent = sent.strip()
             if not sent:
@@ -680,10 +694,7 @@ async def merge_entity_cluster(
     # 1. Canonical name (from LLM or most frequent/longest)
     if not canonical_name:
         name_counts = Counter(e.name for e in entities)
-        canonical_name = max(
-            name_counts.keys(),
-            key=lambda n: (name_counts[n], len(n))
-        )
+        canonical_name = max(name_counts.keys(), key=lambda n: (name_counts[n], len(n)))
 
     # 2. Collect all aliases
     aliases = list(set(e.name for e in entities if e.name != canonical_name))
@@ -711,7 +722,7 @@ async def merge_entity_cluster(
     unique_chunks = list(dict.fromkeys(all_chunks))
 
     # 7. Average confidence (from embeddings if available)
-    confidences = [getattr(e, 'confidence', 1.0) for e in entities]
+    confidences = [getattr(e, "confidence", 1.0) for e in entities]
     avg_confidence = sum(confidences) / len(confidences) if confidences else 1.0
 
     return MergedEntity(
@@ -730,6 +741,7 @@ async def merge_entity_cluster(
 # =============================================================================
 # Orchestration
 # =============================================================================
+
 
 async def apply_merges(
     graph: KnowledgeGraph,
@@ -786,9 +798,7 @@ async def apply_merges(
         for member_id in member_ids:
             if member_id != canonical_id:
                 # Redirect edges
-                stats["relationships_updated"] += _redirect_edges(
-                    graph, member_id, canonical_id
-                )
+                stats["relationships_updated"] += _redirect_edges(graph, member_id, canonical_id)
 
                 # Remove member node
                 if member_id in graph.nodes:

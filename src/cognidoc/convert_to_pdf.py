@@ -21,11 +21,22 @@ from typing import List, Dict, Tuple, Optional
 from .utils.logger import logger
 
 # Supported file extensions by conversion method
-OFFICE_EXTENSIONS = {'.ppt', '.pptx', '.doc', '.docx', '.xls', '.xlsx', '.odt', '.odp', '.ods', '.rtf'}
-HTML_EXTENSIONS = {'.html', '.htm'}
-TEXT_EXTENSIONS = {'.txt'}
-MARKDOWN_EXTENSIONS = {'.md', '.markdown'}
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
+OFFICE_EXTENSIONS = {
+    ".ppt",
+    ".pptx",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".odt",
+    ".odp",
+    ".ods",
+    ".rtf",
+}
+HTML_EXTENSIONS = {".html", ".htm"}
+TEXT_EXTENSIONS = {".txt"}
+MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp"}
 
 # Extensions that need PDF conversion (documents)
 PDF_CONVERTIBLE_EXTENSIONS = (
@@ -76,7 +87,7 @@ def find_libreoffice() -> Optional[str]:
         cmd = "where" if system == "Windows" else "which"
         result = subprocess.run([cmd, "soffice"], capture_output=True, text=True)
         if result.returncode == 0:
-            return result.stdout.strip().split('\n')[0]
+            return result.stdout.strip().split("\n")[0]
     except Exception:
         pass
 
@@ -84,9 +95,7 @@ def find_libreoffice() -> Optional[str]:
 
 
 def convert_with_libreoffice(
-    input_path: Path,
-    output_dir: Path,
-    libreoffice_path: str
+    input_path: Path, output_dir: Path, libreoffice_path: str
 ) -> Optional[Path]:
     """
     Convert a document to PDF using LibreOffice.
@@ -104,16 +113,15 @@ def convert_with_libreoffice(
         cmd = [
             libreoffice_path,
             "--headless",
-            "--convert-to", "pdf",
-            "--outdir", str(output_dir),
-            str(input_path)
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(input_path),
         ]
 
         result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120  # 2 minute timeout
+            cmd, capture_output=True, text=True, timeout=120  # 2 minute timeout
         )
 
         if result.returncode != 0:
@@ -182,13 +190,12 @@ def convert_markdown_to_pdf(input_path: Path, output_path: Path) -> Optional[Pat
         from weasyprint import HTML
 
         # Read markdown content
-        with open(input_path, 'r', encoding='utf-8') as f:
+        with open(input_path, "r", encoding="utf-8") as f:
             md_content = f.read()
 
         # Convert to HTML
         html_content = markdown.markdown(
-            md_content,
-            extensions=['tables', 'fenced_code', 'codehilite']
+            md_content, extensions=["tables", "fenced_code", "codehilite"]
         )
 
         # Wrap in basic HTML structure with styling
@@ -243,7 +250,7 @@ def convert_text_to_pdf(input_path: Path, output_path: Path) -> Optional[Path]:
         from reportlab.lib.units import inch
 
         # Read text content
-        with open(input_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(input_path, "r", encoding="utf-8", errors="replace") as f:
             text_content = f.read()
 
         # Create PDF
@@ -255,7 +262,7 @@ def convert_text_to_pdf(input_path: Path, output_path: Path) -> Optional[Path]:
 
         # Write text line by line
         y = height - inch
-        lines = text_content.split('\n')
+        lines = text_content.split("\n")
 
         for line in lines:
             if y < inch:
@@ -302,18 +309,18 @@ def convert_image_to_pdf(input_path: Path, output_path: Path) -> Optional[Path]:
         img = Image.open(input_path)
 
         # Convert to RGB if necessary (for PNG with transparency, etc.)
-        if img.mode in ('RGBA', 'LA', 'P'):
+        if img.mode in ("RGBA", "LA", "P"):
             # Create white background
-            background = Image.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'P':
-                img = img.convert('RGBA')
-            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
             img = background
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
 
         # Save as PDF
-        img.save(str(output_path), 'PDF', resolution=100.0)
+        img.save(str(output_path), "PDF", resolution=100.0)
 
         if output_path.exists():
             return output_path
@@ -328,9 +335,7 @@ def convert_image_to_pdf(input_path: Path, output_path: Path) -> Optional[Path]:
 
 
 def convert_document_to_pdf(
-    input_path: Path,
-    output_dir: Path,
-    libreoffice_path: Optional[str] = None
+    input_path: Path, output_dir: Path, libreoffice_path: Optional[str] = None
 ) -> Optional[Path]:
     """
     Convert a document to PDF based on its file type.
@@ -466,7 +471,7 @@ def process_source_documents(
             relative_dir = Path("")
 
         # Handle PDFs - copy directly to pdf_output_dir
-        if ext == '.pdf':
+        if ext == ".pdf":
             target_output_dir = pdf_output_path / relative_dir
             target_output_dir.mkdir(parents=True, exist_ok=True)
             target_pdf = target_output_dir / file_path.name
@@ -554,7 +559,8 @@ def process_source_documents(
             logger.error(f"Failed to convert: {file_path.name}")
 
     # Log summary
-    logger.info(f"""
+    logger.info(
+        f"""
     ============================================
     Source Documents Processing Summary
     ============================================
@@ -568,7 +574,8 @@ def process_source_documents(
 
     By format: {stats['by_format']}
     ============================================
-    """)
+    """
+    )
 
     return stats
 
@@ -585,7 +592,5 @@ def convert_non_pdfs_to_pdf(
     This function now just calls process_source_documents for backward compatibility.
     The non_pdf_archive_dir parameter is ignored.
     """
-    logger.warning(
-        "convert_non_pdfs_to_pdf is deprecated. Use process_source_documents instead."
-    )
+    logger.warning("convert_non_pdfs_to_pdf is deprecated. Use process_source_documents instead.")
     return process_source_documents(input_dir, pdf_output_dir)

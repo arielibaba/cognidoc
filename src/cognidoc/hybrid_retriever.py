@@ -82,6 +82,7 @@ __all__ = ["QueryType", "HybridRetriever", "HybridRetrievalResult"]
 # Retrieval Cache (for identical queries)
 # =============================================================================
 
+
 class RetrievalCache:
     """
     LRU cache for retrieval results.
@@ -109,7 +110,9 @@ class RetrievalCache:
         key_data = f"{query}|{top_k}|{use_reranking}|{strategy}"
         return hashlib.md5(key_data.encode()).hexdigest()
 
-    def get(self, query: str, top_k: int, use_reranking: bool, strategy: str = "auto") -> Optional["HybridRetrievalResult"]:
+    def get(
+        self, query: str, top_k: int, use_reranking: bool, strategy: str = "auto"
+    ) -> Optional["HybridRetrievalResult"]:
         """Get cached result if valid."""
         key = self._make_key(query, top_k, use_reranking, strategy)
 
@@ -130,7 +133,14 @@ class RetrievalCache:
         self._misses += 1
         return None
 
-    def put(self, query: str, top_k: int, use_reranking: bool, result: "HybridRetrievalResult", strategy: str = "auto") -> None:
+    def put(
+        self,
+        query: str,
+        top_k: int,
+        use_reranking: bool,
+        result: "HybridRetrievalResult",
+        strategy: str = "auto",
+    ) -> None:
         """Cache a retrieval result."""
         key = self._make_key(query, top_k, use_reranking, strategy)
 
@@ -166,6 +176,7 @@ _retrieval_cache = RetrievalCache()
 @dataclass
 class QueryAnalysis:
     """Result of query analysis (legacy, now uses RoutingDecision internally)."""
+
     query: str
     query_type: QueryType
     entities_mentioned: List[str] = field(default_factory=list)
@@ -195,6 +206,7 @@ class QueryAnalysis:
 @dataclass
 class HybridRetrievalResult:
     """Combined result from hybrid retrieval."""
+
     query: str
     query_analysis: QueryAnalysis
     vector_results: List[NodeWithScore] = field(default_factory=list)
@@ -612,10 +624,15 @@ class HybridRetriever:
 
                     # Convert back to NodeWithScore
                     vector_results = [
-                        NodeWithScore(node=doc if isinstance(doc, Document) else Document(text=str(doc)), score=score)
+                        NodeWithScore(
+                            node=doc if isinstance(doc, Document) else Document(text=str(doc)),
+                            score=score,
+                        )
                         for doc, score in fused
                     ]
-                    logger.debug(f"Hybrid fusion: {len(vector_results)} results (alpha={HYBRID_DENSE_WEIGHT})")
+                    logger.debug(
+                        f"Hybrid fusion: {len(vector_results)} results (alpha={HYBRID_DENSE_WEIGHT})"
+                    )
                 else:
                     vector_results = dense_results
 
@@ -630,7 +647,9 @@ class HybridRetriever:
                             parents = self._keyword_index.search_by_metadata("name", parent_name)
                             for parent in parents:
                                 if parent.metadata.get("name") not in seen_parents:
-                                    parent_results.append(NodeWithScore(node=parent, score=nws.score))
+                                    parent_results.append(
+                                        NodeWithScore(node=parent, score=nws.score)
+                                    )
                                     seen_parents.add(parent.metadata.get("name"))
 
                     # #16: Metadata filtering
@@ -642,12 +661,15 @@ class HybridRetriever:
                         )
                         if filtered_docs:
                             parent_results = [
-                                NodeWithScore(node=doc, score=0.5)
-                                for doc in filtered_docs
+                                NodeWithScore(node=doc, score=0.5) for doc in filtered_docs
                             ]
-                            logger.debug(f"Metadata filtering: {len(parent_results)} results after filtering")
+                            logger.debug(
+                                f"Metadata filtering: {len(parent_results)} results after filtering"
+                            )
                         else:
-                            logger.warning("Metadata filtering returned no results, using unfiltered")
+                            logger.warning(
+                                "Metadata filtering returned no results, using unfiltered"
+                            )
 
                     # Reranking: #9 Cross-encoder or LLM-based
                     if use_reranking and parent_results:
@@ -661,8 +683,7 @@ class HybridRetriever:
                                 batch_size=CROSS_ENCODER_BATCH_SIZE,
                             )
                             parent_results = [
-                                NodeWithScore(node=doc, score=score)
-                                for doc, score in reranked
+                                NodeWithScore(node=doc, score=score) for doc, score in reranked
                             ]
                             logger.debug(f"Cross-encoder reranking: {len(parent_results)} results")
                         else:
@@ -678,7 +699,10 @@ class HybridRetriever:
                     if use_lost_in_middle and len(parent_results) > 2:
                         docs_ordered = reorder_lost_in_middle([nws.node for nws in parent_results])
                         parent_results = [
-                            NodeWithScore(node=doc, score=parent_results[i].score if i < len(parent_results) else 0)
+                            NodeWithScore(
+                                node=doc,
+                                score=parent_results[i].score if i < len(parent_results) else 0,
+                            )
                             for i, doc in enumerate(docs_ordered)
                         ]
                         logger.debug("Applied lost-in-the-middle reordering")
@@ -782,7 +806,9 @@ class HybridRetriever:
                     fused_context = f"=== COMPRESSED DOCUMENT CONTEXT ===\n{compressed_context}"
                     if graph_result and graph_result.context:
                         fused_context = f"=== KNOWLEDGE GRAPH CONTEXT ===\n{graph_result.context}\n\n{fused_context}"
-                    logger.debug(f"Applied contextual compression: {len(compressed_texts)} segments")
+                    logger.debug(
+                        f"Applied contextual compression: {len(compressed_texts)} segments"
+                    )
             except Exception as e:
                 logger.warning(f"Contextual compression failed: {e}")
 
@@ -828,7 +854,9 @@ class HybridRetriever:
         stats = {
             "vector_index": "loaded" if self._vector_index else "not_loaded",
             "keyword_index": "loaded" if self._keyword_index else "not_loaded",
-            "graph": self._graph_retriever.get_statistics() if self._graph_retriever else "not_loaded",
+            "graph": (
+                self._graph_retriever.get_statistics() if self._graph_retriever else "not_loaded"
+            ),
         }
         return stats
 

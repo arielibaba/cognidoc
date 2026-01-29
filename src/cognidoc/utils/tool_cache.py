@@ -29,11 +29,11 @@ class PersistentToolCache:
 
     # TTL values in seconds per tool type (tuned for better cache hit rates)
     TTL_CONFIG = {
-        "database_stats": 1800,     # 30 minutes - rarely changes during session
-        "retrieve_vector": 300,     # 5 minutes - search results stable for a while
-        "retrieve_graph": 300,      # 5 minutes - graph results stable for a while
-        "lookup_entity": 600,       # 10 minutes - entity data rarely changes
-        "compare_entities": 1800,   # 30 minutes - comparison stable for session
+        "database_stats": 1800,  # 30 minutes - rarely changes during session
+        "retrieve_vector": 300,  # 5 minutes - search results stable for a while
+        "retrieve_graph": 300,  # 5 minutes - graph results stable for a while
+        "lookup_entity": 600,  # 10 minutes - entity data rarely changes
+        "compare_entities": 1800,  # 30 minutes - comparison stable for session
     }
     DEFAULT_TTL = 120  # 2 minutes default
 
@@ -58,6 +58,7 @@ class PersistentToolCache:
 
         if db_path is None:
             from ..constants import TOOL_CACHE_DB
+
             db_path = TOOL_CACHE_DB
 
         self.db_path = Path(db_path)
@@ -69,7 +70,8 @@ class PersistentToolCache:
     def _init_db(self):
         """Initialize the SQLite database."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS tool_cache (
                     cache_key TEXT PRIMARY KEY,
                     tool_name TEXT NOT NULL,
@@ -77,13 +79,18 @@ class PersistentToolCache:
                     created_at REAL NOT NULL,
                     ttl INTEGER NOT NULL
                 )
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_tool_name ON tool_cache(tool_name)
-            """)
-            conn.execute("""
+            """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_created_at ON tool_cache(created_at)
-            """)
+            """
+            )
             conn.commit()
 
     @staticmethod
@@ -114,7 +121,7 @@ class PersistentToolCache:
                 SELECT result, created_at, ttl FROM tool_cache
                 WHERE cache_key = ?
                 """,
-                (cache_key,)
+                (cache_key,),
             )
             row = cursor.fetchone()
 
@@ -138,6 +145,7 @@ class PersistentToolCache:
         """Record a cache hit in metrics."""
         try:
             from .metrics import get_performance_metrics
+
             get_performance_metrics().record_cache_hit()
         except Exception:
             pass  # Metrics not available
@@ -146,6 +154,7 @@ class PersistentToolCache:
         """Record a cache miss in metrics."""
         try:
             from .metrics import get_performance_metrics
+
             get_performance_metrics().record_cache_miss()
         except Exception:
             pass  # Metrics not available
@@ -171,13 +180,7 @@ class PersistentToolCache:
                 (cache_key, tool_name, result, created_at, ttl)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (
-                    cache_key,
-                    tool_name,
-                    json.dumps(result, default=str),
-                    time.time(),
-                    ttl
-                )
+                (cache_key, tool_name, json.dumps(result, default=str), time.time(), ttl),
             )
             conn.commit()
 
@@ -220,7 +223,7 @@ class PersistentToolCache:
                 DELETE FROM tool_cache
                 WHERE (? - created_at) >= ttl
                 """,
-                (current_time,)
+                (current_time,),
             )
             deleted = cursor.rowcount
             conn.commit()
@@ -249,7 +252,7 @@ class PersistentToolCache:
                 SELECT COUNT(*) FROM tool_cache
                 WHERE (? - created_at) < ttl
                 """,
-                (current_time,)
+                (current_time,),
             )
             valid_count = cursor.fetchone()[0]
 
@@ -261,7 +264,7 @@ class PersistentToolCache:
                 WHERE (? - created_at) < ttl
                 GROUP BY tool_name
                 """,
-                (current_time,)
+                (current_time,),
             )
             by_tool = dict(cursor.fetchall())
 

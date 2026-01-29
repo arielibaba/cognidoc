@@ -37,6 +37,7 @@ MAX_CONCURRENT_REQUESTS = 4
 @dataclass
 class ChunkToEmbed:
     """Represents a chunk file to be embedded."""
+
     file_path: Path
     text: str
     metadata: dict
@@ -95,10 +96,7 @@ def make_metadata(chunk_filename: str) -> dict:
     return {
         "child": chunk_filename,
         "parent": parent,
-        "source": {
-            "document": document,
-            "page": page
-        }
+        "source": {"document": document, "page": page},
     }
 
 
@@ -125,7 +123,7 @@ def get_embeddings(text: str, embed_model: str, use_cache: bool = True) -> List[
 
     # Generate embedding
     response = ollama.embeddings(model=embed_model, prompt=text)
-    embed_vector = response['embedding']
+    embed_vector = response["embedding"]
 
     # Cache the result
     if use_cache:
@@ -212,11 +210,13 @@ def collect_chunks_to_embed(
 
         # Add to list of chunks to embed
         metadata = make_metadata(file_path.name)
-        chunks_to_embed.append(ChunkToEmbed(
-            file_path=file_path,
-            text=text,
-            metadata=metadata,
-        ))
+        chunks_to_embed.append(
+            ChunkToEmbed(
+                file_path=file_path,
+                text=text,
+                metadata=metadata,
+            )
+        )
         stats["to_embed"] += 1
 
     return chunks_to_embed, stats
@@ -257,7 +257,9 @@ async def embed_batch_async(
     # This avoids the overhead of creating a new connection per chunk
     async with httpx.AsyncClient(
         timeout=60.0,
-        limits=httpx.Limits(max_connections=max_concurrent, max_keepalive_connections=max_concurrent)
+        limits=httpx.Limits(
+            max_connections=max_concurrent, max_keepalive_connections=max_concurrent
+        ),
     ) as client:
 
         async def process_chunk(chunk: ChunkToEmbed) -> bool:
@@ -265,8 +267,7 @@ async def embed_batch_async(
             async with semaphore:
                 try:
                     response = await client.post(
-                        f"{host}/api/embeddings",
-                        json={"model": embed_model, "prompt": chunk.text}
+                        f"{host}/api/embeddings", json={"model": embed_model, "prompt": chunk.text}
                     )
                     response.raise_for_status()
                     embedding = response.json()["embedding"]
@@ -347,7 +348,12 @@ def create_embeddings(
     logger.info("Scanning files and checking cache...")
 
     chunks_to_embed, stats = collect_chunks_to_embed(
-        chunks_path, embeddings_path, embed_model, use_cache, force_reembed, cache,
+        chunks_path,
+        embeddings_path,
+        embed_model,
+        use_cache,
+        force_reembed,
+        cache,
         file_filter=file_filter,
     )
 
@@ -371,7 +377,7 @@ def create_embeddings(
 
         with tqdm(total=len(chunks_to_embed), desc="Embedding chunks", unit="chunk") as pbar:
             for i in range(0, len(chunks_to_embed), batch_size):
-                batch = chunks_to_embed[i:i + batch_size]
+                batch = chunks_to_embed[i : i + batch_size]
                 batch_num = i // batch_size + 1
 
                 logger.debug(f"Processing batch {batch_num}/{num_batches} ({len(batch)} chunks)")
@@ -380,10 +386,13 @@ def create_embeddings(
                 if in_async_context:
                     # Use nest_asyncio or run in thread to avoid event loop conflict
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(
                             asyncio.run,
-                            embed_batch_async(batch, embeddings_path, embed_model, use_cache, max_concurrent)
+                            embed_batch_async(
+                                batch, embeddings_path, embed_model, use_cache, max_concurrent
+                            ),
                         )
                         success, errors = future.result()
                 else:
@@ -408,11 +417,12 @@ def create_embeddings(
     # Get cache stats after
     if cache:
         cache_stats_after = cache.get_stats()
-        new_cached = cache_stats_after['total_embeddings'] - cache_stats_before['total_embeddings']
+        new_cached = cache_stats_after["total_embeddings"] - cache_stats_before["total_embeddings"]
         logger.info(f"New embeddings cached: {new_cached}")
 
     # Log summary
-    logger.info(f"""
+    logger.info(
+        f"""
     Embedding Generation Complete:
     - Total files scanned: {stats['total_files']}
     - Newly embedded: {stats['embedded']}
@@ -421,7 +431,8 @@ def create_embeddings(
     - Skipped (too short): {stats['skipped_short']}
     - Errors: {stats['errors']}
     - Output directory: {embeddings_dir}
-    """)
+    """
+    )
 
     return stats
 
@@ -432,7 +443,7 @@ def create_embeddings_sequential(
     embeddings_dir: str,
     embed_model: str,
     use_cache: bool = True,
-    force_reembed: bool = False
+    force_reembed: bool = False,
 ) -> Dict[str, int]:
     """
     Sequential embedding generation (legacy mode).

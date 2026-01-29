@@ -56,9 +56,7 @@ class IngestionManifest:
             )
             for rel_path, record_data in data.get("files", {}).items():
                 manifest.files[rel_path] = FileRecord(**record_data)
-            logger.info(
-                f"Loaded ingestion manifest: {len(manifest.files)} files tracked"
-            )
+            logger.info(f"Loaded ingestion manifest: {len(manifest.files)} files tracked")
             return manifest
         except (json.JSONDecodeError, TypeError, KeyError) as e:
             logger.warning(f"Failed to load ingestion manifest: {e}")
@@ -82,16 +80,12 @@ class IngestionManifest:
         }
 
         # Atomic write
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(path.parent), suffix=".tmp", prefix="manifest_"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp", prefix="manifest_")
         try:
             with open(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             shutil.move(tmp_path, str(path))
-            logger.info(
-                f"Ingestion manifest saved: {len(self.files)} files tracked"
-            )
+            logger.info(f"Ingestion manifest saved: {len(self.files)} files tracked")
         except Exception:
             Path(tmp_path).unlink(missing_ok=True)
             raise

@@ -20,17 +20,19 @@ from .utils.logger import logger
 
 class QueryType(Enum):
     """Types of queries for routing."""
-    FACTUAL = "factual"           # Simple fact lookup → favor vector
-    RELATIONAL = "relational"     # About relationships → favor graph
-    COMPARATIVE = "comparative"   # Comparing entities → favor graph
-    EXPLORATORY = "exploratory"   # Broad/global questions → favor graph
-    PROCEDURAL = "procedural"     # How-to questions → favor vector
-    ANALYTICAL = "analytical"     # Deep analysis → use both
+
+    FACTUAL = "factual"  # Simple fact lookup → favor vector
+    RELATIONAL = "relational"  # About relationships → favor graph
+    COMPARATIVE = "comparative"  # Comparing entities → favor graph
+    EXPLORATORY = "exploratory"  # Broad/global questions → favor graph
+    PROCEDURAL = "procedural"  # How-to questions → favor vector
+    ANALYTICAL = "analytical"  # Deep analysis → use both
     UNKNOWN = "unknown"
 
 
 class RetrievalMode(Enum):
     """Which retrieval systems to use."""
+
     VECTOR_ONLY = "vector_only"
     GRAPH_ONLY = "graph_only"
     HYBRID = "hybrid"
@@ -40,6 +42,7 @@ class RetrievalMode(Enum):
 @dataclass
 class RoutingDecision:
     """Result of query routing analysis."""
+
     query: str
     query_type: QueryType
     mode: RetrievalMode
@@ -55,6 +58,7 @@ class RoutingDecision:
 @dataclass
 class OrchestratorConfig:
     """Configuration for the query orchestrator."""
+
     # Routing thresholds
     skip_threshold: float = 0.15  # Skip retriever if weight below this
     confidence_threshold: float = 0.3  # Trigger fallback if confidence below this
@@ -139,13 +143,13 @@ QUERY_PATTERNS = {
 
 # Weight configurations per query type
 WEIGHT_CONFIG = {
-    QueryType.FACTUAL:     {"vector": 0.7, "graph": 0.3, "mode": RetrievalMode.HYBRID},
-    QueryType.RELATIONAL:  {"vector": 0.2, "graph": 0.8, "mode": RetrievalMode.HYBRID},
+    QueryType.FACTUAL: {"vector": 0.7, "graph": 0.3, "mode": RetrievalMode.HYBRID},
+    QueryType.RELATIONAL: {"vector": 0.2, "graph": 0.8, "mode": RetrievalMode.HYBRID},
     QueryType.COMPARATIVE: {"vector": 0.3, "graph": 0.7, "mode": RetrievalMode.HYBRID},
     QueryType.EXPLORATORY: {"vector": 0.1, "graph": 0.9, "mode": RetrievalMode.GRAPH_ONLY},
-    QueryType.PROCEDURAL:  {"vector": 0.8, "graph": 0.2, "mode": RetrievalMode.HYBRID},
-    QueryType.ANALYTICAL:  {"vector": 0.5, "graph": 0.5, "mode": RetrievalMode.HYBRID},
-    QueryType.UNKNOWN:     {"vector": 0.6, "graph": 0.4, "mode": RetrievalMode.HYBRID},
+    QueryType.PROCEDURAL: {"vector": 0.8, "graph": 0.2, "mode": RetrievalMode.HYBRID},
+    QueryType.ANALYTICAL: {"vector": 0.5, "graph": 0.5, "mode": RetrievalMode.HYBRID},
+    QueryType.UNKNOWN: {"vector": 0.6, "graph": 0.4, "mode": RetrievalMode.HYBRID},
 }
 
 
@@ -162,11 +166,7 @@ def classify_query_rules(query: str) -> Tuple[QueryType, float, str]:
     for query_type, patterns in QUERY_PATTERNS.items():
         for pattern in patterns:
             if re.search(pattern, query_lower):
-                return (
-                    query_type,
-                    0.8,
-                    f"Matched pattern: '{pattern}'"
-                )
+                return (query_type, 0.8, f"Matched pattern: '{pattern}'")
 
     # Default classification based on question words
     if re.match(r"^(what|who|where|when|which)\b", query_lower):
@@ -217,10 +217,7 @@ def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
     """
     try:
         result = llm_chat(
-            messages=[{
-                "role": "user",
-                "content": CLASSIFIER_PROMPT.format(query=query)
-            }],
+            messages=[{"role": "user", "content": CLASSIFIER_PROMPT.format(query=query)}],
             temperature=0.1,
         )
 
@@ -261,6 +258,7 @@ def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
 # =============================================================================
 # Query Orchestrator
 # =============================================================================
+
 
 class QueryOrchestrator:
     """
@@ -306,9 +304,11 @@ class QueryOrchestrator:
         skip_graph = graph_weight < self.config.skip_threshold
 
         # Simple factual queries can skip graph for speed
-        if (self.config.prefer_vector_for_simple
+        if (
+            self.config.prefer_vector_for_simple
             and query_type == QueryType.FACTUAL
-            and confidence > 0.7):
+            and confidence > 0.7
+        ):
             skip_graph = True
             mode = RetrievalMode.VECTOR_ONLY
             vector_weight = 1.0
@@ -378,13 +378,17 @@ class QueryOrchestrator:
         if vector_confidence < threshold and not decision.skip_graph:
             adjusted.graph_weight = min(1.0, adjusted.graph_weight + 0.3)
             adjusted.vector_weight = max(0.0, adjusted.vector_weight - 0.3)
-            adjusted.reasoning += f" | Vector low confidence ({vector_confidence:.2f}), boosted graph"
+            adjusted.reasoning += (
+                f" | Vector low confidence ({vector_confidence:.2f}), boosted graph"
+            )
 
         # If graph failed, boost vector
         if graph_confidence < threshold and not decision.skip_vector:
             adjusted.vector_weight = min(1.0, adjusted.vector_weight + 0.3)
             adjusted.graph_weight = max(0.0, adjusted.graph_weight - 0.3)
-            adjusted.reasoning += f" | Graph low confidence ({graph_confidence:.2f}), boosted vector"
+            adjusted.reasoning += (
+                f" | Graph low confidence ({graph_confidence:.2f}), boosted vector"
+            )
 
         # If both failed, use adaptive mode
         if vector_confidence < threshold and graph_confidence < threshold:
@@ -463,7 +467,7 @@ class QueryOrchestrator:
     def _split_context(self, context: str) -> List[str]:
         """Split context into chunks for deduplication."""
         # Split by document markers or double newlines
-        chunks = re.split(r'\n(?=\[Document|\=\=\=)', context)
+        chunks = re.split(r"\n(?=\[Document|\=\=\=)", context)
         return [c.strip() for c in chunks if c.strip()]
 
     def _is_duplicate(self, chunk: str, seen: List[str]) -> bool:

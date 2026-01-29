@@ -60,6 +60,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
 # Semantic Chunker (replaces LangChain SemanticChunker)
 # =============================================================================
 
+
 class SemanticChunker:
     """
     Semantic text chunker using embeddings to detect topic boundaries.
@@ -110,7 +111,7 @@ class SemanticChunker:
         # If regex didn't work well, fall back to simple splitting
         if len(sentences) <= 1 and len(text) > 200:
             # Try splitting on common sentence endings
-            sentences = re.split(r'(?<=[.!?])\s+', text)
+            sentences = re.split(r"(?<=[.!?])\s+", text)
             sentences = [s.strip() for s in sentences if s.strip()]
 
         return sentences
@@ -147,8 +148,7 @@ class SemanticChunker:
             # Lower similarities indicate topic changes
             # We want to find similarities below the threshold percentile
             threshold = np.percentile(
-                similarities_arr,
-                (1 - self.breakpoint_threshold_amount) * 100
+                similarities_arr, (1 - self.breakpoint_threshold_amount) * 100
             )
         elif self.breakpoint_threshold_type == "standard_deviation":
             mean = np.mean(similarities_arr)
@@ -228,6 +228,7 @@ class SemanticChunker:
 # Text splitting utilities
 # =============================================================================
 
+
 def hard_split(
     text: str,
     max_chunk_size: int,
@@ -279,9 +280,7 @@ def hard_split(
 
 
 def process_semantic_split(
-    texts: List[str],
-    semantic_splitter: SemanticChunker,
-    max_chunk_size: int
+    texts: List[str], semantic_splitter: SemanticChunker, max_chunk_size: int
 ) -> List[str]:
     """
     Splits a list of texts semantically into chunks within the token limit.
@@ -367,9 +366,7 @@ def semantic_chunk_text_file(
     if verbose:
         print(f"\nReading file: {file_path}")
 
-    semantic_chunks = process_semantic_split(
-        [input_text], semantic_splitter, max_chunk_size
-    )
+    semantic_chunks = process_semantic_split([input_text], semantic_splitter, max_chunk_size)
 
     return semantic_chunks
 
@@ -431,9 +428,7 @@ def chunk_text_data(
                 verbose,
             )
             for idx, chunk in enumerate(parent_chunks, 1):
-                chunk_file_name = (
-                    documents_chunks_path / f"{file_path.stem}_parent_chunk_{idx}.txt"
-                )
+                chunk_file_name = documents_chunks_path / f"{file_path.stem}_parent_chunk_{idx}.txt"
                 with open(chunk_file_name, "w", encoding="utf-8") as file:
                     file.write(chunk)
                 if verbose:
@@ -463,10 +458,7 @@ def chunk_text_data(
             chunks = hard_split(description, parent_chunk_size)
 
             for idx, chunk in enumerate(chunks, 1):
-                chunk_file_name = (
-                    documents_chunks_path
-                    / f"{file_path.stem}_chunk_{idx}.txt"
-                )
+                chunk_file_name = documents_chunks_path / f"{file_path.stem}_chunk_{idx}.txt"
                 with open(chunk_file_name, "w", encoding="utf-8") as file:
                     file.write(chunk)
                 if verbose:

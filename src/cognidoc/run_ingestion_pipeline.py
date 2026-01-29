@@ -313,121 +313,78 @@ def format_ingestion_report(stats: dict, timing: dict) -> str:
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Advanced Hybrid RAG Ingestion Pipeline"
-    )
+    parser = argparse.ArgumentParser(description="Advanced Hybrid RAG Ingestion Pipeline")
     parser.add_argument(
         "--vision-provider",
         type=str,
         default=None,
         choices=["gemini", "ollama", "openai", "anthropic"],
-        help="Vision provider for image description (default: from .env)"
+        help="Vision provider for image description (default: from .env)",
     )
     parser.add_argument(
         "--extraction-provider",
         type=str,
         default="gemini",
         choices=["gemini", "ollama", "openai", "anthropic"],
-        help="Provider for text/table extraction from images (default: gemini)"
+        help="Provider for text/table extraction from images (default: gemini)",
     )
     parser.add_argument(
-        "--skip-conversion",
-        action="store_true",
-        help="Skip non-PDF to PDF conversion"
+        "--skip-conversion", action="store_true", help="Skip non-PDF to PDF conversion"
     )
+    parser.add_argument("--skip-pdf", action="store_true", help="Skip PDF to image conversion")
+    parser.add_argument("--skip-yolo", action="store_true", help="Skip YOLO detection")
+    parser.add_argument("--skip-extraction", action="store_true", help="Skip text/table extraction")
     parser.add_argument(
-        "--skip-pdf",
-        action="store_true",
-        help="Skip PDF to image conversion"
+        "--skip-descriptions", action="store_true", help="Skip image description generation"
     )
+    parser.add_argument("--skip-chunking", action="store_true", help="Skip chunking")
+    parser.add_argument("--skip-embeddings", action="store_true", help="Skip embedding generation")
     parser.add_argument(
-        "--skip-yolo",
-        action="store_true",
-        help="Skip YOLO detection"
+        "--force-reembed", action="store_true", help="Force re-embedding even for cached content"
     )
+    parser.add_argument("--no-cache", action="store_true", help="Disable embedding cache")
+    parser.add_argument("--skip-indexing", action="store_true", help="Skip vector index building")
     parser.add_argument(
-        "--skip-extraction",
-        action="store_true",
-        help="Skip text/table extraction"
-    )
-    parser.add_argument(
-        "--skip-descriptions",
-        action="store_true",
-        help="Skip image description generation"
-    )
-    parser.add_argument(
-        "--skip-chunking",
-        action="store_true",
-        help="Skip chunking"
-    )
-    parser.add_argument(
-        "--skip-embeddings",
-        action="store_true",
-        help="Skip embedding generation"
-    )
-    parser.add_argument(
-        "--force-reembed",
-        action="store_true",
-        help="Force re-embedding even for cached content"
-    )
-    parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable embedding cache"
-    )
-    parser.add_argument(
-        "--skip-indexing",
-        action="store_true",
-        help="Skip vector index building"
-    )
-    parser.add_argument(
-        "--skip-graph",
-        action="store_true",
-        help="Skip knowledge graph building (GraphRAG)"
+        "--skip-graph", action="store_true", help="Skip knowledge graph building (GraphRAG)"
     )
     parser.add_argument(
         "--skip-resolution",
         action="store_true",
-        help="Skip entity resolution (semantic deduplication)"
+        help="Skip entity resolution (semantic deduplication)",
     )
     parser.add_argument(
-        "--graph-config",
-        type=str,
-        default=None,
-        help="Path to custom graph schema configuration"
+        "--graph-config", type=str, default=None, help="Path to custom graph schema configuration"
     )
     # Performance optimization arguments
     parser.add_argument(
         "--yolo-batch-size",
         type=int,
         default=2,
-        help="YOLO batch size for detection (default: 2, recommended 2-3 for M2/M3 16GB)"
+        help="YOLO batch size for detection (default: 2, recommended 2-3 for M2/M3 16GB)",
     )
     parser.add_argument(
         "--no-yolo-batching",
         action="store_true",
-        help="Disable YOLO batch processing (use sequential mode)"
+        help="Disable YOLO batch processing (use sequential mode)",
     )
     parser.add_argument(
         "--entity-max-concurrent",
         type=int,
         default=4,
-        help="Max concurrent entity extractions (default: 4, recommended 4-6 for Gemini API)"
+        help="Max concurrent entity extractions (default: 4, recommended 4-6 for Gemini API)",
     )
     parser.add_argument(
         "--no-async-extraction",
         action="store_true",
-        help="Disable async entity extraction (use sequential mode)"
+        help="Disable async entity extraction (use sequential mode)",
     )
     parser.add_argument(
         "--full-reindex",
         action="store_true",
-        help="Force full re-ingestion of all documents (ignore incremental manifest)"
+        help="Force full re-ingestion of all documents (ignore incremental manifest)",
     )
     parser.add_argument(
-        "--no-incremental",
-        action="store_true",
-        help="Disable incremental detection"
+        "--no-incremental", action="store_true", help="Disable incremental detection"
     )
     return parser.parse_args()
 
@@ -494,9 +451,7 @@ def _run_yolo_detection(
     return yolo_stats
 
 
-async def _run_content_extraction(
-    extraction_provider: str, pdf_filter: list = None
-) -> tuple:
+async def _run_content_extraction(extraction_provider: str, pdf_filter: list = None) -> tuple:
     """Stage 5: Extract text and tables in parallel."""
     logger.info(f"Extracting text and tables in parallel using {extraction_provider}...")
     text_task = asyncio.to_thread(
@@ -518,9 +473,7 @@ async def _run_content_extraction(
     return text_stats, table_stats
 
 
-async def _run_image_descriptions(
-    vision_provider: str, pdf_filter: list = None
-) -> dict:
+async def _run_image_descriptions(vision_provider: str, pdf_filter: list = None) -> dict:
     """Stage 6: Generate image descriptions."""
     try:
         logger.info("Generating image descriptions...")
@@ -585,9 +538,7 @@ async def _run_chunking(incremental_stems: list = None):
     logger.info("Chunking completed (parallel)")
 
 
-def _run_embeddings(
-    use_cache: bool, force_reembed: bool, incremental_stems: list = None
-) -> dict:
+def _run_embeddings(use_cache: bool, force_reembed: bool, incremental_stems: list = None) -> dict:
     """Stage 8: Generate embeddings."""
     logger.info("Creating embeddings...")
     embed_stats = create_embeddings(
@@ -761,9 +712,7 @@ async def run_ingestion_pipeline_async(
     # --- Stage 5: Content extraction ---
     if not skip_extraction:
         pipeline_timer.stage("content_extraction")
-        text_stats, table_stats = await _run_content_extraction(
-            extraction_provider, pdf_filter
-        )
+        text_stats, table_stats = await _run_content_extraction(extraction_provider, pdf_filter)
         stats["text_extraction"] = text_stats
         stats["table_extraction"] = table_stats
     else:
@@ -772,9 +721,7 @@ async def run_ingestion_pipeline_async(
     # --- Stage 6: Image descriptions ---
     if not skip_descriptions:
         pipeline_timer.stage("image_description")
-        stats["image_description"] = await _run_image_descriptions(
-            vision_provider, pdf_filter
-        )
+        stats["image_description"] = await _run_image_descriptions(vision_provider, pdf_filter)
     else:
         logger.info("Skipping image descriptions")
 
@@ -788,9 +735,7 @@ async def run_ingestion_pipeline_async(
     # --- Stage 8: Embeddings ---
     if not skip_embeddings:
         pipeline_timer.stage("embedding_generation")
-        stats["embeddings"] = _run_embeddings(
-            use_cache, force_reembed, incremental_stems
-        )
+        stats["embeddings"] = _run_embeddings(use_cache, force_reembed, incremental_stems)
     else:
         logger.info("Skipping embeddings")
 
@@ -827,6 +772,7 @@ async def run_ingestion_pipeline_async(
         # Load graph config first (needed for both paths)
         if graph_config_path:
             from .graph_config import reload_graph_config
+
             graph_config = reload_graph_config(graph_config_path)
         else:
             graph_config = get_graph_config()
@@ -838,10 +784,12 @@ async def run_ingestion_pipeline_async(
         # AND we have valid graph data, load it instead of rebuilding from scratch
         # This prevents data loss when resuming after quota errors
         resume_from_graph = False
-        if (checkpoint and
-            checkpoint.status == "interrupted" and
-            checkpoint.pipeline_stage in ("community_summaries", "graph_building") and
-            has_valid_knowledge_graph()):
+        if (
+            checkpoint
+            and checkpoint.status == "interrupted"
+            and checkpoint.pipeline_stage in ("community_summaries", "graph_building")
+            and has_valid_knowledge_graph()
+        ):
             kg_stats = get_knowledge_graph_stats()
             logger.info(
                 f"Found existing knowledge graph with {kg_stats['nodes']} nodes, "
@@ -879,7 +827,9 @@ async def run_ingestion_pipeline_async(
             else:
                 # Normal path: run entity extraction
                 extraction_mode = "async" if use_async_extraction else "sequential"
-                logger.info(f"Extracting entities and relationships ({extraction_mode} mode, max_concurrent={entity_max_concurrent})...")
+                logger.info(
+                    f"Extracting entities and relationships ({extraction_mode} mode, max_concurrent={entity_max_concurrent})..."
+                )
 
                 # Update checkpoint stage
                 checkpoint.set_stage("entity_extraction")
@@ -903,7 +853,9 @@ async def run_ingestion_pipeline_async(
                         # Save checkpoint every N chunks
                         if chunks_since_last_save[0] >= CHECKPOINT_SAVE_INTERVAL:
                             checkpoint.save(checkpoint_path)
-                            logger.debug(f"Checkpoint saved ({len(checkpoint.entity_extraction.processed_item_ids)} chunks processed)")
+                            logger.debug(
+                                f"Checkpoint saved ({len(checkpoint.entity_extraction.processed_item_ids)} chunks processed)"
+                            )
                             chunks_since_last_save[0] = 0
 
                 # Extract entities and relationships from chunks
@@ -922,8 +874,12 @@ async def run_ingestion_pipeline_async(
                     )
 
                     # Update checkpoint with extraction state
-                    checkpoint.entity_extraction.processed_item_ids = list(extraction_state["processed_chunk_ids"])
-                    checkpoint.entity_extraction.consecutive_quota_errors = extraction_state["consecutive_quota_errors"]
+                    checkpoint.entity_extraction.processed_item_ids = list(
+                        extraction_state["processed_chunk_ids"]
+                    )
+                    checkpoint.entity_extraction.consecutive_quota_errors = extraction_state[
+                        "consecutive_quota_errors"
+                    ]
                     for fc in extraction_state.get("failed_chunks", []):
                         checkpoint.entity_extraction.failed_items.append(
                             FailedItem(
@@ -977,7 +933,9 @@ async def run_ingestion_pipeline_async(
 
                     if incremental_stems and has_valid_knowledge_graph():
                         # INCREMENTAL: Load existing graph and merge new entities
-                        logger.info("Incremental mode: loading existing graph and merging new entities...")
+                        logger.info(
+                            "Incremental mode: loading existing graph and merging new entities..."
+                        )
                         kg = KnowledgeGraph.load(config=graph_config)
                         merge_stats = kg.build_from_extraction_results(extraction_results)
                         logger.info(
@@ -1010,13 +968,15 @@ async def run_ingestion_pipeline_async(
                 processed_community_ids = set(checkpoint.community_summaries.processed_item_ids)
                 checkpoint.community_summaries.total_items = len(kg.communities)
 
-                generated, skipped, quota_errors, summaries_interrupted = kg.generate_community_summaries(
-                    compute_embeddings=True,
-                    skip_existing=True,
-                    processed_community_ids=processed_community_ids,
-                    max_consecutive_quota_errors=max_consecutive_quota_errors,
-                    # Periodic save to prevent data loss (saves every 100 communities)
-                    save_interval=100,
+                generated, skipped, quota_errors, summaries_interrupted = (
+                    kg.generate_community_summaries(
+                        compute_embeddings=True,
+                        skip_existing=True,
+                        processed_community_ids=processed_community_ids,
+                        max_consecutive_quota_errors=max_consecutive_quota_errors,
+                        # Periodic save to prevent data loss (saves every 100 communities)
+                        save_interval=100,
+                    )
                 )
 
                 # Update checkpoint
@@ -1138,31 +1098,33 @@ def main():
     """Main entry point."""
     args = parse_args()
 
-    asyncio.run(run_ingestion_pipeline_async(
-        vision_provider=args.vision_provider,
-        extraction_provider=args.extraction_provider,
-        skip_conversion=args.skip_conversion,
-        skip_pdf=args.skip_pdf,
-        skip_yolo=args.skip_yolo,
-        skip_extraction=args.skip_extraction,
-        skip_descriptions=args.skip_descriptions,
-        skip_chunking=args.skip_chunking,
-        skip_embeddings=args.skip_embeddings,
-        force_reembed=args.force_reembed,
-        use_cache=not args.no_cache,
-        skip_indexing=args.skip_indexing,
-        skip_graph=args.skip_graph,
-        skip_resolution=args.skip_resolution,
-        graph_config_path=args.graph_config,
-        # Performance optimization parameters
-        yolo_batch_size=args.yolo_batch_size,
-        use_yolo_batching=not args.no_yolo_batching,
-        entity_max_concurrent=args.entity_max_concurrent,
-        use_async_extraction=not args.no_async_extraction,
-        # Incremental ingestion parameters
-        incremental=not args.no_incremental,
-        full_reindex=args.full_reindex,
-    ))
+    asyncio.run(
+        run_ingestion_pipeline_async(
+            vision_provider=args.vision_provider,
+            extraction_provider=args.extraction_provider,
+            skip_conversion=args.skip_conversion,
+            skip_pdf=args.skip_pdf,
+            skip_yolo=args.skip_yolo,
+            skip_extraction=args.skip_extraction,
+            skip_descriptions=args.skip_descriptions,
+            skip_chunking=args.skip_chunking,
+            skip_embeddings=args.skip_embeddings,
+            force_reembed=args.force_reembed,
+            use_cache=not args.no_cache,
+            skip_indexing=args.skip_indexing,
+            skip_graph=args.skip_graph,
+            skip_resolution=args.skip_resolution,
+            graph_config_path=args.graph_config,
+            # Performance optimization parameters
+            yolo_batch_size=args.yolo_batch_size,
+            use_yolo_batching=not args.no_yolo_batching,
+            entity_max_concurrent=args.entity_max_concurrent,
+            use_async_extraction=not args.no_async_extraction,
+            # Incremental ingestion parameters
+            incremental=not args.no_incremental,
+            full_reindex=args.full_reindex,
+        )
+    )
 
 
 if __name__ == "__main__":

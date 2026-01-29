@@ -36,6 +36,7 @@ DEFAULT_PAGE_BATCH_SIZE = 5
 @dataclass
 class ConversionResult:
     """Result of a single PDF conversion."""
+
     pdf_path: str
     success: bool
     pages_converted: int
@@ -108,7 +109,7 @@ def _convert_single_pdf(args: Tuple[str, str, str, int, int]) -> ConversionResul
             images = convert_from_path(pdf_path, dpi=dpi)
             for i, image in enumerate(images, start=1):
                 output_path = image_dir / f"{prefix}_page_{i}.png"
-                image.save(output_path, 'PNG')
+                image.save(output_path, "PNG")
             return ConversionResult(
                 pdf_path=pdf_path_str,
                 success=True,
@@ -134,7 +135,7 @@ def _convert_single_pdf(args: Tuple[str, str, str, int, int]) -> ConversionResul
                 for i, image in enumerate(images):
                     page_num = batch_start + i
                     output_path = image_dir / f"{prefix}_page_{page_num}.png"
-                    image.save(output_path, 'PNG')
+                    image.save(output_path, "PNG")
                     pages_converted += 1
 
                 # Explicitly free memory after each batch
@@ -152,7 +153,7 @@ def _convert_single_pdf(args: Tuple[str, str, str, int, int]) -> ConversionResul
                     )
                     if images:
                         output_path = image_dir / f"{prefix}_page_{page_num}.png"
-                        images[0].save(output_path, 'PNG')
+                        images[0].save(output_path, "PNG")
                         pages_converted += 1
                         del images
 
@@ -216,14 +217,16 @@ def convert_pdf_to_image(
 
     # Find all PDF files
     logger.info(f"Scanning for PDF files in: {pdf_dir}")
-    pdf_files = list(pdf_dir.rglob('*.pdf'))
+    pdf_files = list(pdf_dir.rglob("*.pdf"))
 
     # Filter by specific PDF names if provided
     if pdf_filter:
         pdf_filter_set = set(pdf_filter)
         original_count = len(pdf_files)
         pdf_files = [p for p in pdf_files if p.stem in pdf_filter_set]
-        logger.info(f"Filtered to {len(pdf_files)} PDF files (from {original_count}) matching filter")
+        logger.info(
+            f"Filtered to {len(pdf_files)} PDF files (from {original_count}) matching filter"
+        )
     else:
         logger.info(f"Found {len(pdf_files)} PDF files")
 
@@ -282,14 +285,16 @@ def convert_pdf_to_image(
                 pbar.update(1)
 
     # Log summary
-    logger.info(f"""
+    logger.info(
+        f"""
     PDF to Image Conversion Complete:
     - Total PDFs: {stats['total']}
     - Successfully converted: {stats['success']}
     - Failed: {stats['failed']}
     - Total pages: {stats['pages']}
     - Output directory: {image_dir}
-    """)
+    """
+    )
 
     return stats
 

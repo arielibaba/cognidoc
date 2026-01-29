@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
 class ToolName(str, Enum):
     """Available agent tools."""
+
     RETRIEVE_VECTOR = "retrieve_vector"
     RETRIEVE_GRAPH = "retrieve_graph"
     LOOKUP_ENTITY = "lookup_entity"
@@ -54,6 +55,7 @@ class ToolName(str, Enum):
 @dataclass
 class ToolResult:
     """Result from a tool execution."""
+
     tool: ToolName
     success: bool
     data: Any = None
@@ -71,8 +73,7 @@ class ToolResult:
             if not docs:
                 return "No relevant documents found."
             return f"Found {len(docs)} relevant documents:\n" + "\n".join(
-                f"[{i+1}] {doc.get('text', '')[:200]}..."
-                for i, doc in enumerate(docs[:5])
+                f"[{i+1}] {doc.get('text', '')[:200]}..." for i, doc in enumerate(docs[:5])
             )
 
         elif self.tool == ToolName.RETRIEVE_GRAPH:
@@ -131,6 +132,7 @@ class ToolResult:
 @dataclass
 class ToolCall:
     """Represents a tool call from the agent."""
+
     tool: ToolName
     arguments: Dict[str, Any] = field(default_factory=dict)
     reasoning: str = ""
@@ -139,6 +141,7 @@ class ToolCall:
 # =============================================================================
 # Base Tool Class
 # =============================================================================
+
 
 class BaseTool(ABC):
     """Base class for agent tools."""
@@ -171,6 +174,7 @@ class BaseTool(ABC):
 # =============================================================================
 # Tool Implementations
 # =============================================================================
+
 
 class RetrieveVectorTool(BaseTool):
     """Semantic search in vector index."""
@@ -214,11 +218,13 @@ class RetrieveVectorTool(BaseTool):
 
             docs = []
             for nws in results:
-                docs.append({
-                    "text": nws.node.text,
-                    "score": nws.score,
-                    "metadata": nws.node.metadata,
-                })
+                docs.append(
+                    {
+                        "text": nws.node.text,
+                        "score": nws.score,
+                        "metadata": nws.node.metadata,
+                    }
+                )
 
             # Store in cache
             ToolCache.set("retrieve_vector", docs, query=query, top_k=k)
@@ -331,19 +337,23 @@ class LookupEntityTool(BaseTool):
                 if edge.source_id == found_node.id:
                     target = kg.nodes.get(edge.target_id)
                     if target:
-                        relationships.append({
-                            "relation": edge.relationship_type,
-                            "target": target.name,
-                            "direction": "outgoing",
-                        })
+                        relationships.append(
+                            {
+                                "relation": edge.relationship_type,
+                                "target": target.name,
+                                "direction": "outgoing",
+                            }
+                        )
                 elif edge.target_id == found_node.id:
                     source = kg.nodes.get(edge.source_id)
                     if source:
-                        relationships.append({
-                            "relation": edge.relationship_type,
-                            "source": source.name,
-                            "direction": "incoming",
-                        })
+                        relationships.append(
+                            {
+                                "relation": edge.relationship_type,
+                                "source": source.name,
+                                "direction": "incoming",
+                            }
+                        )
 
             return ToolResult(
                 tool=self.name,
@@ -407,12 +417,14 @@ class CompareEntitiesTool(BaseTool):
                 name_lower = name.lower()
                 for node_id, node in kg.nodes.items():
                     if node.name.lower() == name_lower or name_lower in node.name.lower():
-                        found_entities.append({
-                            "name": node.name,
-                            "type": node.type,
-                            "description": node.description,
-                            "attributes": node.attributes,
-                        })
+                        found_entities.append(
+                            {
+                                "name": node.name,
+                                "type": node.type,
+                                "description": node.description,
+                                "attributes": node.attributes,
+                            }
+                        )
                         break
 
             if len(found_entities) < 2:
@@ -434,9 +446,7 @@ Provide a structured comparison highlighting:
 2. Differences
 3. Key distinguishing features"""
 
-            comparison = llm_chat([
-                {"role": "user", "content": comparison_prompt}
-            ])
+            comparison = llm_chat([{"role": "user", "content": comparison_prompt}])
 
             return ToolResult(
                 tool=self.name,
@@ -478,9 +488,7 @@ Provide a clear, comprehensive synthesis that:
 3. Notes any gaps or uncertainties
 4. Is well-structured and easy to understand"""
 
-            synthesis = llm_chat([
-                {"role": "user", "content": synthesis_prompt}
-            ])
+            synthesis = llm_chat([{"role": "user", "content": synthesis_prompt}])
 
             return ToolResult(
                 tool=self.name,
@@ -524,15 +532,14 @@ Respond in JSON format:
     "reasoning": "Brief explanation of verification logic"
 }}"""
 
-            response = llm_chat([
-                {"role": "user", "content": verify_prompt}
-            ])
+            response = llm_chat([{"role": "user", "content": verify_prompt}])
 
             # Parse JSON response
             try:
                 # Try to extract JSON from response
                 import re
-                json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+
+                json_match = re.search(r"\{[^{}]*\}", response, re.DOTALL)
                 if json_match:
                     result = json.loads(json_match.group())
                 else:
@@ -618,7 +625,7 @@ class DatabaseStatsTool(BaseTool):
         try:
             # Normalize list_documents to bool
             if isinstance(list_documents, str):
-                list_documents = list_documents.lower() in ('true', '1', 'yes')
+                list_documents = list_documents.lower() in ("true", "1", "yes")
 
             # Check cache first
             cached = ToolCache.get("database_stats", list_documents=list_documents)
@@ -634,26 +641,26 @@ class DatabaseStatsTool(BaseTool):
 
             if self.retriever:
                 # Get keyword index stats (parent documents) using get_all_documents()
-                if hasattr(self.retriever, '_keyword_index') and self.retriever._keyword_index:
+                if hasattr(self.retriever, "_keyword_index") and self.retriever._keyword_index:
                     ki = self.retriever._keyword_index
-                    if hasattr(ki, 'get_all_documents'):
+                    if hasattr(ki, "get_all_documents"):
                         docs = ki.get_all_documents()
                         stats["total_chunks"] = len(docs)  # This is chunk count
 
                         # Extract unique source document names from ALL chunks
                         unique_sources = set()
                         for doc in docs:
-                            if hasattr(doc, 'metadata') and doc.metadata:
+                            if hasattr(doc, "metadata") and doc.metadata:
                                 # Try to get source document name from metadata
-                                source = doc.metadata.get('source', {})
+                                source = doc.metadata.get("source", {})
                                 if isinstance(source, dict):
-                                    name = source.get('document')
+                                    name = source.get("document")
                                 else:
                                     name = str(source) if source else None
 
                                 if not name:
                                     # Fallback to name or title
-                                    name = doc.metadata.get('name') or doc.metadata.get('title')
+                                    name = doc.metadata.get("name") or doc.metadata.get("title")
 
                                 if name:
                                     unique_sources.add(name)
@@ -666,11 +673,11 @@ class DatabaseStatsTool(BaseTool):
                             stats["document_names"] = sorted(list(unique_sources))
 
                 # Get graph stats
-                if hasattr(self.retriever, '_graph_retriever') and self.retriever._graph_retriever:
+                if hasattr(self.retriever, "_graph_retriever") and self.retriever._graph_retriever:
                     gr = self.retriever._graph_retriever
-                    if hasattr(gr, 'kg') and gr.kg:
-                        stats["graph_nodes"] = len(gr.kg.nodes) if hasattr(gr.kg, 'nodes') else 0
-                        stats["graph_edges"] = len(gr.kg.edges) if hasattr(gr.kg, 'edges') else 0
+                    if hasattr(gr, "kg") and gr.kg:
+                        stats["graph_nodes"] = len(gr.kg.nodes) if hasattr(gr.kg, "nodes") else 0
+                        stats["graph_edges"] = len(gr.kg.edges) if hasattr(gr.kg, "edges") else 0
 
             # Store in cache
             ToolCache.set("database_stats", stats, list_documents=list_documents)
@@ -692,6 +699,7 @@ class DatabaseStatsTool(BaseTool):
 # =============================================================================
 # Tool Registry
 # =============================================================================
+
 
 class ToolRegistry:
     """Registry of available tools for the agent."""

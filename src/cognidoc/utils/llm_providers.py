@@ -32,6 +32,7 @@ load_dotenv()
 
 class LLMProvider(str, Enum):
     """Supported LLM providers."""
+
     GEMINI = "gemini"
     OLLAMA = "ollama"
     OPENAI = "openai"
@@ -44,6 +45,7 @@ class LLMConfig:
 
     Can be created manually or using from_model() to auto-load specs.
     """
+
     provider: LLMProvider
     model: str
     temperature: float = 0.7
@@ -111,7 +113,9 @@ class LLMConfig:
         return cls(
             provider=llm_provider,
             model=model,
-            temperature=temperature if temperature is not None else specs.get("default_temperature", 0.7),
+            temperature=(
+                temperature if temperature is not None else specs.get("default_temperature", 0.7)
+            ),
             top_p=top_p if top_p is not None else specs.get("default_top_p", 0.9),
             max_tokens=max_tokens if max_tokens is not None else specs.get("max_output_tokens"),
             context_window=specs.get("context_window"),
@@ -127,6 +131,7 @@ class LLMConfig:
 @dataclass
 class Message:
     """Chat message."""
+
     role: str  # "system", "user", "assistant"
     content: str
     images: Optional[list[str]] = None  # List of image paths or base64
@@ -135,6 +140,7 @@ class Message:
 @dataclass
 class LLMResponse:
     """Response from LLM."""
+
     content: str
     model: str
     provider: LLMProvider
@@ -168,7 +174,9 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
-    async def avision(self, image_path: str, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def avision(
+        self, image_path: str, prompt: str, system_prompt: Optional[str] = None
+    ) -> str:
         """Async image description."""
         pass
 
@@ -224,8 +232,7 @@ class GeminiProvider(BaseLLMProvider):
                 role = "user" if msg.role == "user" else "model"
                 gemini_messages.append(
                     self.types.Content(
-                        role=role,
-                        parts=[self.types.Part.from_text(text=msg.content)]
+                        role=role, parts=[self.types.Part.from_text(text=msg.content)]
                     )
                 )
 
@@ -255,7 +262,9 @@ class GeminiProvider(BaseLLMProvider):
             if gemini_messages:
                 contents = gemini_messages
             else:
-                contents = [self.types.Content(role="user", parts=[self.types.Part.from_text(text="")])]
+                contents = [
+                    self.types.Content(role="user", parts=[self.types.Part.from_text(text="")])
+                ]
 
             response = self.client.models.generate_content(
                 model=self.config.model,
@@ -267,7 +276,11 @@ class GeminiProvider(BaseLLMProvider):
                 content=response.text,
                 model=self.config.model,
                 provider=LLMProvider.GEMINI,
-                usage={"candidates": len(response.candidates)} if hasattr(response, "candidates") else None,
+                usage=(
+                    {"candidates": len(response.candidates)}
+                    if hasattr(response, "candidates")
+                    else None
+                ),
             )
 
     def stream_chat(self, messages: list[Message]) -> Generator[str, None, None]:
@@ -328,7 +341,7 @@ class GeminiProvider(BaseLLMProvider):
                     parts=[
                         self.types.Part.from_text(text=prompt),
                         self.types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                    ]
+                    ],
                 )
             ]
 
@@ -339,7 +352,9 @@ class GeminiProvider(BaseLLMProvider):
             )
             return response.text
 
-    async def avision(self, image_path: str, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def avision(
+        self, image_path: str, prompt: str, system_prompt: Optional[str] = None
+    ) -> str:
         return await asyncio.to_thread(self.vision, image_path, prompt, system_prompt)
 
 
@@ -411,11 +426,13 @@ class OllamaProvider(BaseLLMProvider):
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
-            messages.append({
-                "role": "user",
-                "content": prompt,
-                "images": [image_path],
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [image_path],
+                }
+            )
 
             response = self.client.chat(
                 model=self.config.model,
@@ -427,7 +444,9 @@ class OllamaProvider(BaseLLMProvider):
             )
             return response["message"]["content"]
 
-    async def avision(self, image_path: str, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def avision(
+        self, image_path: str, prompt: str, system_prompt: Optional[str] = None
+    ) -> str:
         return await asyncio.to_thread(self.vision, image_path, prompt, system_prompt)
 
 
@@ -457,12 +476,12 @@ class OpenAIProvider(BaseLLMProvider):
                 for img_path in msg.images:
                     base64_img = self._encode_image_base64(img_path)
                     mime_type = self._get_image_mime_type(img_path)
-                    content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{base64_img}"
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
                         }
-                    })
+                    )
                 openai_messages.append({"role": msg.role, "content": content})
             else:
                 openai_messages.append({"role": msg.role, "content": msg.content})
@@ -514,7 +533,9 @@ class OpenAIProvider(BaseLLMProvider):
         response = self.chat(messages)
         return response.content
 
-    async def avision(self, image_path: str, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def avision(
+        self, image_path: str, prompt: str, system_prompt: Optional[str] = None
+    ) -> str:
         return await asyncio.to_thread(self.vision, image_path, prompt, system_prompt)
 
 
@@ -548,14 +569,16 @@ class AnthropicProvider(BaseLLMProvider):
                     for img_path in msg.images:
                         base64_img = self._encode_image_base64(img_path)
                         mime_type = self._get_image_mime_type(img_path)
-                        content.append({
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": mime_type,
-                                "data": base64_img,
+                        content.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": base64_img,
+                                },
                             }
-                        })
+                        )
                     content.append({"type": "text", "text": msg.content})
                     anthropic_messages.append({"role": msg.role, "content": content})
                 else:
@@ -569,7 +592,9 @@ class AnthropicProvider(BaseLLMProvider):
 
             # Anthropic doesn't have native JSON mode, but we can prepend a system instruction
             if json_mode or self.config.json_mode:
-                json_instruction = "You MUST respond with ONLY valid JSON. No text before or after the JSON."
+                json_instruction = (
+                    "You MUST respond with ONLY valid JSON. No text before or after the JSON."
+                )
                 if system_prompt:
                     system_prompt = f"{json_instruction}\n\n{system_prompt}"
                 else:
@@ -590,7 +615,10 @@ class AnthropicProvider(BaseLLMProvider):
                 content=response.content[0].text,
                 model=self.config.model,
                 provider=LLMProvider.ANTHROPIC,
-                usage={"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens},
+                usage={
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                },
             )
 
     def stream_chat(self, messages: list[Message]) -> Generator[str, None, None]:
@@ -621,7 +649,9 @@ class AnthropicProvider(BaseLLMProvider):
         response = self.chat(messages)
         return response.content
 
-    async def avision(self, image_path: str, prompt: str, system_prompt: Optional[str] = None) -> str:
+    async def avision(
+        self, image_path: str, prompt: str, system_prompt: Optional[str] = None
+    ) -> str:
         return await asyncio.to_thread(self.vision, image_path, prompt, system_prompt)
 
 

@@ -48,6 +48,7 @@ class CogniDocConfig:
 
     Most users only need to specify providers.
     """
+
     # Providers
     llm_provider: str = "gemini"
     llm_model: Optional[str] = None
@@ -96,6 +97,7 @@ class CogniDocConfig:
 @dataclass
 class QueryResult:
     """Result from a query operation."""
+
     answer: str
     sources: List[Dict[str, Any]] = field(default_factory=list)
     query_type: Optional[str] = None
@@ -105,6 +107,7 @@ class QueryResult:
 @dataclass
 class IngestionResult:
     """Result from an ingestion operation."""
+
     documents_processed: int = 0
     chunks_created: int = 0
     entities_extracted: int = 0
@@ -201,12 +204,15 @@ class CogniDoc:
         set_llm_provider(self.config.llm_provider, self.config.llm_model)
 
         # Set embedding provider
-        logger.info(f"Setting up embedding provider: {self.config.embedding_provider}/{self.config.embedding_model}")
+        logger.info(
+            f"Setting up embedding provider: {self.config.embedding_provider}/{self.config.embedding_model}"
+        )
         set_embedding_provider(self.config.embedding_provider, self.config.embedding_model)
 
     def _check_yolo_available(self) -> bool:
         """Check if YOLO is available for document detection."""
         from .extract_objects_from_image import is_yolo_model_available
+
         return is_yolo_model_available()
 
     def _get_use_yolo(self) -> bool:
@@ -343,9 +349,7 @@ class CogniDoc:
         actual_skip_graph = skip_graph or not self.config.use_graph
 
         if not actual_skip_graph and graph_config_path is None and not skip_schema_wizard:
-            graph_config_path = self._handle_schema_wizard(
-                regenerate_schema=regenerate_schema
-            )
+            graph_config_path = self._handle_schema_wizard(regenerate_schema=regenerate_schema)
             if graph_config_path == "__skip_graph__":
                 actual_skip_graph = True
                 graph_config_path = None
@@ -383,24 +387,26 @@ class CogniDoc:
 
         # Run async pipeline
         try:
-            stats = asyncio.run(run_ingestion_pipeline_async(
-                vision_provider=self.config.vision_provider,
-                extraction_provider=self.config.llm_provider,
-                skip_conversion=skip_conversion,
-                skip_pdf=skip_pdf,
-                skip_yolo=actual_skip_yolo,
-                skip_extraction=skip_extraction,
-                skip_descriptions=skip_descriptions,
-                skip_chunking=skip_chunking,
-                skip_embeddings=skip_embeddings,
-                force_reembed=force_reembed,
-                use_cache=use_cache,
-                skip_indexing=skip_indexing,
-                skip_graph=actual_skip_graph,
-                graph_config_path=graph_config_path,
-                source_files=source_files,
-                full_reindex=full_reindex,
-            ))
+            stats = asyncio.run(
+                run_ingestion_pipeline_async(
+                    vision_provider=self.config.vision_provider,
+                    extraction_provider=self.config.llm_provider,
+                    skip_conversion=skip_conversion,
+                    skip_pdf=skip_pdf,
+                    skip_yolo=actual_skip_yolo,
+                    skip_extraction=skip_extraction,
+                    skip_descriptions=skip_descriptions,
+                    skip_chunking=skip_chunking,
+                    skip_embeddings=skip_embeddings,
+                    force_reembed=force_reembed,
+                    use_cache=use_cache,
+                    skip_indexing=skip_indexing,
+                    skip_graph=actual_skip_graph,
+                    graph_config_path=graph_config_path,
+                    source_files=source_files,
+                    full_reindex=full_reindex,
+                )
+            )
 
             # Extract stats from pipeline result
             entities = stats.get("graph_extraction", {}).get("entities_extracted", 0)
@@ -408,9 +414,9 @@ class CogniDoc:
             chunks = stats.get("graph_extraction", {}).get("chunks_processed", 0)
             doc_stats = stats.get("document_conversion", {})
             docs = (
-                doc_stats.get("pdfs_copied", 0) +
-                doc_stats.get("images_copied", 0) +
-                doc_stats.get("converted", 0)
+                doc_stats.get("pdfs_copied", 0)
+                + doc_stats.get("images_copied", 0)
+                + doc_stats.get("converted", 0)
             )
 
             return IngestionResult(
@@ -464,11 +470,13 @@ class CogniDoc:
         for node_with_score in result.vector_results[:5]:
             doc = node_with_score.node
             text = doc.text
-            sources.append({
-                "text": text[:500] + "..." if len(text) > 500 else text,
-                "source": doc.metadata.get("source", "Unknown"),
-                "page": doc.metadata.get("page_number", None),
-            })
+            sources.append(
+                {
+                    "text": text[:500] + "..." if len(text) > 500 else text,
+                    "source": doc.metadata.get("source", "Unknown"),
+                    "page": doc.metadata.get("page_number", None),
+                }
+            )
 
         # Get query type from query analysis
         query_type = None
@@ -505,8 +513,10 @@ class CogniDoc:
         # For now, just use query
         result = self.query(message)
         if stream:
+
             def generate():
                 yield result.answer
+
             return generate()
         return result.answer
 
@@ -544,6 +554,7 @@ class CogniDoc:
         else:
             # Normal mode: wrap in FastAPI with PDF serving endpoint
             import uvicorn
+
             app = create_fastapi_app(demo)
             uvicorn.run(app, host="0.0.0.0", port=port)
 

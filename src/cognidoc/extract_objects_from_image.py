@@ -21,6 +21,8 @@ Batch processing:
 - Improves throughput by reducing GPU call overhead
 """
 
+from __future__ import annotations
+
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -36,6 +38,7 @@ _CV2_AVAILABLE = False
 try:
     import cv2
     import numpy as np
+
     _CV2_AVAILABLE = True
 except ImportError:
     cv2 = None
@@ -43,6 +46,7 @@ except ImportError:
 
 try:
     from ultralytics import YOLO
+
     _YOLO_AVAILABLE = True
 except ImportError:
     YOLO = None
@@ -69,6 +73,7 @@ def is_yolo_model_available(model_path: str = None) -> bool:
     if model_path is None:
         # Use the configured model path from constants
         from .constants import YOLO_MODEL_PATH
+
         return Path(YOLO_MODEL_PATH).exists()
 
     return Path(model_path).exists()
@@ -105,7 +110,7 @@ class DetectionProcessor:
         conf_threshold: float = 0.2,
         iou_threshold: float = 0.8,
         high_quality: bool = True,
-        enable_fallback: bool = True
+        enable_fallback: bool = True,
     ):
         """
         Initialize the detection processor.
@@ -138,6 +143,7 @@ class DetectionProcessor:
 
         try:
             from ultralytics import YOLO
+
             self.model = YOLO(self.model_path)
             self._model_loaded = True
             logger.info(f"YOLO model loaded from {self.model_path}")
@@ -147,7 +153,9 @@ class DetectionProcessor:
             if not self.enable_fallback:
                 raise
 
-    def _fallback_process(self, image: np.ndarray, image_path: Path) -> Tuple[np.ndarray, List, List]:
+    def _fallback_process(
+        self, image: np.ndarray, image_path: Path
+    ) -> Tuple[np.ndarray, List, List]:
         """
         Fallback processing when YOLO fails.
 
@@ -164,18 +172,11 @@ class DetectionProcessor:
 
         h, w = image.shape[:2]
         # Create a single detection covering the entire image as text
-        fallback_detection = {
-            "box": (0, 0, w, h),
-            "label": "text",
-            "index": 0
-        }
+        fallback_detection = {"box": (0, 0, w, h), "label": "text", "index": 0}
 
         return image, [], [fallback_detection]
 
-    def process_image(
-        self,
-        image_path: Path
-    ) -> Tuple[np.ndarray, List[Dict], List[Dict]]:
+    def process_image(self, image_path: Path) -> Tuple[np.ndarray, List[Dict], List[Dict]]:
         """
         Run inference on the given image and perform detection grouping.
 
@@ -199,10 +200,7 @@ class DetectionProcessor:
             try:
                 # Run inference
                 results = self.model(
-                    str(image_path),
-                    conf=self.conf_threshold,
-                    iou=self.iou_threshold,
-                    verbose=False
+                    str(image_path), conf=self.conf_threshold, iou=self.iou_threshold, verbose=False
                 )
                 result = results[0]
 
@@ -221,14 +219,12 @@ class DetectionProcessor:
 
             # Collect detections
             detections = []
-            for i, (box, cls_idx) in enumerate(zip(result.boxes.xyxy.tolist(), result.boxes.cls.tolist())):
+            for i, (box, cls_idx) in enumerate(
+                zip(result.boxes.xyxy.tolist(), result.boxes.cls.tolist())
+            ):
                 x1, y1, x2, y2 = map(int, box)
                 label = result.names[int(cls_idx)] if result.names else f"class_{int(cls_idx)}"
-                detections.append({
-                    "box": (x1, y1, x2, y2),
-                    "label": label,
-                    "index": i
-                })
+                detections.append({"box": (x1, y1, x2, y2), "label": label, "index": i})
 
             # Sort detections by vertical (y1) then horizontal (x1) position
             sorted_detections = sorted(detections, key=lambda d: (d["box"][1], d["box"][0]))
@@ -257,7 +253,11 @@ class DetectionProcessor:
 
                         # Caption: group if adjacent or overlapping
                         if candidate_label == "caption":
-                            if j == i - 1 or j == i + 1 or vertical_overlap(det["box"], candidate["box"]):
+                            if (
+                                j == i - 1
+                                or j == i + 1
+                                or vertical_overlap(det["box"], candidate["box"])
+                            ):
                                 group_items.append(candidate)
                                 grouped_indices.add(j)
 
@@ -273,11 +273,13 @@ class DetectionProcessor:
                     group_x2 = max(item["box"][2] for item in group_items)
                     group_y2 = max(item["box"][3] for item in group_items)
 
-                    table_picture_groups.append({
-                        "group_box": (group_x1, group_y1, group_x2, group_y2),
-                        "label": det["label"],
-                        "index": det["index"]
-                    })
+                    table_picture_groups.append(
+                        {
+                            "group_box": (group_x1, group_y1, group_x2, group_y2),
+                            "label": det["label"],
+                            "index": det["index"],
+                        }
+                    )
                 else:
                     if i not in grouped_indices:
                         others.append(det)
@@ -290,8 +292,7 @@ class DetectionProcessor:
             return image, table_picture_groups, others
 
     def process_images_batch(
-        self,
-        image_paths: List[Path]
+        self, image_paths: List[Path]
     ) -> List[Tuple[Path, np.ndarray, List[Dict], List[Dict]]]:
         """
         Run batch inference on multiple images for improved GPU utilization.
@@ -348,11 +349,13 @@ class DetectionProcessor:
                     [str(p) for p in valid_paths],
                     conf=self.conf_threshold,
                     iou=self.iou_threshold,
-                    verbose=False
+                    verbose=False,
                 )
 
             # Process each result
-            for idx, (image_path, image, result) in enumerate(zip(valid_paths, images_data, batch_results)):
+            for idx, (image_path, image, result) in enumerate(
+                zip(valid_paths, images_data, batch_results)
+            ):
                 # Check if any detections were made
                 if len(result.boxes) == 0:
                     logger.warning(f"No detections in {image_path.name}, using fallback")
@@ -365,14 +368,12 @@ class DetectionProcessor:
 
                 # Collect detections (same logic as process_image)
                 detections = []
-                for i, (box, cls_idx) in enumerate(zip(result.boxes.xyxy.tolist(), result.boxes.cls.tolist())):
+                for i, (box, cls_idx) in enumerate(
+                    zip(result.boxes.xyxy.tolist(), result.boxes.cls.tolist())
+                ):
                     x1, y1, x2, y2 = map(int, box)
                     label = result.names[int(cls_idx)] if result.names else f"class_{int(cls_idx)}"
-                    detections.append({
-                        "box": (x1, y1, x2, y2),
-                        "label": label,
-                        "index": i
-                    })
+                    detections.append({"box": (x1, y1, x2, y2), "label": label, "index": i})
 
                 # Sort detections by vertical (y1) then horizontal (x1) position
                 sorted_detections = sorted(detections, key=lambda d: (d["box"][1], d["box"][0]))
@@ -401,7 +402,11 @@ class DetectionProcessor:
 
                             # Caption: group if adjacent or overlapping
                             if candidate_label == "caption":
-                                if j == i - 1 or j == i + 1 or vertical_overlap(det["box"], candidate["box"]):
+                                if (
+                                    j == i - 1
+                                    or j == i + 1
+                                    or vertical_overlap(det["box"], candidate["box"])
+                                ):
                                     group_items.append(candidate)
                                     grouped_indices.add(j)
 
@@ -417,11 +422,13 @@ class DetectionProcessor:
                         group_x2 = max(item["box"][2] for item in group_items)
                         group_y2 = max(item["box"][3] for item in group_items)
 
-                        table_picture_groups.append({
-                            "group_box": (group_x1, group_y1, group_x2, group_y2),
-                            "label": det["label"],
-                            "index": det["index"]
-                        })
+                        table_picture_groups.append(
+                            {
+                                "group_box": (group_x1, group_y1, group_x2, group_y2),
+                                "label": det["label"],
+                                "index": det["index"],
+                            }
+                        )
                     else:
                         if i not in grouped_indices:
                             others.append(det)
@@ -449,7 +456,7 @@ class DetectionProcessor:
         image_path: Path,
         table_picture_groups: List[Dict],
         others: List[Dict],
-        output_dir: Path
+        output_dir: Path,
     ) -> Dict[str, int]:
         """
         Save detected regions as separate images.
@@ -484,14 +491,12 @@ class DetectionProcessor:
                 continue
 
             crop = image[y1:y2, x1:x2]
-            label = group['label'].capitalize()
+            label = group["label"].capitalize()
             out_filename = f"{image_path.stem}_{label}_{count}.jpg"
 
             try:
                 cv2.imwrite(
-                    str(output_dir / out_filename),
-                    crop,
-                    [cv2.IMWRITE_JPEG_QUALITY, quality]
+                    str(output_dir / out_filename), crop, [cv2.IMWRITE_JPEG_QUALITY, quality]
                 )
                 if "table" in label.lower():
                     stats["tables"] += 1
@@ -517,9 +522,7 @@ class DetectionProcessor:
             text_filename = f"{image_path.stem}_Text.jpg"
             try:
                 cv2.imwrite(
-                    str(output_dir / text_filename),
-                    composite,
-                    [cv2.IMWRITE_JPEG_QUALITY, quality]
+                    str(output_dir / text_filename), composite, [cv2.IMWRITE_JPEG_QUALITY, quality]
                 )
                 stats["text"] += 1
             except Exception as e:
@@ -569,17 +572,14 @@ def extract_objects_from_image(
         conf_threshold,
         iou_threshold,
         high_quality=high_quality,
-        enable_fallback=enable_fallback
+        enable_fallback=enable_fallback,
     )
 
     input_path = Path(input_dir)
     total_stats = {"images": 0, "tables": 0, "pictures": 0, "text": 0, "errors": 0, "fallbacks": 0}
 
     # Collect all valid image paths
-    image_paths = [
-        p for p in input_path.glob("*")
-        if p.suffix.lower() in [".jpg", ".jpeg", ".png"]
-    ]
+    image_paths = [p for p in input_path.glob("*") if p.suffix.lower() in [".jpg", ".jpeg", ".png"]]
 
     # Filter by PDF stems if provided
     if image_filter:
@@ -588,23 +588,23 @@ def extract_objects_from_image(
         # subdirectory encoding: {subdir}__{stem}_page_{n}.png
         # So we check if {stem}_page_ appears anywhere in the filename
         image_paths = [
-            p for p in image_paths
-            if any(f"{stem}_page_" in p.stem for stem in image_filter)
+            p for p in image_paths if any(f"{stem}_page_" in p.stem for stem in image_filter)
         ]
-        logger.info(f"Filtered to {len(image_paths)} images (from {original_count}) matching filter")
+        logger.info(
+            f"Filtered to {len(image_paths)} images (from {original_count}) matching filter"
+        )
 
     if not image_paths:
         logger.warning(f"No images found in {input_dir}")
         return total_stats
 
-    logger.info(f"Processing {len(image_paths)} images in {input_dir} (batch_size={batch_size}, batching={'enabled' if use_batching else 'disabled'})...")
+    logger.info(
+        f"Processing {len(image_paths)} images in {input_dir} (batch_size={batch_size}, batching={'enabled' if use_batching else 'disabled'})..."
+    )
 
     if use_batching and batch_size > 1:
         # Batch processing mode
-        batches = [
-            image_paths[i:i + batch_size]
-            for i in range(0, len(image_paths), batch_size)
-        ]
+        batches = [image_paths[i : i + batch_size] for i in range(0, len(image_paths), batch_size)]
 
         for batch in tqdm(batches, desc="YOLO batch detection", unit="batch"):
             try:
@@ -648,7 +648,8 @@ def extract_objects_from_image(
                 logger.error(f"Failed to process {image_path.name}: {e}")
                 total_stats["errors"] += 1
 
-    logger.info(f"""
+    logger.info(
+        f"""
     Object Extraction Complete:
     - Images processed: {total_stats['images']}
     - Tables extracted: {total_stats['tables']}
@@ -658,6 +659,7 @@ def extract_objects_from_image(
     - Errors: {total_stats['errors']}
     - Batch size: {batch_size if use_batching else 'N/A (sequential)'}
     - Output: {output_dir}
-    """)
+    """
+    )
 
     return total_stats
