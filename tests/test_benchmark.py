@@ -32,6 +32,7 @@ from collections import defaultdict
 @dataclass
 class BenchmarkQuery:
     """A benchmark query with expected relevant documents."""
+
     query: str
     language: str  # "fr", "en", "es", "de"
     query_type: str  # "factual", "relational", "exploratory", "procedural"
@@ -43,6 +44,7 @@ class BenchmarkQuery:
 @dataclass
 class RetrievalResult:
     """Result from a retrieval operation."""
+
     query: str
     mode: str  # "vector_only", "graph_only", "hybrid"
     documents: List[Dict[str, Any]]
@@ -53,6 +55,7 @@ class RetrievalResult:
 @dataclass
 class BenchmarkMetrics:
     """Metrics for a benchmark run."""
+
     mode: str
     num_queries: int = 0
     total_latency_ms: float = 0.0
@@ -113,7 +116,6 @@ BENCHMARK_QUERIES = [
         expected_topics=["Intelligence Artificielle", "test_article"],
         difficulty="easy",
     ),
-
     # French - Relational
     BenchmarkQuery(
         query="Quel est le lien entre les réseaux de neurones et le diagnostic médical ?",
@@ -131,7 +133,6 @@ BENCHMARK_QUERIES = [
         expected_topics=["Intelligence Artificielle", "test_article"],
         difficulty="medium",
     ),
-
     # French - Exploratory
     BenchmarkQuery(
         query="Parlez-moi des défis éthiques de l'IA en médecine",
@@ -149,7 +150,6 @@ BENCHMARK_QUERIES = [
         expected_topics=["Intelligence Artificielle", "test_article"],
         difficulty="medium",
     ),
-
     # French - Procedural
     BenchmarkQuery(
         query="Comment l'IA analyse-t-elle le génome d'un patient ?",
@@ -159,7 +159,6 @@ BENCHMARK_QUERIES = [
         expected_topics=["Intelligence Artificielle", "test_article"],
         difficulty="medium",
     ),
-
     # French - Complex/Hard
     BenchmarkQuery(
         query="Quels sont les risques liés aux biais algorithmiques dans le diagnostic médical ?",
@@ -192,6 +191,7 @@ class BenchmarkRunner:
         """Get or create the hybrid retriever."""
         if self.cognidoc._retriever is None:
             from cognidoc.hybrid_retriever import HybridRetriever
+
             self.cognidoc._retriever = HybridRetriever()
             self.cognidoc._retriever.load()
         return self.cognidoc._retriever
@@ -209,42 +209,50 @@ class BenchmarkRunner:
         documents = []
 
         # Extract from vector_results (primary source with metadata)
-        vector_results = getattr(result, 'vector_results', []) or []
+        vector_results = getattr(result, "vector_results", []) or []
         for vr in vector_results:
-            if hasattr(vr, 'node') and hasattr(vr.node, 'text'):
+            if hasattr(vr, "node") and hasattr(vr.node, "text"):
                 node = vr.node
-                source_info = node.metadata.get('source', {}) if hasattr(node, 'metadata') else {}
-                documents.append({
-                    "content": node.text if node.text else "",
-                    "metadata": {
-                        "source": source_info.get('document', ''),
-                        "page": source_info.get('page', ''),
-                        "name": node.metadata.get('name', '') if hasattr(node, 'metadata') else '',
-                    },
-                    "score": vr.score if hasattr(vr, 'score') else 0.0,
-                })
+                source_info = node.metadata.get("source", {}) if hasattr(node, "metadata") else {}
+                documents.append(
+                    {
+                        "content": node.text if node.text else "",
+                        "metadata": {
+                            "source": source_info.get("document", ""),
+                            "page": source_info.get("page", ""),
+                            "name": (
+                                node.metadata.get("name", "") if hasattr(node, "metadata") else ""
+                            ),
+                        },
+                        "score": vr.score if hasattr(vr, "score") else 0.0,
+                    }
+                )
 
         # Include graph context if available
-        graph_results = getattr(result, 'graph_results', None)
+        graph_results = getattr(result, "graph_results", None)
         if graph_results is not None:
-            context = getattr(graph_results, 'context', '') or ''
+            context = getattr(graph_results, "context", "") or ""
             if context:
-                documents.append({
-                    "content": context,
-                    "metadata": {"source": "graph_context"},
-                    "score": getattr(graph_results, 'confidence', 0.0),
-                })
+                documents.append(
+                    {
+                        "content": context,
+                        "metadata": {"source": "graph_context"},
+                        "score": getattr(graph_results, "confidence", 0.0),
+                    }
+                )
 
         # Fallback to source_chunks if no vector_results
         if not documents:
-            source_chunks = getattr(result, 'source_chunks', []) or []
+            source_chunks = getattr(result, "source_chunks", []) or []
             for chunk in source_chunks:
-                if hasattr(chunk, 'content'):
-                    documents.append({
-                        "content": chunk.content,
-                        "metadata": chunk.metadata if hasattr(chunk, 'metadata') else {},
-                        "score": 0.0,
-                    })
+                if hasattr(chunk, "content"):
+                    documents.append(
+                        {
+                            "content": chunk.content,
+                            "metadata": chunk.metadata if hasattr(chunk, "metadata") else {},
+                            "score": 0.0,
+                        }
+                    )
                 elif isinstance(chunk, str):
                     # Parse source from chunk name format (varies):
                     # 3-part: "Topic__Type__SourceName_page_XXX..." -> source = part[2]
@@ -258,15 +266,19 @@ class BenchmarkRunner:
                             source_name = source_part.split("_page_")[0]
                         else:
                             source_name = source_part
-                    documents.append({
-                        "content": chunk,
-                        "metadata": {"source": source_name, "name": chunk},
-                        "score": 0.0,
-                    })
+                    documents.append(
+                        {
+                            "content": chunk,
+                            "metadata": {"source": source_name, "name": chunk},
+                            "score": 0.0,
+                        }
+                    )
 
         return documents
 
-    def retrieve_vector_only(self, query: str, top_k: int = 5) -> RetrievalResult:
+    def retrieve_vector_only(
+        self, query: str, top_k: int = 5, use_reranking: bool = True
+    ) -> RetrievalResult:
         """Retrieve using vector search only."""
         start = time.perf_counter()
 
@@ -279,7 +291,7 @@ class BenchmarkRunner:
             retriever.config.routing.strategy = "vector_only"
 
         try:
-            result = retriever.retrieve(query=query, top_k=top_k, use_reranking=True)
+            result = retriever.retrieve(query=query, top_k=top_k, use_reranking=use_reranking)
             documents = self._extract_documents(result)
         finally:
             if retriever.config:
@@ -295,7 +307,9 @@ class BenchmarkRunner:
             num_results=len(documents),
         )
 
-    def retrieve_hybrid(self, query: str, top_k: int = 5) -> RetrievalResult:
+    def retrieve_hybrid(
+        self, query: str, top_k: int = 5, use_reranking: bool = True
+    ) -> RetrievalResult:
         """Retrieve using hybrid search (vector + graph)."""
         start = time.perf_counter()
 
@@ -308,7 +322,7 @@ class BenchmarkRunner:
             retriever.config.routing.strategy = "hybrid"
 
         try:
-            result = retriever.retrieve(query=query, top_k=top_k, use_reranking=True)
+            result = retriever.retrieve(query=query, top_k=top_k, use_reranking=use_reranking)
             documents = self._extract_documents(result)
         finally:
             if retriever.config:
@@ -325,26 +339,21 @@ class BenchmarkRunner:
         )
 
     def calculate_keyword_hit_rate(
-        self,
-        result: RetrievalResult,
-        expected_keywords: List[str]
+        self, result: RetrievalResult, expected_keywords: List[str]
     ) -> float:
         """Calculate what fraction of expected keywords appear in results."""
         if not expected_keywords:
             return 1.0
 
         all_text = " ".join(
-            doc.get("content", "") + " " + str(doc.get("metadata", {}))
-            for doc in result.documents
+            doc.get("content", "") + " " + str(doc.get("metadata", {})) for doc in result.documents
         ).lower()
 
         hits = sum(1 for kw in expected_keywords if kw.lower() in all_text)
         return hits / len(expected_keywords)
 
     def calculate_topic_precision(
-        self,
-        result: RetrievalResult,
-        expected_topics: List[str]
+        self, result: RetrievalResult, expected_topics: List[str]
     ) -> float:
         """Calculate precision based on expected topics in document sources."""
         if not result.documents:
@@ -360,11 +369,7 @@ class BenchmarkRunner:
 
         return relevant_count / len(result.documents)
 
-    def calculate_mrr(
-        self,
-        result: RetrievalResult,
-        expected_topics: List[str]
-    ) -> float:
+    def calculate_mrr(self, result: RetrievalResult, expected_topics: List[str]) -> float:
         """Calculate Mean Reciprocal Rank."""
         for i, doc in enumerate(result.documents):
             source = str(doc.get("metadata", {}).get("source", {}))
@@ -377,12 +382,14 @@ class BenchmarkRunner:
         """Clear retrieval caches for fair benchmarking."""
         try:
             from cognidoc.hybrid_retriever import clear_retrieval_cache
+
             clear_retrieval_cache()
         except ImportError:
             pass
 
         try:
             from cognidoc.utils.rag_utils import _qdrant_result_cache
+
             _qdrant_result_cache.clear()
         except (ImportError, AttributeError):
             pass
@@ -390,7 +397,8 @@ class BenchmarkRunner:
     def run_benchmark(
         self,
         queries: List[BenchmarkQuery],
-        modes: List[str] = ["vector_only", "hybrid"]
+        modes: List[str] = ["vector_only", "hybrid"],
+        use_reranking: bool = True,
     ) -> Dict[str, BenchmarkMetrics]:
         """Run benchmark on a set of queries.
 
@@ -409,9 +417,9 @@ class BenchmarkRunner:
             for bq in queries:
                 # Retrieve
                 if mode == "vector_only":
-                    result = self.retrieve_vector_only(bq.query)
+                    result = self.retrieve_vector_only(bq.query, use_reranking=use_reranking)
                 elif mode == "hybrid":
-                    result = self.retrieve_hybrid(bq.query)
+                    result = self.retrieve_hybrid(bq.query, use_reranking=use_reranking)
                 else:
                     continue
 
@@ -424,12 +432,84 @@ class BenchmarkRunner:
                 metrics.keyword_hit_rate_sum += self.calculate_keyword_hit_rate(
                     result, bq.expected_keywords
                 )
-                metrics.precision_sum += self.calculate_topic_precision(
-                    result, bq.expected_topics
-                )
+                metrics.precision_sum += self.calculate_topic_precision(result, bq.expected_topics)
                 metrics.mrr_sum += self.calculate_mrr(result, bq.expected_topics)
 
         return self.metrics
+
+    def run_reranking_comparison(
+        self,
+        queries: List[BenchmarkQuery],
+        mode: str = "vector_only",
+    ) -> Dict[str, Dict[str, BenchmarkMetrics]]:
+        """Run benchmark with and without reranking, return both metric sets.
+
+        Returns dict with keys "with_reranking" and "without_reranking",
+        each containing the BenchmarkMetrics for the specified mode.
+        """
+        # Run WITHOUT reranking first (baseline)
+        runner_without = BenchmarkRunner(self.cognidoc)
+        runner_without.run_benchmark(queries, modes=[mode], use_reranking=False)
+
+        # Run WITH reranking
+        runner_with = BenchmarkRunner(self.cognidoc)
+        runner_with.run_benchmark(queries, modes=[mode], use_reranking=True)
+
+        comparison = {
+            "without_reranking": runner_without.metrics[mode],
+            "with_reranking": runner_with.metrics[mode],
+        }
+
+        # Print comparison
+        self._print_reranking_comparison(comparison)
+
+        return comparison
+
+    @staticmethod
+    def _print_reranking_comparison(
+        comparison: Dict[str, "BenchmarkMetrics"],
+    ):
+        """Print reranking comparison summary."""
+        without = comparison["without_reranking"]
+        with_rr = comparison["with_reranking"]
+
+        print("\n" + "=" * 70)
+        print("RERANKING IMPACT")
+        print("=" * 70)
+
+        print(f"\nWITHOUT RERANKING ({without.mode}):")
+        print(f"  Queries: {without.num_queries}")
+        print(f"  Avg Latency: {without.avg_latency_ms:.1f} ms")
+        print(f"  Avg Keyword Hit Rate: {without.avg_keyword_hit_rate:.2%}")
+        print(f"  Avg Topic Precision: {without.avg_precision:.2%}")
+        print(f"  MRR: {without.mrr:.3f}")
+
+        print(f"\nWITH RERANKING ({with_rr.mode}):")
+        print(f"  Queries: {with_rr.num_queries}")
+        print(f"  Avg Latency: {with_rr.avg_latency_ms:.1f} ms")
+        print(f"  Avg Keyword Hit Rate: {with_rr.avg_keyword_hit_rate:.2%}")
+        print(f"  Avg Topic Precision: {with_rr.avg_precision:.2%}")
+        print(f"  MRR: {with_rr.mrr:.3f}")
+
+        print("\n" + "-" * 70)
+        print("RERANKING vs BASELINE:")
+
+        def pct_diff(a, b):
+            return ((a - b) / max(b, 0.001)) * 100
+
+        latency_diff = pct_diff(with_rr.avg_latency_ms, without.avg_latency_ms)
+        print(f"  Latency: {latency_diff:+.1f}%")
+
+        precision_diff = pct_diff(with_rr.avg_precision, without.avg_precision)
+        print(f"  Topic Precision: {precision_diff:+.1f}%")
+
+        keyword_diff = pct_diff(with_rr.avg_keyword_hit_rate, without.avg_keyword_hit_rate)
+        print(f"  Keyword Hit Rate: {keyword_diff:+.1f}%")
+
+        mrr_diff = pct_diff(with_rr.mrr, without.mrr)
+        print(f"  MRR: {mrr_diff:+.1f}%")
+
+        print("\n" + "=" * 70)
 
     def print_summary(self):
         """Print benchmark summary."""
@@ -456,10 +536,15 @@ class BenchmarkRunner:
             latency_diff = ((h.avg_latency_ms - v.avg_latency_ms) / v.avg_latency_ms) * 100
             print(f"  Latency: {latency_diff:+.1f}%")
 
-            precision_diff = ((h.avg_precision - v.avg_precision) / max(v.avg_precision, 0.01)) * 100
+            precision_diff = (
+                (h.avg_precision - v.avg_precision) / max(v.avg_precision, 0.01)
+            ) * 100
             print(f"  Topic Precision: {precision_diff:+.1f}%")
 
-            keyword_diff = ((h.avg_keyword_hit_rate - v.avg_keyword_hit_rate) / max(v.avg_keyword_hit_rate, 0.01)) * 100
+            keyword_diff = (
+                (h.avg_keyword_hit_rate - v.avg_keyword_hit_rate)
+                / max(v.avg_keyword_hit_rate, 0.01)
+            ) * 100
             print(f"  Keyword Hit Rate: {keyword_diff:+.1f}%")
 
             mrr_diff = ((h.mrr - v.mrr) / max(v.mrr, 0.01)) * 100
@@ -471,6 +556,7 @@ class BenchmarkRunner:
 # =============================================================================
 # Pytest Tests
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestBenchmarkVectorOnly:
@@ -506,18 +592,14 @@ class TestBenchmarkHybrid:
     def test_hybrid_retrieval_returns_results(self, cognidoc_session):
         """Hybrid retrieval should return results."""
         runner = BenchmarkRunner(cognidoc_session)
-        result = runner.retrieve_hybrid(
-            "Qu'est-ce que l'intelligence artificielle en médecine ?"
-        )
+        result = runner.retrieve_hybrid("Qu'est-ce que l'intelligence artificielle en médecine ?")
         assert result.num_results > 0
         assert result.latency_ms > 0
 
     def test_hybrid_retrieval_relevance(self, cognidoc_session):
         """Hybrid retrieval should return relevant results."""
         runner = BenchmarkRunner(cognidoc_session)
-        result = runner.retrieve_hybrid(
-            "Quels sont les défis éthiques de l'IA médicale ?"
-        )
+        result = runner.retrieve_hybrid("Quels sont les défis éthiques de l'IA médicale ?")
 
         # Check that at least one result is relevant
         all_content = " ".join(doc.get("content", "") for doc in result.documents).lower()
@@ -566,6 +648,45 @@ class TestBenchmarkComparison:
 
 
 @pytest.mark.slow
+class TestBenchmarkRerankingComparison:
+    """Compare retrieval metrics with and without reranking."""
+
+    def test_reranking_comparison_vector(self, cognidoc_session):
+        """Compare vector-only retrieval with and without reranking."""
+        runner = BenchmarkRunner(cognidoc_session)
+        comparison = runner.run_reranking_comparison(BENCHMARK_QUERIES, mode="vector_only")
+
+        without = comparison["without_reranking"]
+        with_rr = comparison["with_reranking"]
+
+        # Both should have run all queries
+        assert without.num_queries == len(BENCHMARK_QUERIES)
+        assert with_rr.num_queries == len(BENCHMARK_QUERIES)
+
+        # Reranking should not degrade precision (allow equal or better)
+        assert with_rr.avg_precision >= without.avg_precision - 0.05, (
+            f"Reranking degraded precision: {with_rr.avg_precision:.2%} vs "
+            f"{without.avg_precision:.2%} (baseline)"
+        )
+
+    def test_reranking_comparison_hybrid(self, cognidoc_session):
+        """Compare hybrid retrieval with and without reranking."""
+        runner = BenchmarkRunner(cognidoc_session)
+        comparison = runner.run_reranking_comparison(BENCHMARK_QUERIES[:5], mode="hybrid")
+
+        without = comparison["without_reranking"]
+        with_rr = comparison["with_reranking"]
+
+        assert without.num_queries == 5
+        assert with_rr.num_queries == 5
+
+        # Reranking should not degrade MRR (allow equal or better)
+        assert with_rr.mrr >= without.mrr - 0.05, (
+            f"Reranking degraded MRR: {with_rr.mrr:.3f} vs " f"{without.mrr:.3f} (baseline)"
+        )
+
+
+@pytest.mark.slow
 class TestBenchmarkLatency:
     """Tests for retrieval latency."""
 
@@ -582,9 +703,7 @@ class TestBenchmarkLatency:
     def test_hybrid_latency_reasonable(self, cognidoc_session):
         """Hybrid retrieval should complete in reasonable time."""
         runner = BenchmarkRunner(cognidoc_session)
-        result = runner.retrieve_hybrid(
-            "Qu'est-ce que l'intelligence artificielle en médecine ?"
-        )
+        result = runner.retrieve_hybrid("Qu'est-ce que l'intelligence artificielle en médecine ?")
 
         # Should complete in under 25 seconds (includes LLM calls + graph retrieval)
         assert result.latency_ms < 25000, f"Hybrid retrieval too slow: {result.latency_ms}ms"
@@ -623,6 +742,7 @@ class TestBenchmarkByQueryType:
 # =============================================================================
 # Standalone Benchmark Runner
 # =============================================================================
+
 
 def run_full_benchmark():
     """Run full benchmark (call from command line)."""
