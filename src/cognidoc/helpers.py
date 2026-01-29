@@ -7,8 +7,6 @@ No LlamaIndex dependencies - uses direct Ollama calls.
 
 import json
 import re
-import torch
-from PIL import Image, ImageStat
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
 
@@ -54,9 +52,13 @@ def get_memory_window() -> int:
 
 def clear_pytorch_cache():
     """Clears MPS cache in PyTorch if available."""
-    if torch.backends.mps.is_available():
-        torch.mps.empty_cache()
-    logger.debug("PyTorch cache cleared")
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        logger.debug("PyTorch cache cleared")
+    except ImportError:
+        pass
 
 
 def load_prompt(filepath):
@@ -74,6 +76,7 @@ def is_relevant_image(
     Determines if an image is relevant based on non-white pixel count and color variance.
     """
     try:
+        from PIL import Image, ImageStat
         with Image.open(image_path) as img:
             grayscale = img.convert("L")
             histogram = grayscale.histogram()
