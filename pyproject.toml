@@ -231,6 +231,9 @@ module = [
     "cognidoc.entity_resolution",
     "cognidoc.utils.rag_utils",
     "cognidoc.utils.advanced_rag",
+    # Providers (heavy third-party SDK typing: google-genai, openai, ollama)
+    "cognidoc.utils.llm_providers",
+    "cognidoc.utils.embedding_providers",
 ]
 ignore_errors = true
 
