@@ -45,8 +45,8 @@ Without complexity evaluation, the system would have to choose a single path for
 
 - **~~The scoring is coarse~~** *(addressed)*: factors now use continuous scoring functions (`min(n/4, 1.0)`, linear ramps) instead of discrete 0.0/0.5/1.0 steps. See "Factor Scoring" below for the formulas.
 - **No feedback loop**: the thresholds (0.35, 0.55) are static. If the agent consistently produces better answers than the fast path for queries scoring 0.40, there is no mechanism to learn and lower the threshold. An adaptive threshold based on user satisfaction signals (thumbs up/down, follow-up questions) could improve routing over time.
-- **Keyword matching is brittle**: regex patterns are language-specific and must be maintained manually. A query like "quelles sont les différences fondamentales" triggers on "différences" but a rephrasing like "en quoi X et Y divergent-ils" does not. A lightweight embedding-based classifier could replace the keyword factor for more robust detection.
-- **No distinction between MODERATE and SIMPLE in practice**: the enhanced path uses the same pipeline as the fast path. The MODERATE level exists as a conceptual category but does not currently trigger different behavior. It could be used to enable specific features (e.g., query expansion, additional retrieval passes) without the full agent loop.
+- **Keyword matching is brittle**: regex patterns must be maintained manually per language. While patterns now cover 4 languages (EN/FR/ES/DE — see "Multilingual Query Classification" in Section 3), a rephrasing like "en quoi X et Y divergent-ils" still does not trigger on "différences". A lightweight embedding-based classifier could replace the keyword factor for more robust detection.
+- **~~No distinction between MODERATE and SIMPLE in practice~~** *(addressed)*: the enhanced path now uses `top_k × 1.5` for queries with complexity 0.35-0.55, increasing retrieval depth without the full agent loop. See "MODERATE Path Differentiation" in Section 3.
 
 ### The Formula
 
@@ -95,7 +95,7 @@ Four of the five factors use continuous scoring functions. `query_type` remains 
 ### Routing Thresholds
 
 - `score < 0.35` --> **SIMPLE** (fast path: standard single-pass RAG)
-- `0.35 <= score < 0.55` --> **MODERATE** (enhanced path: same pipeline, better fusion)
+- `0.35 <= score < 0.55` --> **MODERATE** (enhanced path: increased retrieval depth)
 - `score >= 0.55` --> **COMPLEX** (agent path: ReAct loop)
 
 The thresholds were chosen so that a single strong signal (e.g., query_type=1.0 alone = 0.25) does not trigger the agent path, but two or more converging signals do. With continuous scoring, each factor contributes proportionally, so borderline queries get more nuanced routing. For example: query_type=COMPARATIVE (1.0×0.25=0.25) + 2 entities (0.5×0.20=0.10) + 2 keywords (0.5×0.20=0.10) = 0.45 (moderate), while adding a third entity pushes it to 0.50 and a third keyword to 0.55 (agent). This gradual accumulation prevents over-triggering on queries with a single complex signal.
@@ -120,6 +120,22 @@ Query: *"Compare les avantages et inconvenients du processus X par rapport a Y"*
 
 Score: `0.25*1.0 + 0.20*0.5 + 0.20*0.67 + 0.20*1.0 + 0.15*0.0 = 0.684` --> agent path.
 
+### MODERATE Path Differentiation
+
+**File:** `src/cognidoc/cognidoc_app.py` (lines 1276-1282 for hybrid path, 1304-1309 for vector-only path)
+
+Queries with complexity 0.35-0.55 now use increased retrieval depth:
+
+```
+effective_top_k = TOP_K_RETRIEVED_CHILDREN                    # default: 10
+if 0.35 <= complexity.score < 0.55:
+    effective_top_k = round(TOP_K_RETRIEVED_CHILDREN * 1.5)   # enhanced: 15
+```
+
+This applies to both the hybrid retrieval path and the vector-only fallback path. The 1.5× multiplier provides more candidate documents for reranking, improving answer coverage for moderately complex queries without the full cost of the agent loop.
+
+**Why 1.5×:** A 2× multiplier would double the reranking input and increase latency noticeably (~0.5s more). 1.5× adds 5 more candidates (10 → 15), giving the reranker a meaningfully larger pool while keeping the latency increase marginal. Queries below 0.35 are simple enough that 10 candidates suffice; queries above 0.55 are handled by the agent which makes its own retrieval decisions.
+
 ---
 
 ## 2. Retrieval Cache (LRU)
@@ -139,7 +155,7 @@ A single retrieval pass involves: query classification (1 LLM call), vector sear
 
 ### Limitations and Possible Improvements
 
-- **Exact match only**: "What is X?" and "what is X" produce different MD5 hashes. The cache does not normalize queries (lowercasing, stripping punctuation, stemming). Adding a normalization step before hashing would increase hit rates for trivially equivalent queries.
+- **~~Exact match only~~** *(addressed)*: the cache now normalizes queries before hashing — lowercasing, collapsing whitespace, and stripping trailing punctuation. "What is X?" and "what is x ?" now produce the same cache key. See "Cache Key Normalization" below.
 - **No semantic similarity**: "What is X?" and "Tell me about X" are cache misses despite being semantically identical. An embedding-based cache key (cosine similarity above a threshold) could catch these, at the cost of an embedding computation per lookup.
 - **In-memory only**: the cache is lost on process restart. For long-running production deployments, persisting the cache (e.g., SQLite, like the embedding cache already does) would preserve it across restarts. However, the 5-minute TTL makes this less critical — most entries would expire anyway.
 - **No invalidation on re-ingestion**: if documents are re-ingested while the app is running, cached results may reference stale content. An explicit `cache.clear()` after ingestion would solve this, but there is currently no hook between the ingestion pipeline and the query cache.
@@ -156,15 +172,25 @@ The cache is an `OrderedDict` (Python standard library) instantiated once as a m
 
 ### Cache Key
 
-The key is an MD5 hash of four concatenated parameters (line 108-111):
+The key is an MD5 hash of four concatenated parameters (lines 108-118):
 
 ```
-MD5("{query}|{top_k}|{use_reranking}|{strategy}")
+MD5("{normalize(query)}|{top_k}|{use_reranking}|{strategy}")
 ```
 
 MD5 is used here not for security but as a fast, fixed-length key generator. The alternative (using the raw concatenated string as key) would work but wastes memory on long queries. Collision risk is irrelevant at 50 entries.
 
 The same query with different parameters (e.g., reranking on vs off) produces distinct cache entries. This prevents returning a non-reranked result when reranking was requested.
+
+### Cache Key Normalization
+
+Before hashing, `_normalize_query()` applies three transformations:
+
+1. **Lowercase**: `"What is X?"` → `"what is x?"`
+2. **Collapse whitespace**: `"  hello  world  "` → `"hello world"`
+3. **Strip trailing punctuation**: `"hello?"` → `"hello"` (strips `?.!,;:` at end only)
+
+This ensures trivially equivalent queries hit the same cache entry. The normalization is intentionally conservative — it does not stem, lemmatize, or remove stop words, which could cause semantically different queries to collide (e.g., "not X" and "X" after stop word removal).
 
 ### LRU Behavior
 
@@ -208,10 +234,25 @@ Without fusion, the system would have to pick one retriever per query (losing in
 
 ### Limitations and Possible Improvements
 
-- **Fusion is binary, not proportional**: despite the weights (e.g., 0.7/0.3), the actual fusion concatenates both full contexts when both are included. A weight of 0.3 vs 0.7 makes no difference in the fused text — the LLM sees both sections in full. The weights only matter at the skip threshold boundary (< 15% = excluded). A more sophisticated approach would truncate the lower-weighted context proportionally (e.g., graph_weight=0.3 means only the top 30% of graph results are included).
+- **~~Fusion is binary, not proportional~~** *(addressed)*: `fuse_results()` now caps vector results and graph entities proportionally by weight. A weight of 0.2 with 10 vector results includes only 2; a weight of 0.3 with 10 graph entities includes only 3. Minimum 1 result when weight > 0. See "Proportional Fusion" in Phase D below.
 - **No cross-retriever reranking**: after fusion, the vector and graph results are presented as separate sections. There is no unified reranking that interleaves the best results from both sources. A cross-retriever reranker could produce a more coherent context by ordering all results by relevance regardless of source.
 - **Static weight table**: the weights are hardcoded per query type. Different corpora may benefit from different balances (e.g., a highly structured corpus with rich entity relationships might benefit from higher graph weights across the board). Per-corpus weight tuning or learned weights based on retrieval feedback could improve quality.
-- **The confidence adjustment is symmetric**: both retrievers get the same +/-0.3 adjustment regardless of how poor the confidence actually is. A proportional adjustment (larger shift for very low confidence) would be more responsive.
+- **~~The confidence adjustment is symmetric~~** *(addressed)*: `should_fallback()` now uses a proportional shift via `_confidence_shift()`. The adjustment scales from 0.0 (confidence at threshold) to 0.3 (confidence at zero). A barely-below-threshold score (0.29 vs 0.3) produces a small correction; a very low score (0.05) produces nearly the full 0.3 shift. See "Proportional Confidence Adjustment" in Phase C below.
+
+### Multilingual Query Classification (`query_orchestrator.py`, lines 82-210)
+
+Query type classification uses rule-based pattern matching via `QUERY_PATTERNS` and `classify_query_rules()`. Patterns are defined in 4 languages:
+
+| Language | Pattern examples | Question words |
+|----------|-----------------|----------------|
+| English | "relationship between", "compare", "summarize", "how to" | what, who, where, when, which, why, how |
+| French | "relation entre", "comparé", "résumé", "comment faire" | quel, qui, où, quand, combien, pourquoi, comment |
+| Spanish | "relación entre", "comparar", "resumen", "cómo hacer" | qué, cuál, dónde, cuándo, quién, por qué, cómo |
+| German | "beziehung zwischen", "vergleich", "zusammenfassung", "wie kann" | was, wer, wo, wann, welche, warum, wie |
+
+Each language contributes patterns to all 5 query type categories (RELATIONAL, COMPARATIVE, EXPLORATORY, PROCEDURAL, ANALYTICAL). Question word fallbacks classify unmatched queries as FACTUAL (confidence 0.6) or ANALYTICAL (confidence 0.5) depending on the word.
+
+Without multilingual patterns, non-English queries would fall to UNKNOWN (confidence 0.3), causing suboptimal routing: wrong vector/graph weight balance, and potentially under-triggering the agent path for complex queries in French, Spanish, or German.
 
 ### Phase A: Weight Assignment (`query_orchestrator.py`, lines 145-153)
 
@@ -239,29 +280,49 @@ If a weight is **< 15%** (`skip_threshold=0.15` in `OrchestratorConfig`), the co
 
 When both retrievers are needed, they run **in parallel** via `ThreadPoolExecutor(max_workers=2)` (`hybrid_retriever.py`, lines 756-773). When only one is needed, it runs alone.
 
-### Phase C: Post-hoc Confidence Adjustment
+### Phase C: Post-hoc Confidence Adjustment (Proportional)
 
-After retrieval completes, `should_fallback()` (`query_orchestrator.py`, lines 351-398) adjusts weights based on the **confidence of the actual results**:
+After retrieval completes, `should_fallback()` (`query_orchestrator.py`, lines 357-410) adjusts weights based on the **confidence of the actual results**:
 
-- Vector confidence low (< threshold) --> graph_weight += 0.3, vector_weight -= 0.3
-- Graph confidence low --> vector_weight += 0.3, graph_weight -= 0.3
-- Both low --> mode switches to ADAPTIVE
+- Vector confidence low (< threshold) → boost graph, reduce vector by proportional shift
+- Graph confidence low → boost vector, reduce graph by proportional shift
+- Both low → mode switches to ADAPTIVE
 
-The +/-0.3 adjustment is large enough to meaningfully shift the balance (e.g., from 0.7/0.3 to 0.4/0.6) but not so large that it completely inverts the routing decision. It acts as a correction, not an override.
+The shift is computed by `_confidence_shift()`:
 
-This compensates for cases where a retriever returns poor results. For example, if the graph has no matching entities for a RELATIONAL query, the vector weight gets boosted so the final context still contains useful information.
+```
+shift = 0.3 × (1 - confidence / threshold)
+```
 
-### Phase D: The Fusion Itself (`fuse_results`, lines 236-288)
+| Confidence | Threshold=0.3 | Shift |
+|------------|---------------|-------|
+| 0.30 (at threshold) | — | 0.00 |
+| 0.25 | — | 0.05 |
+| 0.15 (half threshold) | — | 0.15 |
+| 0.00 | — | 0.30 (max) |
 
-The fusion is **not a numerical score interpolation** -- it is a **textual context concatenation**. Concretely:
+This proportional approach replaces the previous fixed ±0.3 adjustment. A score barely below threshold (e.g., 0.29 vs 0.30) produces a tiny correction (~0.01), while a very low confidence (0.05) produces nearly the full shift (~0.25). The maximum shift of 0.3 is preserved, so the adjustment can meaningfully rebalance weights (e.g., from 0.7/0.3 to 0.4/0.6) without completely inverting the routing decision.
 
-1. If `graph_weight > 0` and graph returned results: a section `=== KNOWLEDGE GRAPH CONTEXT ===` is added containing entity descriptions, relationships, and community summaries. Source chunks are capped at `MAX_SOURCE_CHUNKS_FROM_GRAPH`.
-2. If `vector_weight > 0` and vector returned results: a section `=== DOCUMENT CONTEXT ===` is added containing the reranked document chunks.
-3. Source chunks are deduplicated via `dict.fromkeys()` (preserves order).
+This compensates for cases where a retriever returns poor results. For example, if the graph has no matching entities for a RELATIONAL query, the vector weight gets boosted proportionally to how poor the graph results were.
 
-The weights serve as **inclusion/exclusion gates**, not as numerical multipliers on the content. If a weight is > 0, the full context from that retriever is included. The LLM then sees both sections and synthesizes the final answer, implicitly giving more attention to whichever section is more relevant.
+### Phase D: Proportional Fusion (`fuse_results`, lines 236-300)
 
-The real impact of the weights is upstream: in the **skip logic** (whether a retriever runs at all) and in the **confidence adjustment** (whether to compensate for a weak retriever).
+The fusion is **not a numerical score interpolation** — it is a **textual context concatenation with proportional capping**. Concretely:
+
+1. **Proportional caps are computed** from the weights and the number of available results:
+   - `max_vector = max(1, round(total_vector × vector_weight))` — or 0 if weight is 0
+   - `max_graph_entities = max(1, round(total_entities × graph_weight))` — or 0 if weight is 0
+2. If `graph_weight > 0` and graph returned results: a section `=== KNOWLEDGE GRAPH CONTEXT ===` is added containing entity descriptions, relationships, and community summaries. Only the first `max_graph_entities` entities are included; per-entity source chunks are still capped at `MAX_SOURCE_CHUNKS_PER_ENTITY`, and total source chunks at `MAX_SOURCE_CHUNKS_FROM_GRAPH`.
+3. If `vector_weight > 0` and vector returned results: a section `=== DOCUMENT CONTEXT ===` is added containing the first `max_vector` reranked document chunks.
+4. Source chunks are deduplicated via `dict.fromkeys()` (preserves order).
+
+The `max(1, ...)` minimum ensures that any retriever with non-zero weight contributes at least one result to the context. This prevents a weight of 0.1 with 5 results from rounding to 0 (it rounds to 1 instead).
+
+**Example:** An EXPLORATORY query (vector=0.1, graph=0.9) with 10 vector results and 10 graph entities:
+- `max_vector = max(1, round(10 × 0.1)) = 1` — only the top vector result is included
+- `max_graph_entities = max(1, round(10 × 0.9)) = 9` — 9 of 10 graph entities included
+
+This replaces the previous binary approach where all results from both retrievers were included regardless of weight. The weights now directly control context composition, giving the LLM a naturally balanced input that reflects the query type's retrieval priorities.
 
 ---
 
