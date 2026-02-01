@@ -284,14 +284,22 @@ The agent provides a controlled loop where the LLM can reason about what informa
 
 ### Limitations and Possible Improvements
 
-- **Code duplication**: `run()` and `run_streaming()` are ~290 lines combined with nearly identical logic. A bug fix in one can be missed in the other. Refactoring into a shared internal generator would eliminate this (see section on code structure below).
 - **No backtracking**: if step 3 leads to a dead end, the agent cannot revert to step 2 and try a different tool. It can only move forward, accumulating potentially irrelevant context. A state-machine architecture with explicit backtracking would allow the agent to prune unproductive paths.
 - **Reflection is advisory, not binding**: the reflection step produces text that goes into the history, but the next `_think_and_decide` call may ignore it. There is no guarantee that a reflection saying "I have enough information" will lead to `final_answer` on the next step. Making the reflection output a structured decision (continue/conclude) with a hard branch would be more reliable, at the cost of flexibility.
 - **No parallel tool execution**: the agent calls one tool per step. For comparison queries, it could call `retrieve_vector` for X and Y in parallel. This would require the agent to express multi-tool actions, which the current `THOUGHT/ACTION/ARGUMENTS` format does not support.
 - **Context accumulation is unbounded within a run**: `gathered_context` grows with each step. For a 7-step run with large retrieval results, the prompt for step 7 includes all previous observations, which can approach context window limits. A summarization step that compresses older context would keep prompts manageable.
 - **Aggregate/exhaustive queries**: the agent retrieves top-K chunks per tool call. For questions like "how many X are mentioned across all documents?", multiple retrieval passes still only cover a fraction of the corpus. A dedicated exhaustive search tool or pre-computed aggregation indexes would be needed to answer these reliably (see discussion in the "Known Limitations" section).
 
-### Loop Structure (`run`, lines 260-361)
+### Code Structure
+
+The agent loop is implemented as a single private generator `_run_loop()` that yields `(AgentState, message)` tuples for streaming progress and returns an `AgentResult`. The two public methods are thin wrappers:
+
+- **`run()`**: consumes the generator silently (discards yielded events), returns the `AgentResult` directly.
+- **`run_streaming()`**: delegates via `yield from`, propagating both the yielded events and the return value to the caller.
+
+This avoids duplicating the loop logic across two methods. The streaming events are always generated (even in `run()`), but the cost is negligible since they are just string formatting — no I/O or LLM calls.
+
+### Loop Structure (`_run_loop`)
 
 ```
 +--- THINK + DECIDE ----> LLM generates a thought + chooses a tool
@@ -308,11 +316,11 @@ The agent provides a controlled loop where the LLM can reason about what informa
 +------- loop (max 7 iterations) ---------------------------+
 ```
 
-### Step 1: THINK + DECIDE (`_think_and_decide`, line 375)
+### Step 1: THINK + DECIDE (`_think_and_decide`)
 
 The LLM receives:
-- A **system prompt** (`SYSTEM_PROMPT`, line 127) listing available tools, language rules, and efficiency guidelines ("2-3 steps max", "one retrieval is usually enough").
-- A **user prompt** (`THINK_PROMPT`, line 173) containing the original query + the full history of all previous steps (each step formatted via `AgentStep.to_text()`).
+- A **system prompt** (`SYSTEM_PROMPT`) listing available tools, language rules, and efficiency guidelines ("2-3 steps max", "one retrieval is usually enough").
+- A **user prompt** (`THINK_PROMPT`) containing the original query + the full history of all previous steps (each step formatted via `AgentStep.to_text()`).
 
 The LLM must respond in a strict format:
 ```
@@ -321,18 +329,18 @@ ACTION: <tool_name>
 ARGUMENTS: <JSON>
 ```
 
-Parsing (`_parse_thought_action`, line 440) uses regex extraction. If the JSON is malformed, a fallback parser (`_parse_args_fallback`, line 485) attempts to extract key-value pairs via regex. This resilience matters because LLMs occasionally produce slightly malformed JSON.
+Parsing (`_parse_thought_action`) uses regex extraction. If the JSON is malformed, a fallback parser (`_parse_args_fallback`) attempts to extract key-value pairs via regex. This resilience matters because LLMs occasionally produce slightly malformed JSON.
 
 The format is intentionally text-based rather than using native function calling. This forces the LLM to reason out loud in the THOUGHT section before choosing an action, producing better tool selection decisions.
 
-### Step 2: Terminal Action Check (lines 277-315)
+### Step 2: Terminal Action Check
 
 Before executing any tool, two cases exit the loop immediately:
 
 - **`final_answer`**: the answer is extracted from the `answer` field in arguments (with a fallback to the first string value if the key is missing). Returns `AgentResult(success=True)`.
 - **`ask_clarification`**: returns `AgentResult(needs_clarification=True)` with the clarification question. The UI displays this to the user.
 
-### Step 3: ACT (line 319)
+### Step 3: ACT
 
 `self.tools.execute(action)` dispatches to the concrete tool implementation in `agent_tools.py`. Returns a `ToolResult` with:
 - `observation`: text summary of the result (truncated for prompt inclusion)
@@ -353,11 +361,11 @@ The 9 available tools:
 | `ask_clarification` | Request more information from the user | N/A |
 | `final_answer` | Return the final response | N/A |
 
-### Step 4: OBSERVE + REFLECT in Parallel (lines 322-345)
+### Step 4: OBSERVE + REFLECT in Parallel
 
 This is the most architecturally interesting part. Two operations happen **simultaneously**:
 
-**Main thread** -- stores useful context (lines 330-340):
+**Main thread** -- stores useful context:
 - `retrieve_vector`: top 3 document texts added to `gathered_context`
 - `retrieve_graph`: graph context added
 - `lookup_entity`: entity added to `entities_found`
@@ -365,21 +373,21 @@ This is the most architecturally interesting part. Two operations happen **simul
 
 This is instantaneous (just list appends).
 
-**Background thread** (`_reflect`, line 413) -- a separate LLM call with `REFLECT_PROMPT` that asks: *"Can you answer NOW? If yes, use final_answer immediately. Only continue searching if absolutely necessary."*
+**Background thread** (`_reflect`) -- a separate LLM call with `REFLECT_PROMPT` that asks: *"Can you answer NOW? If yes, use final_answer immediately. Only continue searching if absolutely necessary."*
 
-The `ThreadPoolExecutor` is **module-level** (line 34), reused across agent calls -- no thread creation overhead per invocation. The main thread waits for reflection at line 343: `reflection_future.result(timeout=30.0)`. Since context storage is near-instant and the LLM call takes ~0.5-1s, the parallelism saves the full duration of context storage (minimal) but more importantly overlaps the two operations cleanly.
+The `ThreadPoolExecutor` is **module-level** (line 34), reused across agent calls -- no thread creation overhead per invocation. The main thread waits for the reflection future with a 30s timeout. Since context storage is near-instant and the LLM call takes ~0.5-1s, the parallelism saves the full duration of context storage (minimal) but more importantly overlaps the two operations cleanly.
 
 ### Reflection Does Not Directly Control the Next Step
 
 The reflection is stored in `step.reflection` and becomes part of the history (`get_history_text()`). However, there is no conditional branch like "if reflection says we have enough, call final_answer". It is the **next** call to `_think_and_decide` that decides what to do -- by seeing the reflection in the history, the LLM decides whether to conclude or continue. The reflection influences the next step indirectly through the prompt context.
 
-### Forced Conclusion (lines 347-361)
+### Forced Conclusion
 
-If the loop reaches 7 iterations without a `final_answer`, `_force_conclusion` (line 494) makes one last LLM call with all accumulated context (capped at 3000 characters) and asks for the best possible answer. The result is marked `forced_conclusion=True` in metadata.
+If the loop reaches 7 iterations without a `final_answer`, `_force_conclusion` makes one last LLM call with all accumulated context (capped at 3000 characters) and asks for the best possible answer. The result is marked `forced_conclusion=True` in metadata.
 
 ### Fallback to Fast Path
 
-If the agent fails entirely (exception), the calling code in `cognidoc_app.py` (lines 1233-1243) falls through to the fast path as a safety net. The user still gets an answer, just without multi-step reasoning.
+If the agent fails entirely (exception), the calling code in `cognidoc_app.py` falls through to the fast path as a safety net. The user still gets an answer, just without multi-step reasoning.
 
 ### Why max_steps=7 and temperature=0.3
 
