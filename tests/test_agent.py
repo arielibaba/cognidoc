@@ -392,6 +392,226 @@ class TestCreateAgent:
         assert agent.temperature == 0.3
 
 
+class TestContextTrimming:
+    """Tests for AgentContext.get_trimmed_history()."""
+
+    def _make_step(
+        self,
+        num,
+        thought="thinking",
+        action_tool=ToolName.RETRIEVE_VECTOR,
+        action_args=None,
+        observation="obs " * 100,
+        reflection="refl " * 50,
+    ):
+        """Helper to create a fully-populated step."""
+        action = ToolCall(
+            tool=action_tool,
+            arguments=action_args or {"query": f"q{num}"},
+        )
+        return AgentStep(
+            step_number=num,
+            thought=thought,
+            action=action,
+            observation=observation,
+            reflection=reflection,
+        )
+
+    def test_all_steps_kept_when_fewer_than_cutoff(self):
+        """When steps <= keep_full, all are returned in full."""
+        context = AgentContext(query="test")
+        context.add_step(self._make_step(1))
+        context.add_step(self._make_step(2))
+
+        result = context.get_trimmed_history(keep_full=3)
+        assert "Observation:" in result
+        assert "Reflection:" in result
+
+    def test_older_steps_trimmed(self):
+        """Steps older than keep_full have observation and reflection dropped."""
+        context = AgentContext(query="test")
+        for i in range(1, 6):
+            context.add_step(self._make_step(i, thought=f"thought_{i}"))
+
+        result = context.get_trimmed_history(keep_full=2)
+
+        # Steps 1-3 should be trimmed (no Observation/Reflection)
+        # Steps 4-5 should be full
+        lines = result.split("\n")
+
+        # Older steps: thought + action only
+        step1_block = result.split("Step 2:")[0]
+        assert "thought_1" in step1_block
+        assert "Action:" in step1_block
+        assert "Observation:" not in step1_block
+        assert "Reflection:" not in step1_block
+
+        # Recent steps: full detail
+        step5_block = result.split("Step 5:")[1] if "Step 5:" in result else ""
+        assert "Observation:" in step5_block
+        assert "Reflection:" in step5_block
+
+    def test_empty_steps(self):
+        """Empty context returns empty string."""
+        context = AgentContext(query="test")
+        assert context.get_trimmed_history() == ""
+
+    def test_single_step_kept_full(self):
+        """Single step is always kept in full."""
+        context = AgentContext(query="test")
+        context.add_step(self._make_step(1))
+
+        result = context.get_trimmed_history(keep_full=2)
+        assert "Observation:" in result
+        assert "Reflection:" in result
+
+    def test_default_keep_full_is_two(self):
+        """Default keep_full parameter is 2."""
+        context = AgentContext(query="test")
+        for i in range(1, 5):
+            context.add_step(self._make_step(i, thought=f"thought_{i}"))
+
+        result = context.get_trimmed_history()  # default keep_full=2
+
+        # Steps 1-2 trimmed, steps 3-4 full
+        step1_block = result.split("Step 2:")[0]
+        assert "Observation:" not in step1_block
+
+        step4_block = result.split("Step 4:")[1] if "Step 4:" in result else ""
+        assert "Observation:" in step4_block
+
+
+class TestBindingReflection:
+    """Tests for reflection binding (should_conclude signal)."""
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_reflect_returns_tuple(self, mock_llm):
+        """_reflect returns (str, bool) tuple."""
+        mock_retriever = MagicMock()
+        agent = CogniDocAgent(retriever=mock_retriever)
+
+        mock_llm.return_value = "THOUGHT: We have enough info.\nACTION: final_answer"
+
+        context = AgentContext(query="test query")
+        reflection, should_conclude = agent._reflect(context, "some observation")
+
+        assert isinstance(reflection, str)
+        assert isinstance(should_conclude, bool)
+        assert should_conclude is True
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_reflect_continue_signal(self, mock_llm):
+        """_reflect returns should_conclude=False when ACTION: continue."""
+        mock_retriever = MagicMock()
+        agent = CogniDocAgent(retriever=mock_retriever)
+
+        mock_llm.return_value = "THOUGHT: Need more data.\nACTION: continue"
+
+        context = AgentContext(query="test query")
+        reflection, should_conclude = agent._reflect(context, "partial data")
+
+        assert should_conclude is False
+        assert "Need more data" in reflection
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_reflect_no_action_means_continue(self, mock_llm):
+        """_reflect returns should_conclude=False when no ACTION keyword."""
+        mock_retriever = MagicMock()
+        agent = CogniDocAgent(retriever=mock_retriever)
+
+        mock_llm.return_value = "I think we need more information about the topic."
+
+        context = AgentContext(query="test query")
+        reflection, should_conclude = agent._reflect(context, "obs")
+
+        assert should_conclude is False
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_binding_reflection_concludes_early(self, mock_llm):
+        """Agent concludes early when reflection signals should_conclude."""
+        mock_retriever = MagicMock()
+        mock_retriever._graph_retriever = None
+        mock_retriever.is_loaded.return_value = True
+
+        # Mock vector search
+        mock_node = MagicMock()
+        mock_node.text = "Relevant information about the topic."
+        mock_node.metadata = {}
+        mock_nws = MagicMock()
+        mock_nws.node = mock_node
+        mock_nws.score = 0.9
+        mock_retriever._vector_index.search.return_value = [mock_nws]
+
+        agent = CogniDocAgent(retriever=mock_retriever, max_steps=5)
+
+        call_count = [0]
+
+        def mock_response(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # Think step: do a retrieval
+                return """THOUGHT: Let me search.
+ACTION: retrieve_vector
+ARGUMENTS: {"query": "topic", "top_k": "3"}"""
+            elif call_count[0] == 2:
+                # Reflect step: signal conclusion
+                return "THOUGHT: We have all the info needed.\nACTION: final_answer"
+            else:
+                # Force conclusion LLM call
+                return "The topic is about X based on gathered evidence."
+
+        mock_llm.side_effect = mock_response
+
+        result = agent.run("What is the topic?")
+
+        assert result.success is True
+        assert result.metadata.get("reflection_concluded") is True
+        assert result.metadata["total_steps"] == 1
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_binding_reflection_does_not_conclude_on_continue(self, mock_llm):
+        """Agent continues when reflection signals ACTION: continue."""
+        mock_retriever = MagicMock()
+        mock_retriever._graph_retriever = None
+        mock_retriever.is_loaded.return_value = True
+
+        mock_node = MagicMock()
+        mock_node.text = "Some info"
+        mock_node.metadata = {}
+        mock_nws = MagicMock()
+        mock_nws.node = mock_node
+        mock_nws.score = 0.9
+        mock_retriever._vector_index.search.return_value = [mock_nws]
+
+        agent = CogniDocAgent(retriever=mock_retriever, max_steps=2)
+
+        call_count = [0]
+
+        def mock_response(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return """THOUGHT: Let me search.
+ACTION: retrieve_vector
+ARGUMENTS: {"query": "topic", "top_k": "3"}"""
+            elif call_count[0] == 2:
+                # Reflect: continue
+                return "THOUGHT: Need more info.\nACTION: continue"
+            elif call_count[0] == 3:
+                # Second think: now conclude
+                return """THOUGHT: I have enough now.
+ACTION: final_answer
+ARGUMENTS: {"answer": "The answer."}"""
+            else:
+                return "Forced answer."
+
+        mock_llm.side_effect = mock_response
+
+        result = agent.run("What is the topic?")
+
+        assert result.success is True
+        assert result.metadata.get("reflection_concluded") is not True
+
+
 class TestAgentIntegration:
     """Integration-style tests for agent behavior."""
 

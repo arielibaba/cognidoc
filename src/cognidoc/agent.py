@@ -93,8 +93,29 @@ class AgentContext:
             self.gathered_context.append(text)
 
     def get_history_text(self) -> str:
-        """Get formatted history for LLM context."""
+        """Get formatted history for LLM context (full detail, used for logging)."""
         return "\n\n".join(step.to_text() for step in self.steps)
+
+    def get_trimmed_history(self, keep_full: int = 2) -> str:
+        """Get history with older steps summarized to save context window.
+
+        Keeps the last `keep_full` steps in full detail (thought, action,
+        observation, reflection). Older steps are reduced to thought + action
+        only, dropping the bulky observation and reflection fields.
+        """
+        parts = []
+        cutoff = len(self.steps) - keep_full
+        for i, step in enumerate(self.steps):
+            if i < cutoff:
+                lines = [f"Step {step.step_number}:"]
+                if step.thought:
+                    lines.append(f"Thought: {step.thought}")
+                if step.action:
+                    lines.append(f"Action: {step.action.tool.value}({step.action.arguments})")
+                parts.append("\n".join(lines))
+            else:
+                parts.append(step.to_text())
+        return "\n\n".join(parts)
 
     def get_gathered_context(self) -> str:
         """Get all gathered context as text."""
@@ -186,11 +207,12 @@ Observation: {observation}
 
 Context gathered: {context}
 
-Can you answer NOW? If yes, use final_answer immediately. Only continue searching if absolutely necessary.
+Can you answer the query NOW with the information gathered?
+- If YES: respond with ACTION: final_answer
+- If NO (critical information is still missing): respond with ACTION: continue
 
 THOUGHT:
-ACTION:
-ARGUMENTS:"""
+ACTION:"""
 
 
 # =============================================================================
@@ -277,7 +299,7 @@ class CogniDocAgent:
         else:
             prompt = THINK_PROMPT.format(
                 query=context.query,
-                history=context.get_history_text(),
+                history=context.get_trimmed_history(),
             )
 
         system = SYSTEM_PROMPT.format(
@@ -298,18 +320,20 @@ class CogniDocAgent:
         thought, action = self._parse_thought_action(response)
         return thought, action
 
-    def _reflect(self, context: AgentContext, observation: str) -> str:
+    def _reflect(self, context: AgentContext, observation: str) -> Tuple[str, bool]:
         """
         Reflect on the latest observation.
 
         Returns:
-            Reflection text
+            Tuple of (reflection_text, should_conclude).
+            should_conclude is True when the reflection determines enough
+            information has been gathered to produce a final answer.
         """
         prompt = REFLECT_PROMPT.format(
             query=context.query,
-            history=context.get_history_text(),
+            history=context.get_trimmed_history(),
             observation=observation[:1000],
-            context=context.get_gathered_context()[:2000],
+            context=context.get_gathered_context()[:3000],
         )
 
         response = llm_chat(
@@ -317,13 +341,16 @@ class CogniDocAgent:
             temperature=self.temperature,
         )
 
+        # Determine if reflection recommends concluding
+        should_conclude = bool(re.search(r"ACTION:\s*final_answer", response, re.IGNORECASE))
+
         # Extract just the thought/reflection part
         if "THOUGHT:" in response:
             thought_match = re.search(r"THOUGHT:\s*(.+?)(?=ACTION:|$)", response, re.DOTALL)
             if thought_match:
-                return thought_match.group(1).strip()
+                return thought_match.group(1).strip(), should_conclude
 
-        return response[:500]
+        return response[:500], should_conclude
 
     def _parse_thought_action(self, response: str) -> Tuple[str, Optional[ToolCall]]:
         """
@@ -386,6 +413,9 @@ class CogniDocAgent:
         prompt = f"""You must now provide a final answer based on the information gathered.
 
 Query: {context.query}
+
+Reasoning steps:
+{context.get_trimmed_history()}
 
 Information gathered:
 {context.get_gathered_context()[:3000]}
@@ -538,12 +568,29 @@ Provide the best possible answer with the available information. If some aspects
                         context.add_context(str(result.data))
 
                 # Wait for reflection to complete (usually already done by now)
-                step.reflection = reflection_future.result(timeout=30.0)
+                step.reflection, should_conclude = reflection_future.result(timeout=30.0)
                 context.add_step(step)
 
                 if step.reflection and len(step.reflection) > 10:
                     refl_preview = step.reflection[:100].replace("\n", " ")
                     yield (AgentState.REFLECTING, f"Analysis: {refl_preview}")
+
+                # Binding reflection: if reflection says we can conclude, do it now
+                if should_conclude:
+                    logger.info("Reflection binding: concluding based on reflection signal")
+                    yield (AgentState.FINISHED, "Sufficient information gathered, concluding...")
+                    conclusion = self._force_conclusion(context)
+                    return AgentResult(
+                        query=query,
+                        answer=conclusion,
+                        steps=context.steps,
+                        success=True,
+                        metadata={
+                            "total_steps": step_count,
+                            "reflection_concluded": True,
+                            "tools_used": [s.action.tool.value for s in context.steps if s.action],
+                        },
+                    )
 
             # Max steps reached - force conclusion
             logger.warning(f"Agent reached max_steps ({self.max_steps}), forcing conclusion")
