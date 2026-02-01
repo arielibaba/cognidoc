@@ -43,14 +43,14 @@ Without complexity evaluation, the system would have to choose a single path for
 
 ### Limitations and Possible Improvements
 
-- **The scoring is coarse**: each factor is 0.0, 0.5, or 1.0 with no granularity in between. A query with 2 entities scores the same as one with 2 — but a query with 4 entities is likely harder than one with 3. A continuous scoring function (e.g., `min(entity_count / 4, 1.0)`) would capture this.
+- **~~The scoring is coarse~~** *(addressed)*: factors now use continuous scoring functions (`min(n/4, 1.0)`, linear ramps) instead of discrete 0.0/0.5/1.0 steps. See "Factor Scoring" below for the formulas.
 - **No feedback loop**: the thresholds (0.35, 0.55) are static. If the agent consistently produces better answers than the fast path for queries scoring 0.40, there is no mechanism to learn and lower the threshold. An adaptive threshold based on user satisfaction signals (thumbs up/down, follow-up questions) could improve routing over time.
 - **Keyword matching is brittle**: regex patterns are language-specific and must be maintained manually. A query like "quelles sont les différences fondamentales" triggers on "différences" but a rephrasing like "en quoi X et Y divergent-ils" does not. A lightweight embedding-based classifier could replace the keyword factor for more robust detection.
 - **No distinction between MODERATE and SIMPLE in practice**: the enhanced path uses the same pipeline as the fast path. The MODERATE level exists as a conceptual category but does not currently trigger different behavior. It could be used to enable specific features (e.g., query expansion, additional retrieval passes) without the full agent loop.
 
 ### The Formula
 
-The complexity score is a weighted sum of 5 factors, each scored 0.0, 0.5, or 1.0:
+The complexity score is a weighted sum of 5 factors, each scored continuously in [0.0, 1.0]:
 
 ```
 score = 0.25 * query_type
@@ -64,23 +64,29 @@ Score range: 0.0 (trivially simple) to 1.0 (maximally complex).
 
 ### Factor Scoring
 
-| Factor | Weight | Score 0.0 | Score 0.5 | Score 1.0 |
-|--------|--------|-----------|-----------|-----------|
-| **query_type** | 25% | FACTUAL, PROCEDURAL | RELATIONAL, EXPLORATORY | ANALYTICAL, COMPARATIVE |
-| **entity_count** | 20% | 0-1 entities | 2 entities | >= 3 entities |
-| **subquestion_count** | 20% | 1 sub-question | 2 sub-questions | >= 3 sub-questions |
-| **keyword_matches** | 20% | 0 complex keywords | 1-2 keywords | >= 3 keywords |
-| **low_confidence** | 15% | confidence >= 0.6 | confidence 0.4-0.6 | confidence < 0.4 |
+Four of the five factors use continuous scoring functions. `query_type` remains discrete because it is categorical (enum-based).
 
-**query_type** comes from the classifier (`QueryOrchestrator`). ANALYTICAL and COMPARATIVE queries inherently require multi-step reasoning.
+| Factor | Weight | Formula | Example values |
+|--------|--------|---------|----------------|
+| **query_type** | 25% | Discrete: 0.0 (FACTUAL, PROCEDURAL), 0.5 (RELATIONAL, EXPLORATORY), 1.0 (ANALYTICAL, COMPARATIVE) | — |
+| **entity_count** | 20% | `min(count / 4, 1.0)` | 0→0.0, 1→0.25, 2→0.5, 3→0.75, 4+→1.0 |
+| **subquestion_count** | 20% | `min((count - 1) / 3, 1.0)` | 1→0.0, 2→0.33, 3→0.67, 4+→1.0 |
+| **keyword_matches** | 20% | `min(count / 4, 1.0)` | 0→0.0, 1→0.25, 2→0.5, 3→0.75, 4+→1.0 |
+| **low_confidence** | 15% | `clamp((0.7 - confidence) / 0.5)` | 0.7+→0.0, 0.6→0.2, 0.45→0.5, 0.2→1.0 |
+
+**Why continuous scoring:** The previous discrete scoring (0.0/0.5/1.0) lost information at the boundaries. A query with 3 entities scored the same as one with 10 (both 1.0). A query with 1 entity scored the same as one with 0 (both 0.0). Continuous functions preserve the proportional signal: 3 entities (0.75) is meaningfully different from 2 (0.5) and 4 (1.0). This improves routing precision for borderline queries in the 0.35-0.55 range.
+
+**Why these specific functions:** Each function is designed to match the previous behavior at the key breakpoints (2 entities ≈ 0.5, ≥4 = 1.0) while filling in the gaps. The denominators (4 for entities/keywords, 3 for sub-questions, 0.5 for confidence) were chosen so that the saturation point (score = 1.0) corresponds to a value that genuinely indicates high complexity. Beyond 4 entities or 4 keywords, additional ones don't meaningfully increase complexity — the query is already clearly complex.
+
+**query_type** comes from the classifier (`QueryOrchestrator`). ANALYTICAL and COMPARATIVE queries inherently require multi-step reasoning. This factor remains discrete because query types are categorical, not ordinal.
 
 **entity_count** is the number of entities detected by the classifier. More entities = more likely to need cross-referencing.
 
-**subquestion_count** is derived from the rewritten query. The query rewriter decomposes complex questions into bullet points; more sub-questions means more retrieval steps needed.
+**subquestion_count** is derived from the rewritten query. The query rewriter decomposes complex questions into bullet points; more sub-questions means more retrieval steps needed. The formula subtracts 1 because a single question (count=1) should score 0.0 — it's the baseline, not a complexity signal.
 
 **keyword_matches** counts regex matches against ~45 patterns in French, English, Spanish, and German covering causal reasoning ("pourquoi", "why"), analysis ("analyser", "evaluate"), comparison ("comparer", "avantages"), multi-step ("étapes", "processus"), and synthesis ("résumer", "overview").
 
-**low_confidence** uses the classifier's own confidence score. When the classifier is unsure about the query type, the agent is more likely to produce a better result through iterative retrieval.
+**low_confidence** uses the classifier's own confidence score. The linear ramp starts at 0.7 (above which the classifier is confident enough that its uncertainty is not a useful signal) and reaches 1.0 at 0.2 (very uncertain). When the classifier is unsure about the query type, the agent is more likely to produce a better result through iterative retrieval.
 
 ### Why These Weights
 
@@ -92,7 +98,7 @@ Score range: 0.0 (trivially simple) to 1.0 (maximally complex).
 - `0.35 <= score < 0.55` --> **MODERATE** (enhanced path: same pipeline, better fusion)
 - `score >= 0.55` --> **COMPLEX** (agent path: ReAct loop)
 
-The thresholds were chosen so that a single strong signal (e.g., query_type=1.0 alone = 0.25) does not trigger the agent path, but two strong signals do (e.g., query_type=1.0 + keyword_matches=1.0 = 0.45, still moderate; add entity_count=0.5 and it crosses 0.55). This prevents over-triggering the expensive agent path on queries that merely contain a complex keyword but are otherwise simple.
+The thresholds were chosen so that a single strong signal (e.g., query_type=1.0 alone = 0.25) does not trigger the agent path, but two or more converging signals do. With continuous scoring, each factor contributes proportionally, so borderline queries get more nuanced routing. For example: query_type=COMPARATIVE (1.0×0.25=0.25) + 2 entities (0.5×0.20=0.10) + 2 keywords (0.5×0.20=0.10) = 0.45 (moderate), while adding a third entity pushes it to 0.50 and a third keyword to 0.55 (agent). This gradual accumulation prevents over-triggering on queries with a single complex signal.
 
 ### Overrides
 
@@ -107,12 +113,12 @@ Two cases bypass the formula and force the agent path:
 Query: *"Compare les avantages et inconvenients du processus X par rapport a Y"*
 
 - `query_type` = COMPARATIVE --> **1.0**
-- `entity_count` = 2 (X, Y) --> **0.5**
-- `subquestion_count` = likely 2-3 --> **0.5 or 1.0**
-- `keyword_matches` = "compare", "avantages", "inconvenients", "processus" (>= 3) --> **1.0**
-- `low_confidence` = depends on classifier
+- `entity_count` = 2 (X, Y) --> `min(2/4, 1.0)` = **0.5**
+- `subquestion_count` = likely 3 --> `min((3-1)/3, 1.0)` = **0.67**
+- `keyword_matches` = "compare", "avantages", "inconvenients", "processus" (4 matches) --> `min(4/4, 1.0)` = **1.0**
+- `low_confidence` = assuming confidence 0.7 --> `clamp((0.7-0.7)/0.5)` = **0.0**
 
-Minimum estimated score: `0.25*1.0 + 0.20*0.5 + 0.20*0.5 + 0.20*1.0 = 0.65` --> agent path.
+Score: `0.25*1.0 + 0.20*0.5 + 0.20*0.67 + 0.20*1.0 + 0.15*0.0 = 0.684` --> agent path.
 
 ---
 
