@@ -12,8 +12,9 @@ from cognidoc.agent import (
     AgentResult,
     CogniDocAgent,
     create_agent,
+    _ContextSnapshot,
 )
-from cognidoc.agent_tools import ToolName, ToolCall
+from cognidoc.agent_tools import ToolName, ToolCall, ToolResult
 
 
 class TestAgentState:
@@ -814,6 +815,186 @@ ARGUMENTS: {"answer": "42"}"""
 
         assert result.metadata.get("parallel_steps") is None  # Not in final_answer path
         assert "tools_used" in result.metadata
+
+
+class TestBacktracking:
+    """Tests for dead-end detection and backtracking."""
+
+    def test_is_dead_end_empty_vector(self):
+        """Empty vector retrieval is a dead end."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        result = ToolResult(tool=ToolName.RETRIEVE_VECTOR, success=True, data=[])
+        action = ToolCall(tool=ToolName.RETRIEVE_VECTOR, arguments={"query": "test"})
+        assert agent._is_dead_end([(action, result)]) is True
+
+    def test_is_dead_end_entity_not_found(self):
+        """Entity not found is a dead end."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        result = ToolResult(tool=ToolName.LOOKUP_ENTITY, success=True, data=None)
+        action = ToolCall(tool=ToolName.LOOKUP_ENTITY, arguments={"entity_name": "X"})
+        assert agent._is_dead_end([(action, result)]) is True
+
+    def test_is_dead_end_false_for_success(self):
+        """Successful retrieval with data is not a dead end."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        result = ToolResult(
+            tool=ToolName.RETRIEVE_VECTOR,
+            success=True,
+            data=[{"text": "info", "score": 0.9}],
+        )
+        action = ToolCall(tool=ToolName.RETRIEVE_VECTOR, arguments={"query": "test"})
+        assert agent._is_dead_end([(action, result)]) is False
+
+    def test_is_dead_end_false_for_terminal(self):
+        """Terminal tools never trigger dead-end detection."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        result = ToolResult(tool=ToolName.FINAL_ANSWER, success=True, data="answer")
+        action = ToolCall(tool=ToolName.FINAL_ANSWER, arguments={"answer": "x"})
+        assert agent._is_dead_end([(action, result)]) is False
+
+    def test_is_dead_end_false_for_synthesize(self):
+        """Synthesize never triggers dead-end detection."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        result = ToolResult(tool=ToolName.SYNTHESIZE, success=True, data="synthesis")
+        action = ToolCall(tool=ToolName.SYNTHESIZE, arguments={"query": "x"})
+        assert agent._is_dead_end([(action, result)]) is False
+
+    def test_build_backtrack_hint(self):
+        """Hint describes the failure clearly."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        action = ToolCall(tool=ToolName.RETRIEVE_VECTOR, arguments={"query": "X"})
+        result = ToolResult(tool=ToolName.RETRIEVE_VECTOR, success=True, data=[])
+        hint = agent._build_backtrack_hint([(action, result)])
+        assert "retrieve_vector" in hint
+        assert "no documents" in hint
+
+    def test_rollback_context(self):
+        """Snapshot + rollback restores exact list lengths."""
+        agent = CogniDocAgent(retriever=MagicMock())
+        context = AgentContext(query="test")
+        context.add_context("info1")
+        context.entities_found.append({"name": "A"})
+
+        snapshot = _ContextSnapshot(
+            steps_len=0,
+            gathered_context_len=1,
+            entities_found_len=1,
+        )
+
+        # Add more data that should be rolled back
+        context.add_step(AgentStep(step_number=1, thought="test"))
+        context.add_context("info2")
+        context.entities_found.append({"name": "B"})
+
+        agent._rollback_context(context, snapshot)
+
+        assert len(context.steps) == 0
+        assert len(context.gathered_context) == 1
+        assert len(context.entities_found) == 1
+        assert context.gathered_context[0] == "info1"
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_backtrack_on_empty_retrieval(self, mock_llm):
+        """Agent backtracks on empty vector results and tries a different tool."""
+        mock_retriever = MagicMock()
+        mock_retriever._graph_retriever = MagicMock()
+        mock_retriever.is_loaded.return_value = True
+
+        # Vector search always returns empty
+        mock_retriever._vector_index.search.return_value = []
+
+        # Graph retriever returns useful data
+        mock_retriever._graph_retriever.retrieve.return_value = {
+            "context": "Entity X is related to Y.",
+            "entities": [{"name": "X"}],
+        }
+
+        agent = CogniDocAgent(retriever=mock_retriever, max_steps=5)
+
+        call_count = [0]
+
+        def mock_response(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First think: try vector search
+                return (
+                    "THOUGHT: Search for X.\n"
+                    "ACTION: retrieve_vector\n"
+                    'ARGUMENTS: {"query": "X", "top_k": "5"}'
+                )
+            elif call_count[0] == 2:
+                # Re-think after backtrack: try graph instead
+                return (
+                    "THOUGHT: Vector failed, try graph.\n"
+                    "ACTION: retrieve_graph\n"
+                    'ARGUMENTS: {"query": "X relationships"}'
+                )
+            elif call_count[0] == 3:
+                # Reflect: conclude
+                return "THOUGHT: Got graph info.\nACTION: final_answer"
+            else:
+                return "X is related to Y based on the knowledge graph."
+
+        mock_llm.side_effect = mock_response
+
+        result = agent.run("What is X?")
+
+        assert result.success is True
+        assert result.metadata.get("backtracked") is True
+        # The failed step was rolled back, only graph step in context
+        assert len(result.steps) == 1
+        assert result.steps[0].actions[0].tool == ToolName.RETRIEVE_GRAPH
+
+    @patch("cognidoc.agent.llm_chat")
+    def test_backtrack_only_once(self, mock_llm):
+        """Second dead end does not trigger a second backtrack."""
+        mock_retriever = MagicMock()
+        mock_retriever._graph_retriever = MagicMock()
+        mock_retriever.is_loaded.return_value = True
+
+        # Both vector and graph return empty
+        mock_retriever._vector_index.search.return_value = []
+        mock_retriever._graph_retriever.retrieve.return_value = {}
+
+        agent = CogniDocAgent(retriever=mock_retriever, max_steps=5)
+
+        call_count = [0]
+
+        def mock_response(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First think: try vector
+                return (
+                    "THOUGHT: Search vector.\n"
+                    "ACTION: retrieve_vector\n"
+                    'ARGUMENTS: {"query": "X"}'
+                )
+            elif call_count[0] == 2:
+                # After backtrack: try graph
+                return (
+                    "THOUGHT: Try graph.\n" "ACTION: retrieve_graph\n" 'ARGUMENTS: {"query": "X"}'
+                )
+            elif call_count[0] == 3:
+                # Reflect on second dead end (no second backtrack)
+                return "THOUGHT: Still no info.\nACTION: continue"
+            elif call_count[0] == 4:
+                # Give up
+                return (
+                    "THOUGHT: Give up.\n"
+                    "ACTION: final_answer\n"
+                    'ARGUMENTS: {"answer": "No information found about X."}'
+                )
+            else:
+                return "No information found."
+
+        mock_llm.side_effect = mock_response
+
+        result = agent.run("What is X?")
+
+        assert result.success is True
+        assert result.metadata.get("backtracked") is True
+        # Second dead end NOT rolled back — graph step is in context
+        assert any(a.tool == ToolName.RETRIEVE_GRAPH for s in result.steps for a in s.actions)
 
 
 class TestAgentIntegration:

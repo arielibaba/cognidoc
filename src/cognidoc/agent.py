@@ -136,6 +136,15 @@ class AgentContext:
 
 
 @dataclass
+class _ContextSnapshot:
+    """Lightweight snapshot for rollback — stores list lengths only."""
+
+    steps_len: int
+    gathered_context_len: int
+    entities_found_len: int
+
+
+@dataclass
 class AgentResult:
     """Final result from agent execution."""
 
@@ -306,9 +315,15 @@ class CogniDocAgent:
             result: AgentResult = e.value
             return result
 
-    def _think_and_decide(self, context: AgentContext) -> Tuple[str, List[ToolCall]]:
+    def _think_and_decide(
+        self, context: AgentContext, backtrack_hint: str = ""
+    ) -> Tuple[str, List[ToolCall]]:
         """
         Think about the current state and decide on next action(s).
+
+        Args:
+            context: Current agent context
+            backtrack_hint: If non-empty, describes a previous failed attempt
 
         Returns:
             Tuple of (thought, actions) where actions may contain 1-2 tool calls.
@@ -324,6 +339,12 @@ class CogniDocAgent:
             prompt = THINK_PROMPT.format(
                 query=context.query,
                 history=context.get_trimmed_history(),
+            )
+
+        if backtrack_hint:
+            prompt += (
+                f"\n\nIMPORTANT — PREVIOUS ATTEMPT FAILED:\n"
+                f"{backtrack_hint}\nTry a DIFFERENT approach."
             )
 
         system = SYSTEM_PROMPT.format(
@@ -455,6 +476,58 @@ class CogniDocAgent:
             args[key] = value
         return args
 
+    def _is_dead_end(self, tool_results: List[Tuple["ToolCall", "ToolResult"]]) -> bool:
+        """Check if tool results indicate a dead end worth backtracking from."""
+        for action, result in tool_results:
+            # Terminal and meta tools never trigger backtracking
+            if action.tool in (
+                ToolName.FINAL_ANSWER,
+                ToolName.ASK_CLARIFICATION,
+                ToolName.SYNTHESIZE,
+                ToolName.DATABASE_STATS,
+            ):
+                return False
+
+            if not result.success:
+                return True
+
+            if action.tool == ToolName.RETRIEVE_VECTOR:
+                if result.data is not None and len(result.data) == 0:
+                    return True
+
+            if action.tool == ToolName.LOOKUP_ENTITY:
+                if result.data is None:
+                    return True
+
+            if action.tool == ToolName.RETRIEVE_GRAPH:
+                if not result.data:
+                    return True
+
+        return False
+
+    def _build_backtrack_hint(self, tool_results: List[Tuple["ToolCall", "ToolResult"]]) -> str:
+        """Build a human-readable hint describing what failed."""
+        parts = []
+        for action, result in tool_results:
+            args_str = ", ".join(f"{k}={v!r}" for k, v in action.arguments.items())
+            if not result.success:
+                parts.append(f"{action.tool.value}({args_str}) failed: {result.error}")
+            elif action.tool == ToolName.RETRIEVE_VECTOR and not result.data:
+                parts.append(f"{action.tool.value}({args_str}) returned no documents")
+            elif action.tool == ToolName.LOOKUP_ENTITY and result.data is None:
+                parts.append(f"{action.tool.value}({args_str}) found no matching entity")
+            elif action.tool == ToolName.RETRIEVE_GRAPH and not result.data:
+                parts.append(f"{action.tool.value}({args_str}) returned no graph results")
+            else:
+                parts.append(f"{action.tool.value}({args_str}) produced empty results")
+        return "; ".join(parts)
+
+    def _rollback_context(self, context: AgentContext, snapshot: _ContextSnapshot):
+        """Roll back context to a previous snapshot."""
+        context.steps[:] = context.steps[: snapshot.steps_len]
+        context.gathered_context[:] = context.gathered_context[: snapshot.gathered_context_len]
+        context.entities_found[:] = context.entities_found[: snapshot.entities_found_len]
+
     def _force_conclusion(self, context: AgentContext) -> str:
         """
         Force a conclusion when max steps reached.
@@ -506,11 +579,20 @@ Provide the best possible answer with the available information. If some aspects
         """
         context = AgentContext(query=query)
         step_count = 0
+        has_backtracked = False
+        backtrack_hint = ""
 
         try:
             while step_count < self.max_steps:
                 step_count += 1
                 step = AgentStep(step_number=step_count)
+
+                # Snapshot for potential rollback
+                snapshot = _ContextSnapshot(
+                    steps_len=len(context.steps),
+                    gathered_context_len=len(context.gathered_context),
+                    entities_found_len=len(context.entities_found),
+                )
 
                 # 1. THINK + DECIDE
                 context.current_state = AgentState.THINKING
@@ -519,7 +601,8 @@ Provide the best possible answer with the available information. If some aspects
                     f"[Step {step_count}/{self.max_steps}] Analyzing query...",
                 )
 
-                thought, actions = self._think_and_decide(context)
+                thought, actions = self._think_and_decide(context, backtrack_hint)
+                backtrack_hint = ""  # Clear after use
                 step.thought = thought
                 step.actions = actions
 
@@ -557,6 +640,7 @@ Provide the best possible answer with the available information. If some aspects
                             success=True,
                             metadata={
                                 "total_steps": step_count,
+                                "backtracked": has_backtracked,
                                 "tools_used": list(
                                     {a.tool.value for s in context.steps for a in s.actions}
                                 ),
@@ -633,6 +717,21 @@ Provide the best possible answer with the available information. If some aspects
 
                 step.observation = "\n".join(observations)
 
+                # Dead-end detection + backtrack (max 1 per run)
+                if not has_backtracked and self._is_dead_end(tool_results):
+                    has_backtracked = True
+                    backtrack_hint = self._build_backtrack_hint(tool_results)
+                    logger.info(
+                        f"Step {step_count}: dead end detected, backtracking. "
+                        f"Hint: {backtrack_hint[:120]}"
+                    )
+                    yield (
+                        AgentState.THINKING,
+                        "Dead end detected, trying a different approach...",
+                    )
+                    self._rollback_context(context, snapshot)
+                    continue  # re-enter loop — step_count already incremented
+
                 # 4. OBSERVE
                 obs_preview = (
                     step.observation[:120].replace("\n", " ") if step.observation else "No result"
@@ -669,6 +768,7 @@ Provide the best possible answer with the available information. If some aspects
                         metadata={
                             "total_steps": step_count,
                             "reflection_concluded": True,
+                            "backtracked": has_backtracked,
                             "tools_used": list(
                                 {a.tool.value for s in context.steps for a in s.actions}
                             ),
@@ -689,6 +789,7 @@ Provide the best possible answer with the available information. If some aspects
                 metadata={
                     "total_steps": step_count,
                     "forced_conclusion": True,
+                    "backtracked": has_backtracked,
                     "tools_used": list({a.tool.value for s in context.steps for a in s.actions}),
                     "parallel_steps": sum(1 for s in context.steps if len(s.actions) > 1),
                 },
