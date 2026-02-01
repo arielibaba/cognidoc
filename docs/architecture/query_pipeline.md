@@ -290,7 +290,7 @@ The agent provides a controlled loop where the LLM can reason about what informa
 
 ### Limitations and Possible Improvements
 
-- **No backtracking**: if step 3 leads to a dead end, the agent cannot revert to step 2 and try a different tool. It can only move forward, accumulating potentially irrelevant context. A state-machine architecture with explicit backtracking would allow the agent to prune unproductive paths.
+- **~~No backtracking~~** *(addressed)*: the agent now detects dead-end tool results (empty retrieval, entity not found) and rolls back context to retry with a different approach. Limited to 1 backtrack per run. See "Backtracking" below.
 - **~~Reflection is advisory, not binding~~** *(addressed)*: the reflection step now returns a structured `(text, should_conclude)` signal. When reflection determines enough information has been gathered (`ACTION: final_answer`), the loop exits immediately via `_force_conclusion` without an additional think step. See "Binding Reflection" below.
 - **~~No parallel tool execution~~** *(addressed)*: the agent now supports up to 2 simultaneous tool calls per step using a numbered `ACTION_1`/`ACTION_2` format. See "Parallel Tool Execution" below.
 - **~~Context accumulation is unbounded within a run~~** *(addressed)*: `get_trimmed_history()` now replaces `get_history_text()` in all LLM prompts. Older steps are reduced to thought + action only, while the last 2 steps retain full detail. See "Context Trimming" below.
@@ -309,13 +309,15 @@ This avoids duplicating the loop logic across two methods. The streaming events 
 
 ```
 +--- THINK + DECIDE ----> LLM generates a thought + chooses 1-2 tools
-|         |
+|         |               (receives backtrack_hint if retrying)
 |         +-- final_answer?       --> END (return the answer)
 |         +-- ask_clarification?  --> END (request clarification)
 |         +-- actions = []?       --> END (break)
 |         |
 |    --- ACT ---------------> Execute tool(s) via ToolRegistry
 |         |                   (parallel if 2 actions)
+|         +-- dead end?          --> rollback context, BACKTRACK (max 1)
+|         |
 |    --- OBSERVE ------------> Store result(s) in context   \
 |    --- REFLECT ------------> LLM evaluates sufficiency    / in parallel
 |         |
@@ -454,6 +456,41 @@ The agent can execute up to 2 independent tools simultaneously within a single s
 
 **Latency impact:** For comparison queries, parallel retrieval saves one full step (~1.5-3s) by collapsing two sequential retrievals into one parallel step. The typical profile for comparisons drops from 4 steps to 3 steps.
 
+### Backtracking
+
+When a tool execution produces a dead-end result, the agent can discard the failed step and retry with a different approach. This avoids accumulating irrelevant context from unproductive tool calls.
+
+**Detection point:** After ACT, before OBSERVE/REFLECT. This avoids wasting an LLM call (reflection) on empty results. The `_is_dead_end()` method checks tool results for:
+
+| Signal | Tool | Condition |
+|--------|------|-----------|
+| Empty retrieval | `retrieve_vector` | `success=True, data=[]` |
+| Entity not found | `lookup_entity` | `success=True, data=None` |
+| No graph results | `retrieve_graph` | `success=True, data` is falsy |
+| Explicit failure | any retrieval tool | `success=False` |
+
+Terminal tools (`final_answer`, `ask_clarification`) and meta tools (`synthesize`, `database_stats`) never trigger backtracking — their empty results don't indicate an alternative approach would help.
+
+**Rollback mechanism:** Before each step, a `_ContextSnapshot` records the lengths of `context.steps`, `context.gathered_context`, and `context.entities_found`. Since all three are append-only lists, rolling back is a simple truncation to the saved lengths via `_rollback_context()`. No data is copied — the snapshot is just 3 integers.
+
+**Failure communication:** The `_build_backtrack_hint()` method constructs a human-readable description of what failed (e.g., `"retrieve_vector(query='X') returned no documents"`). This hint is passed to `_think_and_decide()` on the retry, which appends it to the prompt:
+
+```
+IMPORTANT — PREVIOUS ATTEMPT FAILED:
+retrieve_vector(query='X') returned no documents
+Try a DIFFERENT approach.
+```
+
+This explicit signal prevents the LLM from retrying the same tool with the same arguments.
+
+**Single-use limit:** `has_backtracked` is a boolean flag at the loop level. Only one backtrack is allowed per run. If a second dead end occurs after already backtracking, the step proceeds normally through OBSERVE/REFLECT. This prevents infinite retry loops while still allowing one course correction.
+
+**Step counting:** The backtracked step still increments `step_count`, consuming one iteration toward `max_steps`. Combined with the single-use limit, this provides a hard guarantee that the loop terminates.
+
+**Metadata:** `AgentResult.metadata` includes `backtracked: bool` at all return points, tracking whether backtracking occurred during the run.
+
+**Typical backtracking scenario:** Query "What is X?" → step 1: `retrieve_vector("X")` returns empty → dead end detected → rollback → step 2: `_think_and_decide` receives hint about vector failure → LLM chooses `retrieve_graph("X")` instead → graph returns results → OBSERVE/REFLECT proceeds normally.
+
 ### Forced Conclusion
 
 If the loop reaches 7 iterations without a `final_answer`, `_force_conclusion` makes one last LLM call with the trimmed reasoning history and accumulated context (capped at 3000 characters) and asks for the best possible answer. The result is marked `forced_conclusion=True` in metadata.
@@ -472,6 +509,7 @@ If the agent fails entirely (exception), the calling code in `cognidoc_app.py` f
 
 - Most queries: 2-3 steps (one retrieval + final_answer)
 - Complex comparisons: 2-3 steps (parallel retrieval of both entities + compare/synthesize + final_answer)
+- Dead-end recovery: +1 step (backtrack costs one step_count but saves the reflection LLM call)
 - Worst case: 7 steps + forced conclusion
 - Per-step latency: ~1.5-4s (dominated by LLM calls)
 - Total agent latency: ~5-12s for typical queries, ~3-8s for comparisons with parallel retrieval
