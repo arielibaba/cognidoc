@@ -285,9 +285,9 @@ The agent provides a controlled loop where the LLM can reason about what informa
 ### Limitations and Possible Improvements
 
 - **No backtracking**: if step 3 leads to a dead end, the agent cannot revert to step 2 and try a different tool. It can only move forward, accumulating potentially irrelevant context. A state-machine architecture with explicit backtracking would allow the agent to prune unproductive paths.
-- **Reflection is advisory, not binding**: the reflection step produces text that goes into the history, but the next `_think_and_decide` call may ignore it. There is no guarantee that a reflection saying "I have enough information" will lead to `final_answer` on the next step. Making the reflection output a structured decision (continue/conclude) with a hard branch would be more reliable, at the cost of flexibility.
+- **~~Reflection is advisory, not binding~~** *(addressed)*: the reflection step now returns a structured `(text, should_conclude)` signal. When reflection determines enough information has been gathered (`ACTION: final_answer`), the loop exits immediately via `_force_conclusion` without an additional think step. See "Binding Reflection" below.
 - **No parallel tool execution**: the agent calls one tool per step. For comparison queries, it could call `retrieve_vector` for X and Y in parallel. This would require the agent to express multi-tool actions, which the current `THOUGHT/ACTION/ARGUMENTS` format does not support.
-- **Context accumulation is unbounded within a run**: `gathered_context` grows with each step. For a 7-step run with large retrieval results, the prompt for step 7 includes all previous observations, which can approach context window limits. A summarization step that compresses older context would keep prompts manageable.
+- **~~Context accumulation is unbounded within a run~~** *(addressed)*: `get_trimmed_history()` now replaces `get_history_text()` in all LLM prompts. Older steps are reduced to thought + action only, while the last 2 steps retain full detail. See "Context Trimming" below.
 - **Aggregate/exhaustive queries**: the agent retrieves top-K chunks per tool call. For questions like "how many X are mentioned across all documents?", multiple retrieval passes still only cover a fraction of the corpus. A dedicated exhaustive search tool or pre-computed aggregation indexes would be needed to answer these reliably (see discussion in the "Known Limitations" section).
 
 ### Code Structure
@@ -313,6 +313,8 @@ This avoids duplicating the loop logic across two methods. The streaming events 
 |    --- OBSERVE ------------> Store result in context      \
 |    --- REFLECT ------------> LLM evaluates sufficiency    / in parallel
 |         |
+|         +-- should_conclude?    --> _force_conclusion --> END
+|         |
 +------- loop (max 7 iterations) ---------------------------+
 ```
 
@@ -320,7 +322,7 @@ This avoids duplicating the loop logic across two methods. The streaming events 
 
 The LLM receives:
 - A **system prompt** (`SYSTEM_PROMPT`) listing available tools, language rules, and efficiency guidelines ("2-3 steps max", "one retrieval is usually enough").
-- A **user prompt** (`THINK_PROMPT`) containing the original query + the full history of all previous steps (each step formatted via `AgentStep.to_text()`).
+- A **user prompt** (`THINK_PROMPT`) containing the original query + the trimmed history of previous steps (via `get_trimmed_history()` — see "Context Trimming" below).
 
 The LLM must respond in a strict format:
 ```
@@ -373,17 +375,49 @@ This is the most architecturally interesting part. Two operations happen **simul
 
 This is instantaneous (just list appends).
 
-**Background thread** (`_reflect`) -- a separate LLM call with `REFLECT_PROMPT` that asks: *"Can you answer NOW? If yes, use final_answer immediately. Only continue searching if absolutely necessary."*
+**Background thread** (`_reflect`) -- a separate LLM call with `REFLECT_PROMPT` that asks: *"Can you answer the query NOW? If YES, respond with ACTION: final_answer. If NO, respond with ACTION: continue."* Returns `Tuple[str, bool]` — the reflection text and a `should_conclude` flag parsed from the response.
 
 The `ThreadPoolExecutor` is **module-level** (line 34), reused across agent calls -- no thread creation overhead per invocation. The main thread waits for the reflection future with a 30s timeout. Since context storage is near-instant and the LLM call takes ~0.5-1s, the parallelism saves the full duration of context storage (minimal) but more importantly overlaps the two operations cleanly.
 
-### Reflection Does Not Directly Control the Next Step
+After both operations complete, if `should_conclude` is True, the loop exits immediately via `_force_conclusion` (see "Binding Reflection" above).
 
-The reflection is stored in `step.reflection` and becomes part of the history (`get_history_text()`). However, there is no conditional branch like "if reflection says we have enough, call final_answer". It is the **next** call to `_think_and_decide` that decides what to do -- by seeing the reflection in the history, the LLM decides whether to conclude or continue. The reflection influences the next step indirectly through the prompt context.
+### Binding Reflection
+
+The reflection step now returns a structured signal: `_reflect()` returns `Tuple[str, bool]` where the boolean indicates whether the reflection concluded that enough information has been gathered.
+
+The `REFLECT_PROMPT` explicitly asks the LLM to choose between two actions:
+- `ACTION: final_answer` — enough information is available to answer the query
+- `ACTION: continue` — critical information is still missing
+
+The response is parsed via regex (`ACTION:\s*final_answer`). When `should_conclude` is True, the loop skips the next `_think_and_decide` call entirely and goes straight to `_force_conclusion()`, which synthesizes a final answer from the accumulated context. The result is marked `reflection_concluded=True` in metadata.
+
+**Why this matters:** Without binding reflection, the agent could waste 1-2 extra steps after gathering sufficient information. The `_think_and_decide` LLM call might not "notice" the reflection in the history suggesting it should conclude, leading to redundant tool calls. Binding reflection saves one LLM call (~0.5-1.5s) and avoids accumulating irrelevant context.
+
+**Why `_force_conclusion` instead of extracting the answer from the reflection:** The reflection prompt is designed for evaluation, not answer generation. It lacks the full system prompt, tool descriptions, and language instructions. Routing through `_force_conclusion` ensures the final answer is synthesized with the full context and proper formatting.
+
+### Context Trimming
+
+As the agent progresses through steps, the prompt history grows with each observation (retrieval results can be hundreds of tokens each) and reflection. Without trimming, step 7's prompt would contain all previous observations verbatim, risking context window pressure and diluting the signal with old, potentially superseded information.
+
+`AgentContext.get_trimmed_history(keep_full=2)` addresses this with a heuristic approach:
+
+- **Last 2 steps**: kept in full detail (thought, action, observation, reflection) — the LLM needs recent results to make informed decisions.
+- **Older steps**: reduced to thought + action only — the LLM knows *what was done* and *why*, but not the raw results, which are already summarized in `gathered_context`.
+
+This method is used in three places:
+1. `_think_and_decide()` — the LLM sees trimmed history when deciding the next action
+2. `_reflect()` — the reflection evaluates sufficiency based on trimmed history + gathered context (capped at 3000 chars)
+3. `_force_conclusion()` — the forced conclusion includes both trimmed history (reasoning chain) and gathered context (information)
+
+The original `get_history_text()` (full detail, no trimming) is preserved for logging and debugging.
+
+**Why keep_full=2:** The last 2 steps represent the most recent reasoning cycle. The LLM needs to see the latest observation to avoid re-doing the same retrieval, and the previous step provides continuity. Beyond 2 steps back, the thought+action summary is sufficient context — the detailed observations are already captured in `gathered_context`.
+
+**Latency cost:** Zero. This is pure string formatting — no LLM call, no computation beyond string slicing. The prompt is shorter, so if anything, LLM inference is slightly faster.
 
 ### Forced Conclusion
 
-If the loop reaches 7 iterations without a `final_answer`, `_force_conclusion` makes one last LLM call with all accumulated context (capped at 3000 characters) and asks for the best possible answer. The result is marked `forced_conclusion=True` in metadata.
+If the loop reaches 7 iterations without a `final_answer`, `_force_conclusion` makes one last LLM call with the trimmed reasoning history and accumulated context (capped at 3000 characters) and asks for the best possible answer. The result is marked `forced_conclusion=True` in metadata.
 
 ### Fallback to Fast Path
 
