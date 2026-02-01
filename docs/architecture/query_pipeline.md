@@ -292,7 +292,7 @@ The agent provides a controlled loop where the LLM can reason about what informa
 
 - **No backtracking**: if step 3 leads to a dead end, the agent cannot revert to step 2 and try a different tool. It can only move forward, accumulating potentially irrelevant context. A state-machine architecture with explicit backtracking would allow the agent to prune unproductive paths.
 - **~~Reflection is advisory, not binding~~** *(addressed)*: the reflection step now returns a structured `(text, should_conclude)` signal. When reflection determines enough information has been gathered (`ACTION: final_answer`), the loop exits immediately via `_force_conclusion` without an additional think step. See "Binding Reflection" below.
-- **No parallel tool execution**: the agent calls one tool per step. For comparison queries, it could call `retrieve_vector` for X and Y in parallel. This would require the agent to express multi-tool actions, which the current `THOUGHT/ACTION/ARGUMENTS` format does not support.
+- **~~No parallel tool execution~~** *(addressed)*: the agent now supports up to 2 simultaneous tool calls per step using a numbered `ACTION_1`/`ACTION_2` format. See "Parallel Tool Execution" below.
 - **~~Context accumulation is unbounded within a run~~** *(addressed)*: `get_trimmed_history()` now replaces `get_history_text()` in all LLM prompts. Older steps are reduced to thought + action only, while the last 2 steps retain full detail. See "Context Trimming" below.
 - **Aggregate/exhaustive queries**: the agent retrieves top-K chunks per tool call. For questions like "how many X are mentioned across all documents?", multiple retrieval passes still only cover a fraction of the corpus. A dedicated exhaustive search tool or pre-computed aggregation indexes would be needed to answer these reliably (see discussion in the "Known Limitations" section).
 
@@ -308,15 +308,15 @@ This avoids duplicating the loop logic across two methods. The streaming events 
 ### Loop Structure (`_run_loop`)
 
 ```
-+--- THINK + DECIDE ----> LLM generates a thought + chooses a tool
++--- THINK + DECIDE ----> LLM generates a thought + chooses 1-2 tools
 |         |
 |         +-- final_answer?       --> END (return the answer)
 |         +-- ask_clarification?  --> END (request clarification)
-|         +-- action = None?      --> END (break)
+|         +-- actions = []?       --> END (break)
 |         |
-|    --- ACT ---------------> Execute tool via ToolRegistry
-|         |
-|    --- OBSERVE ------------> Store result in context      \
+|    --- ACT ---------------> Execute tool(s) via ToolRegistry
+|         |                   (parallel if 2 actions)
+|    --- OBSERVE ------------> Store result(s) in context   \
 |    --- REFLECT ------------> LLM evaluates sufficiency    / in parallel
 |         |
 |         +-- should_conclude?    --> _force_conclusion --> END
@@ -330,14 +330,25 @@ The LLM receives:
 - A **system prompt** (`SYSTEM_PROMPT`) listing available tools, language rules, and efficiency guidelines ("2-3 steps max", "one retrieval is usually enough").
 - A **user prompt** (`THINK_PROMPT`) containing the original query + the trimmed history of previous steps (via `get_trimmed_history()` — see "Context Trimming" below).
 
-The LLM must respond in a strict format:
+The LLM must respond in one of two formats:
+
+**Single action** (standard):
 ```
 THOUGHT: <reasoning>
 ACTION: <tool_name>
 ARGUMENTS: <JSON>
 ```
 
-Parsing (`_parse_thought_action`) uses regex extraction. If the JSON is malformed, a fallback parser (`_parse_args_fallback`) attempts to extract key-value pairs via regex. This resilience matters because LLMs occasionally produce slightly malformed JSON.
+**Parallel actions** (for independent operations like comparing X and Y):
+```
+THOUGHT: <reasoning>
+ACTION_1: <tool_name>
+ARGUMENTS_1: <JSON>
+ACTION_2: <tool_name>
+ARGUMENTS_2: <JSON>
+```
+
+Parsing (`_parse_thought_actions`) tries the numbered format first, then falls back to the single format. If the JSON is malformed, a fallback parser (`_parse_args_fallback`) attempts to extract key-value pairs via regex. Terminal actions (`final_answer`, `ask_clarification`) are filtered from parallel responses — if a terminal action appears alongside a non-terminal one, only the terminal action is kept.
 
 The format is intentionally text-based rather than using native function calling. This forces the LLM to reason out loud in the THOUGHT section before choosing an action, producing better tool selection decisions.
 
@@ -350,7 +361,9 @@ Before executing any tool, two cases exit the loop immediately:
 
 ### Step 3: ACT
 
-`self.tools.execute(action)` dispatches to the concrete tool implementation in `agent_tools.py`. Returns a `ToolResult` with:
+For a single action, `self.tools.execute(action)` dispatches to the concrete tool implementation in `agent_tools.py`. For parallel actions (2 tools), both are submitted to the `_reflection_executor` thread pool and executed concurrently. Results are collected with a 30s timeout per tool. Observations from parallel actions are prefixed with `[tool_name]` and concatenated.
+
+Each tool returns a `ToolResult` with:
 - `observation`: text summary of the result (truncated for prompt inclusion)
 - `success`: boolean
 - `data`: structured data (documents, entities, etc.)
@@ -421,6 +434,26 @@ The original `get_history_text()` (full detail, no trimming) is preserved for lo
 
 **Latency cost:** Zero. This is pure string formatting — no LLM call, no computation beyond string slicing. The prompt is shorter, so if anything, LLM inference is slightly faster.
 
+### Parallel Tool Execution
+
+The agent can execute up to 2 independent tools simultaneously within a single step. This is primarily useful for comparison queries ("Compare X and Y") where two separate retrievals are needed.
+
+**Format:** The system prompt instructs the LLM to use a numbered format (`ACTION_1`/`ARGUMENTS_1`, `ACTION_2`/`ARGUMENTS_2`) when two operations are independent. The prompt explicitly restricts parallel actions to non-terminal operations — `final_answer` and `ask_clarification` must be single actions.
+
+**Execution:** When `_parse_thought_actions` returns 2 tool calls, they are submitted to the existing `_reflection_executor` thread pool (max_workers=2) and run concurrently. This reuses the same thread pool used for parallel reflection, since tool execution and reflection never overlap (tools complete before reflection starts).
+
+**Data model:** `AgentStep` stores actions as a `List[ToolCall]` in the `actions` field. A backward-compatible `action` property (getter/setter) returns `actions[0]` for single-action code paths. `to_text()` and `get_trimmed_history()` iterate over all actions, so both full and trimmed history correctly display parallel steps.
+
+**Observations:** When multiple tools return results, observations are prefixed with `[tool_name]` and joined with newlines. The reflection receives this combined observation as a single string, which is sufficient since `_reflect` already caps observation input at 1000 characters.
+
+**Metadata:** `AgentResult.metadata` includes `parallel_steps` — a count of steps where more than one action was executed. This allows tracking how often the parallel path is actually used.
+
+**Why max 2 actions:** Two is sufficient for the primary use case (comparing two entities). Allowing more would increase prompt complexity, make parsing less reliable, and risk the LLM submitting redundant or conflicting actions. The cap is enforced in the parsing loop (`range(1, 3)`).
+
+**Why not always parallel:** Most queries only need one tool per step. The system prompt's efficiency guidelines ("one retrieval is usually enough") mean the LLM only uses parallel actions when it genuinely needs two independent pieces of information. The single-action format remains the default and requires no behavioral change.
+
+**Latency impact:** For comparison queries, parallel retrieval saves one full step (~1.5-3s) by collapsing two sequential retrievals into one parallel step. The typical profile for comparisons drops from 4 steps to 3 steps.
+
 ### Forced Conclusion
 
 If the loop reaches 7 iterations without a `final_answer`, `_force_conclusion` makes one last LLM call with the trimmed reasoning history and accumulated context (capped at 3000 characters) and asks for the best possible answer. The result is marked `forced_conclusion=True` in metadata.
@@ -438,10 +471,10 @@ If the agent fails entirely (exception), the calling code in `cognidoc_app.py` f
 ### Typical Execution Profile
 
 - Most queries: 2-3 steps (one retrieval + final_answer)
-- Complex comparisons: 3-4 steps (two retrievals + compare/synthesize + final_answer)
+- Complex comparisons: 2-3 steps (parallel retrieval of both entities + compare/synthesize + final_answer)
 - Worst case: 7 steps + forced conclusion
 - Per-step latency: ~1.5-4s (dominated by LLM calls)
-- Total agent latency: ~5-12s for typical queries
+- Total agent latency: ~5-12s for typical queries, ~3-8s for comparisons with parallel retrieval
 
 ---
 
