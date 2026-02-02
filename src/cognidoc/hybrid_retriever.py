@@ -13,9 +13,11 @@ Provides:
 
 import hashlib
 import json
+import math
+import pickle
 import re
+import sqlite3
 import time
-from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
@@ -85,25 +87,71 @@ __all__ = ["QueryType", "HybridRetriever", "HybridRetrievalResult"]
 
 class RetrievalCache:
     """
-    LRU cache for retrieval results.
+    Persistent retrieval cache with semantic similarity matching.
 
-    Avoids re-executing expensive retrieval for identical queries.
-    Uses in-memory cache with TTL expiration.
+    Features:
+    - SQLite persistence (survives process restarts)
+    - Exact MD5 match (O(1), same as before)
+    - Semantic similarity fallback via query embeddings (cosine similarity > 0.92)
+    - TTL expiration and LRU eviction
     """
 
-    def __init__(self, max_size: int = 50, ttl_seconds: int = 300):
-        """
-        Initialize retrieval cache.
+    SIMILARITY_THRESHOLD = 0.92
 
-        Args:
-            max_size: Maximum number of cached results
-            ttl_seconds: Time-to-live in seconds (default 5 minutes)
-        """
+    _instance: Optional["RetrievalCache"] = None
+    _initialized: bool = False
+
+    def __new__(cls, db_path: Optional[str] = None, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        max_size: int = 50,
+        ttl_seconds: int = 300,
+    ):
+        if self._initialized:
+            return
+
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self._cache: OrderedDict[str, tuple] = OrderedDict()  # key -> (result, timestamp)
         self._hits = 0
         self._misses = 0
+
+        if db_path is None:
+            from .constants import RETRIEVAL_CACHE_DB
+
+            db_path = str(RETRIEVAL_CACHE_DB)
+
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_db()
+        self._initialized = True
+        logger.info(f"Initialized persistent retrieval cache at {self.db_path}")
+
+    def _init_db(self):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS retrieval_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    query_norm TEXT NOT NULL,
+                    embedding BLOB,
+                    result BLOB NOT NULL,
+                    top_k INTEGER NOT NULL,
+                    use_reranking INTEGER NOT NULL,
+                    strategy TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_retrieval_cache_created "
+                "ON retrieval_cache(created_at)"
+            )
 
     @staticmethod
     def _normalize_query(query: str) -> str:
@@ -114,29 +162,86 @@ class RetrievalCache:
         return q
 
     def _make_key(self, query: str, top_k: int, use_reranking: bool, strategy: str = "auto") -> str:
-        """Create cache key from query parameters including routing strategy."""
+        """Create cache key from query parameters."""
         key_data = f"{self._normalize_query(query)}|{top_k}|{use_reranking}|{strategy}"
         return hashlib.md5(key_data.encode()).hexdigest()
+
+    @staticmethod
+    def _cosine_similarity(a: List[float], b: List[float]) -> float:
+        """Compute cosine similarity between two vectors."""
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return float(dot / (norm_a * norm_b))
+
+    def _get_query_embedding(self, query: str) -> Optional[List[float]]:
+        """Get embedding for a query, returning None on failure."""
+        try:
+            from .utils.rag_utils import get_query_embedding
+
+            return get_query_embedding(query)
+        except Exception:
+            logger.debug("Failed to get query embedding for cache, skipping semantic match")
+            return None
 
     def get(
         self, query: str, top_k: int, use_reranking: bool, strategy: str = "auto"
     ) -> Optional["HybridRetrievalResult"]:
-        """Get cached result if valid."""
+        """Get cached result. Tries exact match, then semantic similarity."""
         key = self._make_key(query, top_k, use_reranking, strategy)
+        now = time.time()
+        cutoff = now - self.ttl_seconds
 
-        if key in self._cache:
-            result, timestamp = self._cache[key]
-            elapsed = time.time() - timestamp
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Step 1: exact match
+                row = conn.execute(
+                    "SELECT result, created_at FROM retrieval_cache "
+                    "WHERE cache_key = ? AND created_at > ?",
+                    (key, cutoff),
+                ).fetchone()
 
-            if elapsed < self.ttl_seconds:
-                # Move to end (most recently used)
-                self._cache.move_to_end(key)
-                self._hits += 1
-                logger.debug(f"Retrieval cache HIT (age={elapsed:.1f}s)")
-                return result
-            else:
-                # Expired
-                del self._cache[key]
+                if row is not None:
+                    self._hits += 1
+                    elapsed = now - row[1]
+                    logger.debug(f"Retrieval cache HIT exact (age={elapsed:.1f}s)")
+                    return pickle.loads(row[0])
+
+                # Step 2: semantic similarity match
+                query_emb = self._get_query_embedding(query)
+                if query_emb is not None:
+                    rows = conn.execute(
+                        "SELECT embedding, result, created_at FROM retrieval_cache "
+                        "WHERE top_k = ? AND use_reranking = ? AND strategy = ? "
+                        "AND created_at > ?",
+                        (top_k, int(use_reranking), strategy, cutoff),
+                    ).fetchall()
+
+                    best_score = 0.0
+                    best_result = None
+                    best_age = 0.0
+                    for emb_blob, result_blob, created_at in rows:
+                        if emb_blob is None:
+                            continue
+                        stored_emb = pickle.loads(emb_blob)
+                        sim = self._cosine_similarity(query_emb, stored_emb)
+                        if sim > best_score:
+                            best_score = sim
+                            best_result = result_blob
+                            best_age = now - created_at
+
+                    if best_score >= self.SIMILARITY_THRESHOLD and best_result is not None:
+                        self._hits += 1
+                        logger.debug(
+                            f"Retrieval cache HIT semantic "
+                            f"(sim={best_score:.3f}, age={best_age:.1f}s)"
+                        )
+                        return pickle.loads(best_result)
+
+        except Exception:
+            logger.debug("Retrieval cache get() error, treating as miss", exc_info=True)
 
         self._misses += 1
         return None
@@ -149,26 +254,66 @@ class RetrievalCache:
         result: "HybridRetrievalResult",
         strategy: str = "auto",
     ) -> None:
-        """Cache a retrieval result."""
+        """Cache a retrieval result with its query embedding."""
         key = self._make_key(query, top_k, use_reranking, strategy)
+        query_norm = self._normalize_query(query)
+        query_emb = self._get_query_embedding(query)
 
-        # Evict oldest if at capacity
-        if len(self._cache) >= self.max_size:
-            self._cache.popitem(last=False)
+        try:
+            result_blob = pickle.dumps(result)
+            emb_blob = pickle.dumps(query_emb) if query_emb is not None else None
 
-        self._cache[key] = (result, time.time())
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO retrieval_cache "
+                    "(cache_key, query_norm, embedding, result, top_k, use_reranking, "
+                    "strategy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        key,
+                        query_norm,
+                        emb_blob,
+                        result_blob,
+                        top_k,
+                        int(use_reranking),
+                        strategy,
+                        time.time(),
+                    ),
+                )
+
+                # Evict oldest beyond max_size
+                count = conn.execute("SELECT COUNT(*) FROM retrieval_cache").fetchone()[0]
+                if count > self.max_size:
+                    excess = count - self.max_size
+                    conn.execute(
+                        "DELETE FROM retrieval_cache WHERE cache_key IN "
+                        "(SELECT cache_key FROM retrieval_cache "
+                        "ORDER BY created_at ASC LIMIT ?)",
+                        (excess,),
+                    )
+        except Exception:
+            logger.debug("Retrieval cache put() error", exc_info=True)
 
     def clear(self) -> None:
         """Clear the cache."""
-        self._cache.clear()
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("DELETE FROM retrieval_cache")
+        except Exception:
+            logger.debug("Retrieval cache clear() error", exc_info=True)
         self._hits = 0
         self._misses = 0
 
     def stats(self) -> Dict[str, Any]:
         """Return cache statistics."""
         total = self._hits + self._misses
+        size = 0
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                size = conn.execute("SELECT COUNT(*) FROM retrieval_cache").fetchone()[0]
+        except Exception:
+            pass
         return {
-            "size": len(self._cache),
+            "size": size,
             "max_size": self.max_size,
             "hits": self._hits,
             "misses": self._misses,
@@ -177,7 +322,7 @@ class RetrievalCache:
         }
 
 
-# Global retrieval cache
+# Global retrieval cache (singleton)
 _retrieval_cache = RetrievalCache()
 
 

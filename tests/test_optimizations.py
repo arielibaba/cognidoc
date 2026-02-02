@@ -14,6 +14,7 @@ import asyncio
 import os
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 import time
@@ -836,41 +837,43 @@ class TestRerankingParser:
 # =============================================================================
 
 
+def _make_temp_cache(tmp_path, **kwargs):
+    """Create a fresh RetrievalCache with a temp db, resetting singleton state."""
+    from cognidoc.hybrid_retriever import RetrievalCache
+
+    RetrievalCache._instance = None
+    RetrievalCache._initialized = False
+    db_path = str(tmp_path / "test_retrieval_cache.db")
+    return RetrievalCache(db_path=db_path, **kwargs)
+
+
 class TestCacheNormalization:
     """Tests for retrieval cache key normalization."""
 
-    def test_cache_key_case_insensitive(self):
+    def test_cache_key_case_insensitive(self, tmp_path):
         """Same query with different casing should produce the same cache key."""
-        from cognidoc.hybrid_retriever import RetrievalCache
-
-        cache = RetrievalCache()
+        cache = _make_temp_cache(tmp_path)
         key1 = cache._make_key("What is X?", 10, True)
         key2 = cache._make_key("what is x?", 10, True)
         assert key1 == key2
 
-    def test_cache_key_strips_whitespace(self):
+    def test_cache_key_strips_whitespace(self, tmp_path):
         """Extra whitespace should be collapsed."""
-        from cognidoc.hybrid_retriever import RetrievalCache
-
-        cache = RetrievalCache()
+        cache = _make_temp_cache(tmp_path)
         key1 = cache._make_key("  hello  world  ", 10, True)
         key2 = cache._make_key("hello world", 10, True)
         assert key1 == key2
 
-    def test_cache_key_strips_trailing_punctuation(self):
+    def test_cache_key_strips_trailing_punctuation(self, tmp_path):
         """Trailing punctuation should be stripped."""
-        from cognidoc.hybrid_retriever import RetrievalCache
-
-        cache = RetrievalCache()
+        cache = _make_temp_cache(tmp_path)
         key1 = cache._make_key("hello?", 10, True)
         key2 = cache._make_key("hello", 10, True)
         assert key1 == key2
 
-    def test_cache_key_different_queries_differ(self):
+    def test_cache_key_different_queries_differ(self, tmp_path):
         """Different queries should produce different keys."""
-        from cognidoc.hybrid_retriever import RetrievalCache
-
-        cache = RetrievalCache()
+        cache = _make_temp_cache(tmp_path)
         key1 = cache._make_key("what is X", 10, True)
         key2 = cache._make_key("what is Y", 10, True)
         assert key1 != key2
@@ -1297,3 +1300,193 @@ class TestLostInTheMiddleFusion:
         # Should be in original relevance order: 0, 1, 2, 3, 4
         for i, line in enumerate(vector_doc_lines):
             assert line == f"Vector doc {i} content"
+
+
+# =============================================================================
+# 15. Persistent Retrieval Cache Tests
+# =============================================================================
+
+
+@dataclass
+class _FakeCacheResult:
+    """Picklable stand-in for HybridRetrievalResult in cache tests."""
+
+    query: str = ""
+    fused_context: str = ""
+    vector_results: list = field(default_factory=list)
+    graph_results: object = None
+    source_chunks: list = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+
+class TestPersistentRetrievalCache:
+    """Tests for SQLite-backed retrieval cache with semantic similarity."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_singleton(self):
+        """Reset the RetrievalCache singleton before and after each test."""
+        from cognidoc.hybrid_retriever import RetrievalCache
+
+        old_instance = RetrievalCache._instance
+        old_initialized = RetrievalCache._initialized
+        RetrievalCache._instance = None
+        RetrievalCache._initialized = False
+        yield
+        RetrievalCache._instance = old_instance
+        RetrievalCache._initialized = old_initialized
+
+    def _make_cache(self, tmp_path, **kwargs):
+        from cognidoc.hybrid_retriever import RetrievalCache
+
+        db_path = str(tmp_path / "test_cache.db")
+        return RetrievalCache(db_path=db_path, **kwargs)
+
+    def _make_result(self, query="test"):
+        """Create a minimal picklable HybridRetrievalResult-like object."""
+        return _FakeCacheResult(query=query, fused_context=f"Context for {query}")
+
+    @patch("cognidoc.hybrid_retriever.RetrievalCache._get_query_embedding", return_value=None)
+    def test_exact_match_hit(self, mock_emb, tmp_path):
+        """Same query with same params returns cached result."""
+        cache = self._make_cache(tmp_path)
+        result = self._make_result()
+        cache.put("What is RAG?", 10, True, result)
+
+        cached = cache.get("What is RAG?", 10, True)
+        assert cached is not None
+        assert cached.fused_context == "Context for test"
+
+    @patch("cognidoc.hybrid_retriever.RetrievalCache._get_query_embedding", return_value=None)
+    def test_exact_match_miss_different_params(self, mock_emb, tmp_path):
+        """Same query but different top_k/reranking is a miss."""
+        cache = self._make_cache(tmp_path)
+        result = self._make_result()
+        cache.put("What is RAG?", 10, True, result)
+
+        # Different top_k
+        assert cache.get("What is RAG?", 5, True) is None
+        # Different reranking
+        assert cache.get("What is RAG?", 10, False) is None
+
+    def test_semantic_match_hit(self, tmp_path):
+        """Semantically similar query returns cached result via embedding match."""
+        cache = self._make_cache(tmp_path)
+        result = self._make_result()
+
+        # Embeddings: near-identical vectors (cosine sim > 0.92)
+        emb_a = [1.0, 0.0, 0.0]
+        emb_b = [0.98, 0.1, 0.05]  # very close to emb_a
+
+        with patch.object(cache, "_get_query_embedding", side_effect=[emb_a, emb_b]):
+            cache.put("What is RAG?", 10, True, result)
+
+        with patch.object(cache, "_get_query_embedding", return_value=emb_b):
+            cached = cache.get("Tell me about RAG", 10, True)
+
+        assert cached is not None
+        assert cached.fused_context == "Context for test"
+
+    def test_semantic_match_below_threshold(self, tmp_path):
+        """Dissimilar embedding below threshold returns None."""
+        cache = self._make_cache(tmp_path)
+        result = self._make_result()
+
+        emb_a = [1.0, 0.0, 0.0]
+        emb_b = [0.0, 1.0, 0.0]  # orthogonal, sim = 0.0
+
+        with patch.object(cache, "_get_query_embedding", return_value=emb_a):
+            cache.put("What is RAG?", 10, True, result)
+
+        with patch.object(cache, "_get_query_embedding", return_value=emb_b):
+            cached = cache.get("How does chunking work?", 10, True)
+
+        assert cached is None
+
+    @patch("cognidoc.hybrid_retriever.RetrievalCache._get_query_embedding", return_value=None)
+    def test_ttl_expiration(self, mock_emb, tmp_path):
+        """Entry older than TTL is not returned."""
+        cache = self._make_cache(tmp_path, ttl_seconds=1)
+        result = self._make_result()
+        cache.put("What is RAG?", 10, True, result)
+
+        time.sleep(1.1)
+
+        assert cache.get("What is RAG?", 10, True) is None
+
+    @patch("cognidoc.hybrid_retriever.RetrievalCache._get_query_embedding", return_value=None)
+    def test_eviction_at_max_size(self, mock_emb, tmp_path):
+        """Oldest entry evicted when cache is full."""
+        cache = self._make_cache(tmp_path, max_size=3)
+
+        for i in range(4):
+            cache.put(f"query {i}", 10, True, self._make_result(f"q{i}"))
+
+        # First entry should be evicted
+        assert cache.get("query 0", 10, True) is None
+        # Latest entries should exist
+        assert cache.get("query 3", 10, True) is not None
+
+    def test_persistence_across_instances(self, tmp_path):
+        """Cache survives singleton reset (simulates process restart)."""
+        from cognidoc.hybrid_retriever import RetrievalCache
+
+        db_path = str(tmp_path / "test_cache.db")
+        cache1 = RetrievalCache(db_path=db_path)
+        result = self._make_result()
+
+        with patch.object(cache1, "_get_query_embedding", return_value=None):
+            cache1.put("What is RAG?", 10, True, result)
+
+        # Reset singleton
+        RetrievalCache._instance = None
+        RetrievalCache._initialized = False
+
+        cache2 = RetrievalCache(db_path=db_path)
+        with patch.object(cache2, "_get_query_embedding", return_value=None):
+            cached = cache2.get("What is RAG?", 10, True)
+
+        assert cached is not None
+        assert cached.fused_context == "Context for test"
+
+    def test_embedding_failure_fallback(self, tmp_path):
+        """When embedding fails, only exact match works."""
+        cache = self._make_cache(tmp_path)
+        result = self._make_result()
+
+        # Store with embedding
+        with patch.object(cache, "_get_query_embedding", return_value=[1.0, 0.0]):
+            cache.put("What is RAG?", 10, True, result)
+
+        # Retrieve with embedding failure — semantic match skipped
+        with patch.object(cache, "_get_query_embedding", return_value=None):
+            # Exact match still works
+            assert cache.get("What is RAG?", 10, True) is not None
+            # Semantic match can't work
+            assert cache.get("Tell me about RAG", 10, True) is None
+
+    @patch("cognidoc.hybrid_retriever.RetrievalCache._get_query_embedding", return_value=None)
+    def test_clear(self, mock_emb, tmp_path):
+        """Clear empties the database."""
+        cache = self._make_cache(tmp_path)
+        cache.put("q1", 10, True, self._make_result())
+        cache.put("q2", 10, True, self._make_result())
+
+        cache.clear()
+
+        assert cache.get("q1", 10, True) is None
+        assert cache.stats()["size"] == 0
+
+    @patch("cognidoc.hybrid_retriever.RetrievalCache._get_query_embedding", return_value=None)
+    def test_stats(self, mock_emb, tmp_path):
+        """Stats returns correct hit/miss counters and size."""
+        cache = self._make_cache(tmp_path)
+        cache.put("q1", 10, True, self._make_result())
+
+        cache.get("q1", 10, True)  # hit
+        cache.get("q2", 10, True)  # miss
+
+        stats = cache.stats()
+        assert stats["size"] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
+        assert stats["hit_rate"] == 0.5

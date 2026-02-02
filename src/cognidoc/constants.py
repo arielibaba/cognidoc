@@ -45,6 +45,7 @@ INDEX_DIR = DATA_DIR / "indexes"
 INGESTION_MANIFEST_PATH = INDEX_DIR / "ingestion_manifest.json"
 CACHE_DIR = DATA_DIR / "cache"
 TOOL_CACHE_DB = CACHE_DIR / "tool_cache.db"
+RETRIEVAL_CACHE_DB = CACHE_DIR / "retrieval_cache.db"
 METRICS_DB = CACHE_DIR / "metrics.db"
 
 # =============================================================================
