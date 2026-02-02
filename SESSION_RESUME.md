@@ -2560,5 +2560,16 @@ uv run pytest tests/ -v
 | Hash | Message |
 |------|---------|
 | `284e1b7` | Centralize OLLAMA_HOST, add WAL mode, narrow exceptions, add 49 tests |
+| `9e42792` | Update docs with 3 new test modules and session 4 improvements |
 
 ### CI GitHub Actions — ✅ tous les jobs passent
+
+### Prochaines étapes identifiées
+
+| # | Catégorie | Description | Priorité |
+|---|-----------|-------------|----------|
+| 1 | Qualité | **Étendre mypy** — Réduire les 24 modules exclus | Moyenne |
+| 2 | Infra | **Release automation** — workflow publication PyPI sur tag + CHANGELOG | Basse |
+| 3 | Fonctionnel | **Cross-encoder reranking** — activer/tester le reranker Qwen3 vs LLM scoring | Basse |
+| 4 | Fonctionnel | **Gestion fichiers supprimés** — flag `--prune` pour nettoyer documents retirés | Basse |
+| 5 | Architecture | **Découper KnowledgeGraph (SRP)** — extraire persistence, summarizer, stats | Basse |
