@@ -14,6 +14,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
+from pathlib import Path
+
 from .utils.llm_client import llm_chat
 from .utils.logger import logger
 
@@ -225,6 +227,40 @@ WEIGHT_CONFIG = {
     QueryType.UNKNOWN: {"vector": 0.6, "graph": 0.4, "mode": RetrievalMode.HYBRID},
 }
 
+_weights_loaded = False
+
+
+def _load_custom_weights():
+    """Load custom query weights from graph_schema.yaml if available."""
+    global _weights_loaded, WEIGHT_CONFIG
+    if _weights_loaded:
+        return
+    _weights_loaded = True
+    try:
+        config_path = Path("config/graph_schema.yaml")
+        if not config_path.exists():
+            return
+        import yaml
+
+        with open(config_path, "r") as f:
+            data = yaml.safe_load(f) or {}
+        custom = data.get("query_weights", {})
+        if not custom:
+            return
+        type_map = {t.value: t for t in QueryType}
+        for key, weights in custom.items():
+            qt = type_map.get(key)
+            if qt and isinstance(weights, dict):
+                cfg = WEIGHT_CONFIG.get(qt, {}).copy()
+                if "vector" in weights:
+                    cfg["vector"] = float(weights["vector"])
+                if "graph" in weights:
+                    cfg["graph"] = float(weights["graph"])
+                WEIGHT_CONFIG[qt] = cfg
+        logger.info(f"Loaded custom query weights for {len(custom)} query types")
+    except Exception:
+        pass  # Use defaults on any error
+
 
 def classify_query_rules(query: str) -> Tuple[QueryType, float, str]:
     """
@@ -377,6 +413,8 @@ class QueryOrchestrator:
         Returns:
             RoutingDecision with routing strategy
         """
+        _load_custom_weights()
+
         # Classify query
         if self.config.use_llm_classifier:
             query_type, confidence, reasoning, entities = classify_query_llm(query)

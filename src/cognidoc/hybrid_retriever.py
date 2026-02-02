@@ -468,6 +468,17 @@ def fuse_results(
             for i, doc in enumerate(docs_reordered)
         ]
 
+    def _format_chunk(idx, nws):
+        """Format a single vector chunk with [n] citation tag and source info."""
+        source = nws.node.metadata.get("source", {})
+        if isinstance(source, dict):
+            doc_name = source.get("document", "?")
+            page = source.get("page", "?")
+        else:
+            doc_name = str(source) if source else "?"
+            page = "?"
+        return f"[{idx}] (Source: {doc_name}, p.{page})\n{nws.node.text}"
+
     if use_sandwich:
         mid = len(capped_vector) // 2
         first_half = capped_vector[:mid]
@@ -475,8 +486,7 @@ def fuse_results(
 
         context_parts.append("=== DOCUMENT CONTEXT ===")
         for i, nws in enumerate(first_half, 1):
-            context_parts.append(f"[Document {i}]")
-            context_parts.append(nws.node.text)
+            context_parts.append(_format_chunk(i, nws))
             context_parts.append("")
             if "name" in nws.node.metadata:
                 source_chunks.append(nws.node.metadata["name"])
@@ -484,8 +494,7 @@ def fuse_results(
         context_parts.extend(graph_block)
 
         for i, nws in enumerate(second_half, len(first_half) + 1):
-            context_parts.append(f"[Document {i}]")
-            context_parts.append(nws.node.text)
+            context_parts.append(_format_chunk(i, nws))
             context_parts.append("")
             if "name" in nws.node.metadata:
                 source_chunks.append(nws.node.metadata["name"])
@@ -497,8 +506,7 @@ def fuse_results(
         if has_vector:
             context_parts.append("=== DOCUMENT CONTEXT ===")
             for i, nws in enumerate(capped_vector, 1):
-                context_parts.append(f"[Document {i}]")
-                context_parts.append(nws.node.text)
+                context_parts.append(_format_chunk(i, nws))
                 context_parts.append("")
                 if "name" in nws.node.metadata:
                     source_chunks.append(nws.node.metadata["name"])
@@ -509,6 +517,28 @@ def fuse_results(
     fused_context = "\n".join(context_parts)
 
     return fused_context, source_chunks
+
+
+def compute_answer_confidence(result: HybridRetrievalResult) -> float:
+    """Estimate answer confidence from retrieval signals (0.0-1.0)."""
+    meta = result.metadata
+
+    # Factor 1: Vector confidence (0-1)
+    vec_conf = meta.get("vector_confidence", 0.0)
+
+    # Factor 2: Graph confidence (0-1)
+    graph_conf = meta.get("graph_confidence", 0.0)
+
+    # Factor 3: Result count coverage (5+ results = full coverage)
+    vec_count = meta.get("vector_count", 0)
+    coverage = min(vec_count / 5, 1.0) if vec_count > 0 else 0.0
+
+    # Weighted combination using actual retrieval weights
+    vec_w = meta.get("vector_weight", 0.5)
+    graph_w = meta.get("graph_weight", 0.5)
+
+    confidence = vec_conf * vec_w + graph_conf * graph_w + coverage * 0.2
+    return min(confidence, 1.0)
 
 
 class HybridRetriever:
@@ -1058,6 +1088,9 @@ class HybridRetriever:
                 "from_cache": False,
             },
         )
+
+        # Compute answer confidence
+        result.metadata["answer_confidence"] = compute_answer_confidence(result)
 
         # Cache result for future identical queries
         if use_cache:

@@ -144,6 +144,16 @@ class IngestionManifest:
 
         return new_files, modified_files, all_stems
 
+    def get_deleted_files(self, sources_dir: Path) -> List[FileRecord]:
+        """Find files in manifest that no longer exist on disk."""
+        deleted = []
+        sources_dir = Path(sources_dir)
+        for rel_path, record in self.files.items():
+            full_path = sources_dir / rel_path
+            if not full_path.exists():
+                deleted.append(record)
+        return deleted
+
     def record_file(self, file_path: Path, sources_dir: Path, stem: str) -> None:
         """Record a file as successfully ingested."""
         file_path = Path(file_path)

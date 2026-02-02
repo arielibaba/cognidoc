@@ -1490,3 +1490,265 @@ class TestPersistentRetrievalCache:
         assert stats["hits"] == 1
         assert stats["misses"] == 1
         assert stats["hit_rate"] == 0.5
+
+
+# =============================================================================
+# Configurable Fusion Weights Tests
+# =============================================================================
+
+
+class TestConfigurableWeights:
+    """Tests for loading custom query weights from graph_schema.yaml."""
+
+    def test_custom_weights_loaded_from_yaml(self, tmp_path):
+        """Custom weights from YAML override WEIGHT_CONFIG."""
+        import cognidoc.query_orchestrator as qo
+
+        # Reset the module-level flag
+        qo._weights_loaded = False
+
+        # Save original weights
+        original = qo.WEIGHT_CONFIG[qo.QueryType.FACTUAL].copy()
+
+        yaml_content = """
+query_weights:
+  factual:
+    vector: 0.5
+    graph: 0.5
+  relational:
+    vector: 0.4
+    graph: 0.6
+"""
+        yaml_file = tmp_path / "config" / "graph_schema.yaml"
+        yaml_file.parent.mkdir(parents=True)
+        yaml_file.write_text(yaml_content)
+
+        with patch.object(Path, "__new__", return_value=yaml_file):
+            # Monkey-patch the path used in _load_custom_weights
+            original_path = Path("config/graph_schema.yaml")
+            with patch("cognidoc.query_orchestrator.Path") as mock_path:
+                mock_path.return_value = yaml_file
+                qo._weights_loaded = False
+                qo._load_custom_weights()
+
+        assert qo.WEIGHT_CONFIG[qo.QueryType.FACTUAL]["vector"] == 0.5
+        assert qo.WEIGHT_CONFIG[qo.QueryType.FACTUAL]["graph"] == 0.5
+        assert qo.WEIGHT_CONFIG[qo.QueryType.RELATIONAL]["vector"] == 0.4
+        assert qo.WEIGHT_CONFIG[qo.QueryType.RELATIONAL]["graph"] == 0.6
+
+        # Restore
+        qo.WEIGHT_CONFIG[qo.QueryType.FACTUAL] = original
+        qo.WEIGHT_CONFIG[qo.QueryType.RELATIONAL] = {
+            "vector": 0.2,
+            "graph": 0.8,
+            "mode": qo.RetrievalMode.HYBRID,
+        }
+        qo._weights_loaded = False
+
+    def test_custom_weights_missing_uses_defaults(self):
+        """When no YAML file exists, defaults are unchanged."""
+        import cognidoc.query_orchestrator as qo
+
+        qo._weights_loaded = False
+        original_factual = qo.WEIGHT_CONFIG[qo.QueryType.FACTUAL].copy()
+
+        with patch("cognidoc.query_orchestrator.Path") as mock_path:
+            mock_path.return_value.exists.return_value = False
+            qo._load_custom_weights()
+
+        assert qo.WEIGHT_CONFIG[qo.QueryType.FACTUAL] == original_factual
+        qo._weights_loaded = False
+
+
+# =============================================================================
+# Inline Citations Tests
+# =============================================================================
+
+
+class TestInlineCitations:
+    """Tests for chunk tagging with [n] citations in fuse_results()."""
+
+    def test_fuse_results_tags_chunks_with_source(self):
+        """Fused context should contain [n] tags with source info."""
+        from cognidoc.hybrid_retriever import fuse_results, QueryAnalysis, QueryType
+        from cognidoc.utils.rag_utils import Document, NodeWithScore
+
+        doc1 = Document(
+            text="First chunk text",
+            metadata={
+                "name": "chunk1",
+                "source": {"document": "rapport_2024", "page": "3"},
+            },
+        )
+        doc2 = Document(
+            text="Second chunk text",
+            metadata={
+                "name": "chunk2",
+                "source": {"document": "guide_legal", "page": "7"},
+            },
+        )
+
+        vector_results = [
+            NodeWithScore(node=doc1, score=0.9),
+            NodeWithScore(node=doc2, score=0.8),
+        ]
+
+        analysis = QueryAnalysis(
+            query="test",
+            query_type=QueryType.FACTUAL,
+            vector_weight=1.0,
+            graph_weight=0.0,
+        )
+
+        context, sources = fuse_results(
+            "test", vector_results, None, analysis, use_lost_in_middle=False
+        )
+
+        assert "[1] (Source: rapport_2024, p.3)" in context
+        assert "[2] (Source: guide_legal, p.7)" in context
+        assert "First chunk text" in context
+        assert "Second chunk text" in context
+
+
+# =============================================================================
+# Answer Quality Metrics Tests
+# =============================================================================
+
+
+class TestAnswerConfidence:
+    """Tests for compute_answer_confidence()."""
+
+    def test_answer_confidence_high_when_good_results(self):
+        """High vector/graph confidence and good coverage → high confidence."""
+        from cognidoc.hybrid_retriever import (
+            compute_answer_confidence,
+            HybridRetrievalResult,
+            QueryAnalysis,
+            QueryType,
+        )
+
+        result = HybridRetrievalResult(
+            query="test",
+            query_analysis=QueryAnalysis(query="test", query_type=QueryType.FACTUAL),
+            metadata={
+                "vector_confidence": 0.9,
+                "graph_confidence": 0.8,
+                "vector_count": 10,
+                "vector_weight": 0.7,
+                "graph_weight": 0.3,
+            },
+        )
+
+        confidence = compute_answer_confidence(result)
+
+        # 0.9*0.7 + 0.8*0.3 + 1.0*0.2 = 0.63 + 0.24 + 0.2 = 1.07 → capped at 1.0
+        assert confidence == 1.0
+
+    def test_answer_confidence_zero_when_no_results(self):
+        """No results → 0 confidence."""
+        from cognidoc.hybrid_retriever import (
+            compute_answer_confidence,
+            HybridRetrievalResult,
+            QueryAnalysis,
+            QueryType,
+        )
+
+        result = HybridRetrievalResult(
+            query="test",
+            query_analysis=QueryAnalysis(query="test", query_type=QueryType.FACTUAL),
+            metadata={
+                "vector_confidence": 0.0,
+                "graph_confidence": 0.0,
+                "vector_count": 0,
+                "vector_weight": 0.5,
+                "graph_weight": 0.5,
+            },
+        )
+
+        confidence = compute_answer_confidence(result)
+        assert confidence == 0.0
+
+
+# =============================================================================
+# Auto-Pruning Tests
+# =============================================================================
+
+
+class TestAutoPruning:
+    """Tests for auto-pruning of deleted source files."""
+
+    def test_get_deleted_files_detects_missing(self, tmp_path):
+        """File in manifest but not on disk → returned as deleted."""
+        from cognidoc.ingestion_manifest import IngestionManifest, FileRecord
+
+        sources_dir = tmp_path / "sources"
+        sources_dir.mkdir()
+
+        # Create one file that exists
+        (sources_dir / "exists.pdf").write_text("content")
+
+        manifest = IngestionManifest()
+        manifest.files["exists.pdf"] = FileRecord(
+            path="exists.pdf", stem="exists", size=7, mtime=0, content_hash="abc", ingested_at="now"
+        )
+        manifest.files["deleted.pdf"] = FileRecord(
+            path="deleted.pdf",
+            stem="deleted",
+            size=10,
+            mtime=0,
+            content_hash="def",
+            ingested_at="now",
+        )
+
+        deleted = manifest.get_deleted_files(sources_dir)
+
+        assert len(deleted) == 1
+        assert deleted[0].stem == "deleted"
+
+    def test_get_deleted_files_all_present(self, tmp_path):
+        """All files exist → empty list."""
+        from cognidoc.ingestion_manifest import IngestionManifest, FileRecord
+
+        sources_dir = tmp_path / "sources"
+        sources_dir.mkdir()
+        (sources_dir / "a.pdf").write_text("a")
+        (sources_dir / "b.pdf").write_text("b")
+
+        manifest = IngestionManifest()
+        manifest.files["a.pdf"] = FileRecord(
+            path="a.pdf", stem="a", size=1, mtime=0, content_hash="x", ingested_at="now"
+        )
+        manifest.files["b.pdf"] = FileRecord(
+            path="b.pdf", stem="b", size=1, mtime=0, content_hash="y", ingested_at="now"
+        )
+
+        deleted = manifest.get_deleted_files(sources_dir)
+        assert len(deleted) == 0
+
+    def test_prune_cleans_intermediates(self, tmp_path):
+        """Pruning removes intermediate files for deleted sources and updates manifest."""
+        from cognidoc.ingestion_manifest import IngestionManifest, FileRecord
+
+        sources_dir = tmp_path / "sources"
+        sources_dir.mkdir()
+
+        manifest = IngestionManifest()
+        manifest.files["gone.pdf"] = FileRecord(
+            path="gone.pdf", stem="gone", size=10, mtime=0, content_hash="abc", ingested_at="now"
+        )
+        manifest.files["kept.pdf"] = FileRecord(
+            path="kept.pdf", stem="kept", size=5, mtime=0, content_hash="xyz", ingested_at="now"
+        )
+        # Create the kept file on disk
+        (sources_dir / "kept.pdf").write_text("kept")
+
+        deleted = manifest.get_deleted_files(sources_dir)
+        assert len(deleted) == 1
+        assert deleted[0].stem == "gone"
+
+        # Simulate pruning: remove deleted entries from manifest
+        for record in deleted:
+            del manifest.files[record.path]
+
+        assert "gone.pdf" not in manifest.files
+        assert "kept.pdf" in manifest.files

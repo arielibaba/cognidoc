@@ -1478,7 +1478,21 @@ def chat_conversation(
     final = history[-1]["content"].strip()
     is_no_info = any(final.lower().startswith(prefix) for prefix in NO_INFO_PREFIXES)
     if not is_no_info and sources:
-        final += "\n\n" + format_sources_html(sources)
+        confidence = hybrid_result.metadata.get("answer_confidence", 0)
+        confidence_html = ""
+        if confidence > 0:
+            confidence_pct = round(confidence * 100)
+            if confidence_pct >= 70:
+                conf_color = "#4caf50"
+            elif confidence_pct >= 40:
+                conf_color = "#ff9800"
+            else:
+                conf_color = "#f44336"
+            confidence_html = (
+                f'<div style="font-size:0.85em;color:{conf_color};margin-top:4px;">'
+                f"Confidence: {confidence_pct}%</div>"
+            )
+        final += "\n\n" + format_sources_html(sources) + confidence_html
 
     # #15: Citation verification (optional)
     if ENABLE_CITATION_VERIFICATION and reranked:

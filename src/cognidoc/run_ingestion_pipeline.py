@@ -386,6 +386,11 @@ def parse_args():
     parser.add_argument(
         "--no-incremental", action="store_true", help="Disable incremental detection"
     )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Detect and remove deleted source files from indexes",
+    )
     return parser.parse_args()
 
 
@@ -998,6 +1003,8 @@ async def run_ingestion_pipeline_async(
     # Checkpoint/resume parameters
     resume_from_checkpoint: bool = True,
     max_consecutive_quota_errors: int = None,
+    # Pruning
+    prune: bool = False,
 ) -> dict:
     """
     Run the full ingestion pipeline.
@@ -1077,6 +1084,20 @@ async def run_ingestion_pipeline_async(
 
             # Override source_files to only process new/modified
             source_files = [str(f) for f in new_files + modified_files]
+
+            # Detect deleted files
+            deleted_records = manifest.get_deleted_files(Path(SOURCES_DIR))
+            if deleted_records:
+                if prune:
+                    logger.info(f"Pruning {len(deleted_records)} deleted files")
+                    for record in deleted_records:
+                        _cleanup_intermediate_files(record.stem)
+                        del manifest.files[record.path]
+                else:
+                    logger.warning(
+                        f"{len(deleted_records)} files deleted from sources/ but still indexed. "
+                        f"Use --prune to clean up."
+                    )
         else:
             logger.info("First ingestion detected (no manifest). Running full pipeline.")
     elif full_reindex:
@@ -1245,6 +1266,7 @@ def main():
             # Incremental ingestion parameters
             incremental=not args.no_incremental,
             full_reindex=args.full_reindex,
+            prune=args.prune,
         )
     )
 

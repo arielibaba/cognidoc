@@ -312,6 +312,7 @@ class CogniDoc:
         skip_schema_wizard: bool = False,
         full_reindex: bool = False,
         regenerate_schema: bool = False,
+        prune: bool = False,
     ) -> IngestionResult:
         """
         Ingest documents from path(s).
@@ -405,6 +406,7 @@ class CogniDoc:
                     graph_config_path=graph_config_path,
                     source_files=source_files,
                     full_reindex=full_reindex,
+                    prune=prune,
                 )
             )
 

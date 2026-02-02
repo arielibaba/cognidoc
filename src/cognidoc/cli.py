@@ -36,6 +36,7 @@ def cmd_ingest(args):
         skip_graph=args.no_graph,
         full_reindex=args.full_reindex,
         regenerate_schema=args.regenerate_schema,
+        prune=args.prune,
     )
 
     print(f"\nIngestion complete:")
@@ -350,6 +351,11 @@ For more information: https://github.com/arielibaba/cognidoc
         "--regenerate-schema",
         action="store_true",
         help="Force graph schema regeneration even if one already exists",
+    )
+    ingest_parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Detect and remove deleted source files from indexes",
     )
 
     # --- query command ---
