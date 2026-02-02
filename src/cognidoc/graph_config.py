@@ -6,6 +6,7 @@ Provides default values and configuration access throughout the system.
 """
 
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -336,20 +337,24 @@ def load_graph_config(config_path: Optional[str] = None) -> GraphConfig:
     )
 
 
-# Global config instance (lazy-loaded)
+# Global config instance (lazy-loaded, thread-safe)
 _config: Optional[GraphConfig] = None
+_config_lock = threading.Lock()
 
 
 def get_graph_config() -> GraphConfig:
-    """Get the global graph configuration (lazy-loaded singleton)."""
+    """Get the global graph configuration (lazy-loaded, thread-safe singleton)."""
     global _config
     if _config is None:
-        _config = load_graph_config()
+        with _config_lock:
+            if _config is None:
+                _config = load_graph_config()
     return _config
 
 
 def reload_graph_config(config_path: Optional[str] = None) -> GraphConfig:
     """Reload the graph configuration from file."""
     global _config
-    _config = load_graph_config(config_path)
+    with _config_lock:
+        _config = load_graph_config(config_path)
     return _config

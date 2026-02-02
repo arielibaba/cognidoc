@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any, TYPE_CHECKING
 
@@ -7,6 +8,7 @@ if TYPE_CHECKING:
     import ollama
 
 from .helpers import ask_LLM_with_JSON, ask_llm_json_unified, recover_json, get_token_count
+from .utils.logger import logger
 
 
 def chunk_markdown_table_with_overlap(md_table, cols=None, n_tokens=512, overlap=128):
@@ -138,15 +140,14 @@ def chunk_markdown_table(
         outd = recover_json(output)
         cols = outd["columns"].split(",")
         summary = outd["summary_of_the_table"]
-    except:
-        print(f"Could not recover with malformed JSON {output}")
-        # logc(f"Could not recover with malformed JSON {output}")
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError, AttributeError) as e:
+        logger.warning(f"Could not recover table JSON: {e}")
         return [], "", ""
 
     chunks, header = chunk_markdown_table_with_overlap(
         md_table, cols, n_tokens=n_tokens, overlap=overlap
     )
-    print("Chunks:", len(chunks))
+    logger.debug(f"Chunks: {len(chunks)}")
 
     return chunks, header, summary
 

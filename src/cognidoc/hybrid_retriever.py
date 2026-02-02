@@ -17,6 +17,7 @@ import math
 import pickle
 import re
 import sqlite3
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -100,12 +101,14 @@ class RetrievalCache:
 
     _instance: Optional["RetrievalCache"] = None
     _initialized: bool = False
+    _lock: threading.Lock = threading.Lock()
 
     def __new__(cls, db_path: Optional[str] = None, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
 
     def __init__(
         self,
@@ -1110,16 +1113,19 @@ class HybridRetriever:
         return stats
 
 
-# Global retriever instance (lazy-loaded)
+# Global retriever instance (lazy-loaded, thread-safe)
 _hybrid_retriever: Optional[HybridRetriever] = None
+_retriever_lock = threading.Lock()
 
 
 def get_hybrid_retriever() -> HybridRetriever:
-    """Get the global hybrid retriever (lazy-loaded singleton)."""
+    """Get the global hybrid retriever (lazy-loaded, thread-safe singleton)."""
     global _hybrid_retriever
     if _hybrid_retriever is None:
-        _hybrid_retriever = HybridRetriever()
-        _hybrid_retriever.load()
+        with _retriever_lock:
+            if _hybrid_retriever is None:
+                _hybrid_retriever = HybridRetriever()
+                _hybrid_retriever.load()
     return _hybrid_retriever
 
 

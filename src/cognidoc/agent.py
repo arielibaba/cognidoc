@@ -12,6 +12,7 @@ The agent is triggered only for complex queries (via complexity evaluation)
 and uses the standard RAG pipeline for simple queries.
 """
 
+import atexit
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -32,6 +33,7 @@ from .utils.logger import logger
 
 # Thread pool for parallel reflection (reused across agent calls)
 _reflection_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="agent_reflect")
+atexit.register(_reflection_executor.shutdown, wait=False)
 
 if TYPE_CHECKING:
     from .hybrid_retriever import HybridRetriever

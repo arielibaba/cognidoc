@@ -423,6 +423,11 @@ def parse_args():
         action="store_true",
         help="Detect and remove deleted source files from indexes",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate setup and show what would be processed without ingesting",
+    )
     return parser.parse_args()
 
 
@@ -1016,6 +1021,95 @@ def _clear_query_caches():
     logger.info("Query caches cleared after ingestion")
 
 
+def run_dry_run(source_dir: str = None) -> dict:
+    """Validate pipeline setup and show what would be processed without ingesting.
+
+    Returns:
+        dict with validation results and file counts.
+    """
+    from .extract_objects_from_image import is_yolo_model_available
+    from .constants import SOURCES_DIR as _SOURCES_DIR
+
+    sources_dir = Path(source_dir) if source_dir else Path(_SOURCES_DIR)
+    results = {
+        "valid": True,
+        "sources_dir": str(sources_dir),
+        "sources_exist": sources_dir.exists(),
+        "files": {},
+        "indexes_exist": Path(EMBEDDINGS_DIR).exists(),
+        "yolo_available": False,
+        "manifest_exists": Path(INGESTION_MANIFEST_PATH).exists(),
+        "errors": [],
+        "warnings": [],
+    }
+
+    # Check sources directory
+    if not sources_dir.exists():
+        results["valid"] = False
+        results["errors"].append(
+            f"Sources directory not found: {sources_dir}\n"
+            f"  Create it and add documents: mkdir -p {sources_dir}"
+        )
+        return results
+
+    # Scan files by extension
+    all_files = list(sources_dir.rglob("*"))
+    file_count = 0
+    by_ext = {}
+    for f in all_files:
+        if f.is_file():
+            file_count += 1
+            ext = f.suffix.lower() or "(no extension)"
+            by_ext[ext] = by_ext.get(ext, 0) + 1
+
+    results["files"] = {"total": file_count, "by_extension": by_ext}
+
+    if file_count == 0:
+        results["valid"] = False
+        results["errors"].append(
+            f"No files found in {sources_dir}\n"
+            f"  Copy your documents (PDF, DOCX, etc.) into this directory."
+        )
+        return results
+
+    # Check YOLO availability
+    try:
+        results["yolo_available"] = is_yolo_model_available()
+    except Exception:
+        results["yolo_available"] = False
+
+    if not results["yolo_available"]:
+        results["warnings"].append(
+            "YOLO model not found. Layout detection will use simple fallback.\n"
+            "  Download the model to models/YOLOv11/ for better detection."
+        )
+
+    # Check incremental status
+    manifest_path = Path(INGESTION_MANIFEST_PATH)
+    if manifest_path.exists():
+        manifest = IngestionManifest.load(manifest_path)
+        if manifest:
+            new_files, modified_files, new_stems = manifest.get_new_and_modified_files(
+                sources_dir, None
+            )
+            results["incremental"] = {
+                "new_files": len(new_files),
+                "modified_files": len(modified_files),
+                "unchanged_files": len(manifest.files) - len(modified_files),
+            }
+            deleted = manifest.get_deleted_files(sources_dir)
+            if deleted:
+                results["incremental"]["deleted_files"] = len(deleted)
+                results["warnings"].append(
+                    f"{len(deleted)} file(s) deleted from sources/ but still indexed. "
+                    f"Use --prune to clean up."
+                )
+    else:
+        results["incremental"] = {"status": "first_run"}
+
+    return results
+
+
 async def run_ingestion_pipeline_async(
     vision_provider: str = None,
     extraction_provider: str = "gemini",
@@ -1286,6 +1380,34 @@ def _cleanup_intermediate_files(stem: str):
 def main():
     """Main entry point."""
     args = parse_args()
+
+    if args.dry_run:
+        results = run_dry_run()
+        print("\n" + "=" * 50)
+        print("  DRY RUN — Pipeline Validation")
+        print("=" * 50)
+        print(f"\nSources: {results['sources_dir']}")
+        files = results.get("files", {})
+        print(f"Files found: {files.get('total', 0)}")
+        for ext, count in files.get("by_extension", {}).items():
+            print(f"  {ext}: {count}")
+        inc = results.get("incremental", {})
+        if inc.get("status") == "first_run":
+            print("\nMode: First ingestion (full pipeline)")
+        elif "new_files" in inc:
+            print(
+                f"\nMode: Incremental ({inc['new_files']} new, "
+                f"{inc['modified_files']} modified)"
+            )
+        print(f"\nYOLO available: {results['yolo_available']}")
+        print(f"Existing indexes: {results['indexes_exist']}")
+        for w in results.get("warnings", []):
+            print(f"\nWARNING: {w}")
+        for e in results.get("errors", []):
+            print(f"\nERROR: {e}")
+        status = "READY" if results["valid"] else "NOT READY"
+        print(f"\nStatus: {status}")
+        return
 
     asyncio.run(
         run_ingestion_pipeline_async(

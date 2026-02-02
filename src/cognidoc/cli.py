@@ -17,6 +17,37 @@ from pathlib import Path
 
 def cmd_ingest(args):
     """Handle the ingest command."""
+    # Handle dry-run mode
+    if args.dry_run:
+        from .run_ingestion_pipeline import run_dry_run
+
+        results = run_dry_run(args.source)
+        print("\n" + "=" * 50)
+        print("  DRY RUN — Pipeline Validation")
+        print("=" * 50)
+        print(f"\nSources: {results['sources_dir']}")
+        files = results.get("files", {})
+        print(f"Files found: {files.get('total', 0)}")
+        for ext, count in files.get("by_extension", {}).items():
+            print(f"  {ext}: {count}")
+        inc = results.get("incremental", {})
+        if inc.get("status") == "first_run":
+            print("\nMode: First ingestion (full pipeline)")
+        elif "new_files" in inc:
+            print(
+                f"\nMode: Incremental ({inc['new_files']} new, "
+                f"{inc['modified_files']} modified)"
+            )
+        print(f"\nYOLO available: {results['yolo_available']}")
+        print(f"Existing indexes: {results['indexes_exist']}")
+        for w in results.get("warnings", []):
+            print(f"\nWARNING: {w}")
+        for e in results.get("errors", []):
+            print(f"\nERROR: {e}")
+        status = "READY" if results["valid"] else "NOT READY"
+        print(f"\nStatus: {status}")
+        return
+
     from .api import CogniDoc
 
     print(f"Initializing CogniDoc with LLM={args.llm}, Embedding={args.embedding}")
@@ -411,6 +442,11 @@ For more information: https://github.com/arielibaba/cognidoc
         action="store_true",
         help="Detect and remove deleted source files from indexes",
     )
+    ingest_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate setup and show what would be processed without ingesting",
+    )
 
     # --- query command ---
     query_parser = subparsers.add_parser(
@@ -584,8 +620,68 @@ For more information: https://github.com/arielibaba/cognidoc
         print("\nInterrupted")
         sys.exit(1)
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        _print_actionable_error(e)
         sys.exit(1)
+
+
+def _print_actionable_error(e: Exception) -> None:
+    """Print actionable error messages for common failure modes."""
+    msg = str(e)
+    msg_lower = msg.lower()
+
+    # Missing API key
+    if "google_api_key" in msg_lower or "api_key" in msg_lower and "google" in msg_lower:
+        print(
+            "Error: GOOGLE_API_KEY not found.\n"
+            "  Set it in your environment or create a .env file:\n"
+            "    echo 'GOOGLE_API_KEY=your-key-here' > .env",
+            file=sys.stderr,
+        )
+    elif "openai" in msg_lower and ("api" in msg_lower or "key" in msg_lower):
+        print(
+            "Error: OpenAI API key not configured.\n"
+            "  Set OPENAI_API_KEY in your environment or .env file.",
+            file=sys.stderr,
+        )
+    elif "anthropic" in msg_lower and ("api" in msg_lower or "key" in msg_lower):
+        print(
+            "Error: Anthropic API key not configured.\n"
+            "  Set ANTHROPIC_API_KEY in your environment or .env file.",
+            file=sys.stderr,
+        )
+    # Ollama connection issues
+    elif "connection" in msg_lower and "ollama" in msg_lower or "11434" in msg:
+        print(
+            "Error: Cannot connect to Ollama.\n"
+            "  Make sure Ollama is running: ollama serve\n"
+            "  Default address: http://localhost:11434",
+            file=sys.stderr,
+        )
+    # Missing source files
+    elif "no files found" in msg_lower or "sources" in msg_lower and "not found" in msg_lower:
+        print(
+            "Error: No documents found to process.\n"
+            "  Copy your documents to data/sources/ and try again:\n"
+            "    mkdir -p data/sources && cp your-docs/* data/sources/",
+            file=sys.stderr,
+        )
+    # Missing indexes (query before ingest)
+    elif "index" in msg_lower and ("not found" in msg_lower or "not loaded" in msg_lower):
+        print(
+            "Error: Knowledge base not found.\n"
+            "  Run ingestion first: cognidoc ingest ./data/sources",
+            file=sys.stderr,
+        )
+    # Qdrant lock conflict
+    elif "qdrant" in msg_lower and "lock" in msg_lower:
+        print(
+            "Error: Qdrant database is locked by another process.\n"
+            "  Close any running CogniDoc instances and try again.",
+            file=sys.stderr,
+        )
+    # Generic fallback with the original error
+    else:
+        print(f"Error: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

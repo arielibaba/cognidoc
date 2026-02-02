@@ -305,22 +305,21 @@ def convert_image_to_pdf(input_path: Path, output_path: Path) -> Optional[Path]:
     try:
         from PIL import Image
 
-        # Open image
-        img = Image.open(input_path)
+        # Open image with context manager to avoid file descriptor leaks
+        with Image.open(input_path) as img:
+            # Convert to RGB if necessary (for PNG with transparency, etc.)
+            if img.mode in ("RGBA", "LA", "P"):
+                # Create white background
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                img = background
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
 
-        # Convert to RGB if necessary (for PNG with transparency, etc.)
-        if img.mode in ("RGBA", "LA", "P"):
-            # Create white background
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-            img = background
-        elif img.mode != "RGB":
-            img = img.convert("RGB")
-
-        # Save as PDF
-        img.save(str(output_path), "PDF", resolution=100.0)
+            # Save as PDF
+            img.save(str(output_path), "PDF", resolution=100.0)
 
         if output_path.exists():
             return output_path
