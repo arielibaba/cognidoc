@@ -81,6 +81,14 @@ Resume from specific stage:
 --regenerate-schema   # Force graph schema regeneration before ingestion
 ```
 
+## CI Pipeline
+
+CI runs on push/PR to `master` with two jobs:
+
+- **lint**: black `--check`, pylint `--fail-under=7.0`, mypy on `src/cognidoc/`
+- **test**: pytest across Python 3.10/3.11/3.12 with `-x` (fail-fast), excludes `test_00_e2e_pipeline.py` and `test_benchmark.py`
+- **docker**: builds the Docker image (no runtime tests)
+
 ## Architecture
 
 > **Deep dive:** For detailed explanations of the query pipeline internals (complexity evaluation formula, LRU cache, vector/graph fusion, ReAct agent loop), see [`docs/architecture/query_pipeline.md`](docs/architecture/query_pipeline.md).
