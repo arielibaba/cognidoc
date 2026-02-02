@@ -439,18 +439,27 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | Module | Tests | Description |
 |--------|-------|-------------|
 | `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
-| `test_agent.py` | 27 | Agent ReAct loop |
-| `test_agent_tools.py` | 33 | Tool implementations |
+| `test_agent.py` | 60 | Agent ReAct loop |
+| `test_agent_tools.py` | 43 | Tool implementations |
 | `test_benchmark.py` | 12 | Precision/recall benchmark with reranking comparison |
+| `test_build_indexes.py` | 10 | Vector/keyword index building |
 | `test_checkpoint.py` | 32 | Checkpoint/resume system |
 | `test_chunking.py` | 29 | Text/table chunking (parent/child, file filter, hard_split, table overlap) |
-| `test_complexity.py` | 25 | Query complexity evaluation |
+| `test_cli.py` | 35 | CLI commands and argument parsing |
+| `test_complexity.py` | 38 | Query complexity evaluation |
+| `test_conversion.py` | 29 | Document format conversion |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_entity_resolution.py` | 34 | Entity resolution (blocking, matching, clustering, merging) |
+| `test_graph_config.py` | 25 | GraphRAG schema loading and validation |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing |
-| `test_optimizations.py` | 38 | Pipeline optimizations, reranking parser |
+| `test_hybrid_retriever.py` | 17 | Hybrid retrieval, cache serialization, context manager |
+| `test_incremental_ingestion.py` | 28 | Incremental ingestion manifest and pipeline |
+| `test_ingestion_manifest.py` | 22 | Ingestion manifest CRUD and file tracking |
+| `test_knowledge_graph.py` | 27 | Knowledge graph CRUD, traversal, persistence |
+| `test_optimizations.py` | 112 | Pipeline optimizations, caching, reranking parser |
 | `test_pipeline_stages.py` | 22 | Individual pipeline stage unit tests |
 | `test_providers.py` | 32 | LLM/Embedding providers |
+| `test_query_orchestrator.py` | 31 | Query classification, routing, weight config |
 | `test_schema_generation.py` | 75 | Corpus-based schema generation (sampling, LLM pipeline, fallbacks) |
 
 **Test Infrastructure:**

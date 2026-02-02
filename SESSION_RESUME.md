@@ -2455,3 +2455,72 @@ uv run mypy src/cognidoc/ --ignore-missing-imports
 | 5 | Fonctionnel | **Gestion fichiers supprimés** — flag `--prune` pour nettoyer documents retirés | Basse |
 | 6 | Perf | **Benchmark corpus réel** — valider métriques reranking sur corpus plus large | Basse |
 | 7 | Architecture SOLID | **Découper KnowledgeGraph (SRP)** — extraire persistence, summarizer, stats | Basse |
+
+---
+
+# Session CogniDoc - 2 février 2026 (Session 4)
+
+## Résumé
+
+8 améliorations implémentées : remplacement pickle par JSON, hardening sécurité, context managers, extraction des constantes magiques, logging explicite, et 75 nouveaux tests pour 3 modules non couverts.
+
+## Tâches complétées cette session
+
+| # | Tâche | Fichiers | Description |
+|---|-------|----------|-------------|
+| 1 | **Tests hybrid_retriever** | `tests/test_hybrid_retriever.py` | 17 nouveaux tests : sérialisation JSON roundtrip, cache put/get/miss/clear/stats/eviction, fusion, confidence, context manager |
+| 2 | **Tests knowledge_graph** | `tests/test_knowledge_graph.py` | 27 nouveaux tests : GraphNode, CRUD, traversal, communautés, persistence JSON, statistiques |
+| 3 | **Tests query_orchestrator** | `tests/test_query_orchestrator.py` | 31 nouveaux tests : classification rule-based (EN/FR/ES/DE), LLM, weight config, routing, fallback, fusion |
+| 4 | **Pickle → JSON** | `hybrid_retriever.py`, `knowledge_graph.py` | Remplacement pickle par JSON dans RetrievalCache et KnowledgeGraph. `to_dict()`/`from_dict()` sur HybridRetrievalResult. `nx.node_link_data()`/`nx.node_link_graph()` pour NetworkX. Fallback legacy pickle en lecture. |
+| 5 | **Path traversal** | `cognidoc_app.py`, `cli.py` | Rejet de `..` dans les chemins utilisateur (CLI args et URLs de documents) |
+| 6 | **Context managers** | `hybrid_retriever.py`, `agent.py` | `__enter__`/`__exit__` sur HybridRetriever. `shutdown(wait=True, cancel_futures=True)` sur ThreadPool agent. |
+| 7 | **Magic numbers → constants** | `constants.py`, `hybrid_retriever.py` | `RETRIEVAL_CACHE_MAX_SIZE`, `RETRIEVAL_CACHE_TTL`, `RETRIEVAL_CACHE_SIMILARITY_THRESHOLD`, `COMMUNITY_RESOLUTION` avec override env var |
+| 8 | **Bare pass → logging** | `helpers.py`, `run_ingestion_pipeline.py`, `schema_wizard.py` | 6 `except: pass` remplacés par `logger.debug()` explicite |
+
+## Modifications clés
+
+### 1. Pickle → JSON (sécurité)
+
+Pickle permet l'exécution de code arbitraire à la désérialisation. Remplacé par JSON dans :
+- **RetrievalCache** : `pickle.dumps(result)` → `json.dumps(result.to_dict())`
+- **KnowledgeGraph.save()** : `pickle.dump(graph)` → `json.dump(nx.node_link_data(graph))`
+- **KnowledgeGraph.load()** : JSON en priorité, fallback pickle legacy pour migration transparente
+- **Tests existants** (`test_optimizations.py::TestPersistentRetrievalCache`) : `_FakeCacheResult` remplacé par de vrais `HybridRetrievalResult`
+
+### 2. Constantes centralisées
+
+```python
+# constants.py
+RETRIEVAL_CACHE_MAX_SIZE = int(os.getenv("RETRIEVAL_CACHE_MAX_SIZE", "50"))
+RETRIEVAL_CACHE_TTL = int(os.getenv("RETRIEVAL_CACHE_TTL", "300"))
+RETRIEVAL_CACHE_SIMILARITY_THRESHOLD = float(os.getenv("RETRIEVAL_CACHE_SIMILARITY_THRESHOLD", "0.92"))
+COMMUNITY_RESOLUTION = float(os.getenv("COMMUNITY_RESOLUTION", "1.0"))
+```
+
+### Tests
+
+```bash
+uv run pytest tests/ -v
+# 780 tests collected, 682 passed, 2 failed (pre-existing YOLO cv2.imshow), 1 skipped
+# 23 modules de test, 75 nouveaux tests ajoutés
+```
+
+### Commits
+
+| Hash | Message |
+|------|---------|
+| `ce9cd55` | Fix flaky test_modified_file_detected on Python 3.10/3.11 CI |
+| `f8ef641` | Add config validation, thread-safe globals, type annotations, and new tests |
+| `5c7a53d` | Replace pickle with JSON serialization, add security hardening and tests |
+
+### CI GitHub Actions — ✅ tous les jobs passent
+
+### Prochaines étapes identifiées
+
+| # | Catégorie | Description | Priorité |
+|---|-----------|-------------|----------|
+| 1 | Qualité | **Étendre mypy** — Réduire les 24 modules exclus | Moyenne |
+| 2 | Infra | **Release automation** — workflow publication PyPI sur tag + CHANGELOG | Basse |
+| 3 | Fonctionnel | **Cross-encoder reranking** — activer/tester le reranker Qwen3 vs LLM scoring | Basse |
+| 4 | Fonctionnel | **Gestion fichiers supprimés** — flag `--prune` pour nettoyer documents retirés | Basse |
+| 5 | Architecture | **Découper KnowledgeGraph (SRP)** — extraire persistence, summarizer, stats | Basse |
