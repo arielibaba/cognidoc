@@ -164,35 +164,38 @@ The keyword_matches factor previously relied on 47 regex patterns that had to be
 
 ---
 
-## 2. Retrieval Cache (LRU)
+## 2. Retrieval Cache
 
-**File:** `src/cognidoc/hybrid_retriever.py` (class `RetrievalCache`, lines 86-169)
+**File:** `src/cognidoc/hybrid_retriever.py` (class `RetrievalCache`, lines 87-322)
 
 ### Why This Component Exists
 
-A single retrieval pass involves: query classification (1 LLM call), vector search (Qdrant query + BM25), optional graph traversal, reranking (1 LLM call), and fusion. This costs ~1-3s and several thousand LLM tokens. In an interactive session, users frequently rephrase or repeat queries ("What is X?" followed by "Tell me about X"). Without caching, each variation that produces the same effective query would re-execute the full pipeline. The cache short-circuits this entirely.
+A single retrieval pass involves: query classification (1 LLM call), vector search (Qdrant query + BM25), optional graph traversal, reranking (1 LLM call), and fusion. This costs ~1-3s and several thousand LLM tokens. In an interactive session, users frequently rephrase or repeat queries ("What is X?" followed by "Tell me about X"). Without caching, each variation would re-execute the full pipeline. The cache short-circuits this — both for exact repeats (MD5 match) and semantic paraphrases (embedding similarity).
 
 ### Advantages
 
 - **Significant latency reduction**: a cache hit returns in < 1ms vs ~1-3s for a full pipeline execution.
-- **Zero-dependency**: uses Python's `OrderedDict`, no external cache service (Redis, Memcached) needed. This keeps the deployment simple for a single-process application.
+- **Semantic matching**: paraphrased queries ("What is X?" / "Tell me about X") hit the cache via embedding cosine similarity, not just exact text match.
+- **Persistent**: SQLite storage survives process restarts. No external cache service (Redis, Memcached) needed.
 - **Transparent**: the `from_cache=True` metadata flag lets the UI and logs distinguish cached from fresh results.
 - **Self-bounding**: the combination of max_size (50) and TTL (5 min) ensures the cache never grows unbounded or serves stale data indefinitely.
 
 ### Limitations and Possible Improvements
 
 - **~~Exact match only~~** *(addressed)*: the cache now normalizes queries before hashing — lowercasing, collapsing whitespace, and stripping trailing punctuation. "What is X?" and "what is x ?" now produce the same cache key. See "Cache Key Normalization" below.
-- **No semantic similarity**: "What is X?" and "Tell me about X" are cache misses despite being semantically identical. An embedding-based cache key (cosine similarity above a threshold) could catch these, at the cost of an embedding computation per lookup.
-- **In-memory only**: the cache is lost on process restart. For long-running production deployments, persisting the cache (e.g., SQLite, like the embedding cache already does) would preserve it across restarts. However, the 5-minute TTL makes this less critical — most entries would expire anyway.
+- **~~No semantic similarity~~** *(addressed)*: cache lookup now falls back to embedding-based cosine similarity (threshold 0.92) when the exact MD5 match misses. "What is X?" and "Tell me about X" now produce cache hits. See "Semantic Similarity Matching" below.
+- **~~In-memory only~~** *(addressed)*: the cache is now backed by SQLite, surviving process restarts. See "SQLite Persistence" below.
 - **~~No invalidation on re-ingestion~~** *(addressed)*: `_clear_query_caches()` in `run_ingestion_pipeline.py` now clears all 4 query-time caches (retrieval, query embedding, reranking, tool) after ingestion completes. See "Cache Invalidation on Re-Ingestion" below.
 
 ### Implementation
 
-The cache is an `OrderedDict` (Python standard library) instantiated once as a module-level global (line 173). Each entry stores a tuple `(HybridRetrievalResult, timestamp)`.
+The cache is a singleton `RetrievalCache` backed by SQLite, instantiated once as a module-level global. Each entry stores the `HybridRetrievalResult` as a pickle blob alongside its query embedding and metadata.
 
 **Parameters:**
 - Capacity: 50 entries max
 - TTL: 300 seconds (5 minutes)
+- Semantic similarity threshold: 0.92
+- Database: `data/cache/retrieval_cache.db`
 
 **Why these values:** 50 entries is sized for a typical interactive session where a user asks 20-50 questions. Beyond that, the oldest entries are likely stale anyway. The 5-minute TTL balances freshness (the underlying index could change after re-ingestion) with usefulness (users often rephrase the same question within a few minutes). A longer TTL would risk serving stale results after an index update; a shorter one would defeat the purpose for slow exploratory sessions.
 
@@ -204,9 +207,9 @@ The key is an MD5 hash of four concatenated parameters (lines 108-118):
 MD5("{normalize(query)}|{top_k}|{use_reranking}|{strategy}")
 ```
 
-MD5 is used here not for security but as a fast, fixed-length key generator. The alternative (using the raw concatenated string as key) would work but wastes memory on long queries. Collision risk is irrelevant at 50 entries.
+MD5 is used here not for security but as a fast, fixed-length key generator for the exact-match step. Collision risk is irrelevant at 50 entries. When the exact MD5 match misses, the semantic similarity step (see below) provides a second chance using query embeddings.
 
-The same query with different parameters (e.g., reranking on vs off) produces distinct cache entries. This prevents returning a non-reranked result when reranking was requested.
+The same query with different parameters (e.g., reranking on vs off) produces distinct cache entries in both the exact and semantic paths. This prevents returning a non-reranked result when reranking was requested.
 
 ### Cache Key Normalization
 
@@ -218,11 +221,10 @@ Before hashing, `_normalize_query()` applies three transformations:
 
 This ensures trivially equivalent queries hit the same cache entry. The normalization is intentionally conservative — it does not stem, lemmatize, or remove stop words, which could cause semantically different queries to collide (e.g., "not X" and "X" after stop word removal).
 
-### LRU Behavior
+### Eviction Behavior
 
-- **On hit**: the entry is moved to the end of the `OrderedDict` via `move_to_end()`, marking it as most recently used.
-- **On expiration**: the entry is deleted at read time (lazy eviction), not by a background timer. This keeps the implementation simple with no background threads.
-- **On capacity overflow**: `popitem(last=False)` removes the entry at the head of the `OrderedDict` (least recently used).
+- **On expiration**: entries older than TTL are excluded by the SQL `WHERE created_at > cutoff` clause. Expired entries are not eagerly deleted but are ignored at read time and eventually evicted by the capacity limit.
+- **On capacity overflow**: after each `put()`, if the row count exceeds `max_size`, the oldest entries are deleted via `DELETE ... ORDER BY created_at ASC LIMIT excess`.
 
 ### When the Cache is Bypassed
 
@@ -239,6 +241,51 @@ Results are cached at the very end of the pipeline (line 848), after fusion and 
 
 The cache exposes `stats()` returning current size, hit rate, hits/misses. This is visible in the Gradio UI via the "refresh metrics" button and in debug logs.
 
+### Semantic Similarity Matching
+
+**File:** `src/cognidoc/hybrid_retriever.py` (class `RetrievalCache`, `get()` method)
+
+When the exact MD5 match misses, the cache performs a second lookup using query embeddings:
+
+1. The query is embedded via `get_query_embedding()` (already cached in `QueryEmbeddingCache`).
+2. All non-expired rows matching the same `top_k`, `use_reranking`, and `strategy` are loaded.
+3. Cosine similarity is computed between the query embedding and each stored embedding.
+4. The best match above the threshold (0.92) is returned.
+
+**Lookup cost:** O(N) where N ≤ 50 (max cache size). Each comparison is a dot product on ~1024-dimensional vectors, which takes <0.1ms. The total semantic scan adds <5ms even at full capacity.
+
+**Why threshold 0.92:** High threshold ensures only near-paraphrases match. "What is RAG?" ↔ "Tell me about RAG" should match (cosine sim ~0.94-0.97 for typical embedding models), but "What is RAG?" ↔ "How does chunking work?" should not (sim ~0.3-0.5). A lower threshold (0.8) would risk returning results for genuinely different queries. A higher one (0.95+) would miss valid paraphrases.
+
+**Fallback:** If the embedding provider is unavailable (Ollama down, model not loaded), `_get_query_embedding()` catches the exception and returns `None`. The semantic scan is skipped entirely, and only exact MD5 matching works. This ensures the cache never fails due to embedding issues.
+
+**Storage:** Query embeddings are stored alongside each cache entry as pickle blobs. The `put()` method calls `_get_query_embedding()` and stores the result (or `None` if embedding fails). Entries stored without embeddings are skipped during semantic scan.
+
+### SQLite Persistence
+
+**File:** `src/cognidoc/hybrid_retriever.py` (class `RetrievalCache`), `src/cognidoc/constants.py` (`RETRIEVAL_CACHE_DB`)
+
+The cache uses SQLite instead of an in-memory `OrderedDict`, following the same pattern as `PersistentToolCache` (in `utils/tool_cache.py`) and `EmbeddingCache` (in `utils/embedding_cache.py`).
+
+**Schema:**
+```sql
+CREATE TABLE retrieval_cache (
+    cache_key TEXT PRIMARY KEY,      -- MD5 of normalized query|top_k|reranking|strategy
+    query_norm TEXT NOT NULL,        -- normalized query text (for debugging)
+    embedding BLOB,                  -- pickle'd query embedding (List[float])
+    result BLOB NOT NULL,            -- pickle'd HybridRetrievalResult
+    top_k INTEGER NOT NULL,
+    use_reranking INTEGER NOT NULL,
+    strategy TEXT NOT NULL,
+    created_at REAL NOT NULL
+)
+```
+
+**Why pickle for results:** `HybridRetrievalResult` contains complex nested objects (`NodeWithScore`, `GraphRetrievalResult` with `GraphNode`, `Community`). JSON serialization would require custom encoders/decoders for every nested class. Pickle is the standard approach for Python object caching and handles arbitrary object graphs transparently.
+
+**Singleton pattern:** Same as `PersistentToolCache` — class-level `_instance` and `_initialized` fields ensure only one cache instance exists. The `__new__` method returns the existing instance on subsequent calls. The `__init__` method skips initialization if `_initialized` is True.
+
+**Error handling:** All SQLite operations are wrapped in `try/except Exception` that log at debug level and degrade gracefully — a `get()` failure returns `None` (cache miss), a `put()` failure silently drops the entry. The cache never causes a query to fail.
+
 ### Cache Invalidation on Re-Ingestion
 
 **File:** `src/cognidoc/run_ingestion_pipeline.py` (function `_clear_query_caches`, lines 945-975)
@@ -247,7 +294,7 @@ After ingestion completes, 4 query-time caches may hold stale data referencing o
 
 | Cache | Module | Clear function |
 |-------|--------|----------------|
-| Retrieval cache (LRU, 50 entries) | `hybrid_retriever` | `clear_retrieval_cache()` |
+| Retrieval cache (SQLite, 50 entries) | `hybrid_retriever` | `clear_retrieval_cache()` |
 | Query embedding cache (LRU, 100 entries) | `utils/rag_utils` | `clear_query_embedding_cache()` |
 | Reranking cache (LRU) | `utils/advanced_rag` | `clear_reranking_cache()` |
 | Tool result cache (SQLite, TTL-based) | `utils/tool_cache` | `get_tool_cache().clear()` |
@@ -667,8 +714,8 @@ User Query
     |                                              |
     | score < 0.55                                 | uses tools that call
     v                                              v
-[LRU Cache] --hit--> Return cached result    [HybridRetriever.retrieve()]
-    |                                              |
+[Retrieval Cache] --hit--> Return cached      [HybridRetriever.retrieve()]
+    |  (exact MD5 or semantic similarity)          |
     | miss                                         |
     v                                              v
 [Weight Assignment] --> [Parallel Retrieval] --> [Confidence Adjustment]
