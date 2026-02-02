@@ -19,6 +19,7 @@ from cognidoc.agent_tools import (
     RetrieveGraphTool,
     LookupEntityTool,
     CompareEntitiesTool,
+    ExhaustiveSearchTool,
     create_tool_registry,
 )
 
@@ -38,6 +39,7 @@ class TestToolName:
             "ask_clarification",
             "final_answer",
             "database_stats",
+            "exhaustive_search",
         ]
         actual = [t.value for t in ToolName]
         assert set(expected) == set(actual)
@@ -281,7 +283,9 @@ class TestVerifyClaimTool:
     @patch("cognidoc.agent_tools.llm_chat")
     def test_execute_verified(self, mock_llm):
         """Test claim verification - verified."""
-        mock_llm.return_value = '{"verified": true, "confidence": 0.9, "evidence": "Source confirms"}'
+        mock_llm.return_value = (
+            '{"verified": true, "confidence": 0.9, "evidence": "Source confirms"}'
+        )
 
         tool = VerifyClaimTool()
         result = tool.execute(
@@ -455,6 +459,117 @@ class TestBaseTool:
         assert schema["parameters"]["type"] == "object"
         assert "contexts" in schema["parameters"]["properties"]
         assert "focus" in schema["parameters"]["properties"]
+
+
+class TestExhaustiveSearchTool:
+    """Tests for exhaustive BM25 search tool."""
+
+    def _make_retriever(self, bm25=None, keyword_index=None):
+        retriever = MagicMock()
+        retriever._bm25_index = bm25
+        retriever._keyword_index = keyword_index
+        retriever._ensure_bm25_loaded = MagicMock()
+        return retriever
+
+    def _make_bm25(self, results):
+        bm25 = MagicMock()
+        bm25.N = 100
+        bm25.search = MagicMock(return_value=results)
+        return bm25
+
+    def test_bm25_search_returns_aggregates(self):
+        """BM25 search aggregates results by source document."""
+        matches = [
+            (
+                {"text": "Budget 2024 details", "metadata": {"source": {"document": "report.pdf"}}},
+                2.5,
+            ),
+            ({"text": "Budget overview", "metadata": {"source": {"document": "report.pdf"}}}, 1.8),
+            ({"text": "Budget annex", "metadata": {"source": {"document": "annex.pdf"}}}, 1.2),
+        ]
+        bm25 = self._make_bm25(matches)
+        retriever = self._make_retriever(bm25=bm25)
+
+        tool = ExhaustiveSearchTool(retriever)
+        result = tool.execute(query="budget")
+
+        assert result.success is True
+        assert result.data["total_matches"] == 3
+        assert len(result.data["source_documents"]) == 2
+        # report.pdf has 2 matches, should be first
+        assert result.data["source_documents"][0] == "report.pdf"
+        assert result.data["document_details"]["report.pdf"]["count"] == 2
+        assert len(result.data["excerpts"]) == 3
+
+    def test_no_matches(self):
+        """Empty BM25 results return zero counts."""
+        bm25 = self._make_bm25([])
+        retriever = self._make_retriever(bm25=bm25)
+
+        tool = ExhaustiveSearchTool(retriever)
+        result = tool.execute(query="nonexistent")
+
+        assert result.success is True
+        assert result.data["total_matches"] == 0
+        assert result.data["source_documents"] == []
+
+    def test_fallback_keyword_search(self):
+        """Falls back to keyword index when BM25 unavailable."""
+        doc1 = MagicMock()
+        doc1.text = "This mentions budget allocations"
+        doc1.metadata = {"source": {"document": "finance.pdf"}}
+        doc2 = MagicMock()
+        doc2.text = "Unrelated content about weather"
+        doc2.metadata = {"source": {"document": "weather.pdf"}}
+
+        kw_index = MagicMock()
+        kw_index.get_all_documents.return_value = [doc1, doc2]
+
+        retriever = self._make_retriever(bm25=None, keyword_index=kw_index)
+        # Ensure BM25 stays None after loading attempt
+        retriever._ensure_bm25_loaded = MagicMock()
+
+        tool = ExhaustiveSearchTool(retriever)
+        result = tool.execute(query="budget")
+
+        assert result.success is True
+        assert result.data["total_matches"] == 1
+        assert "finance.pdf" in result.data["source_documents"]
+
+    def test_empty_query_returns_error(self):
+        """Empty query returns error."""
+        retriever = self._make_retriever()
+        tool = ExhaustiveSearchTool(retriever)
+        result = tool.execute(query="")
+
+        assert result.success is False
+        assert "required" in result.error.lower()
+
+    def test_observation_format(self):
+        """Observation formats correctly for agent context."""
+        result = ToolResult(
+            tool=ToolName.EXHAUSTIVE_SEARCH,
+            success=True,
+            data={
+                "total_matches": 15,
+                "source_documents": ["report.pdf", "annex.pdf"],
+                "excerpts": ["(report.pdf, score=2.50) Budget details..."],
+            },
+        )
+        obs = result.observation
+        assert "15 matching chunks" in obs
+        assert "2 documents" in obs
+        assert "report.pdf" in obs
+        assert "Budget details" in obs
+
+    def test_observation_no_matches(self):
+        """Observation for zero matches."""
+        result = ToolResult(
+            tool=ToolName.EXHAUSTIVE_SEARCH,
+            success=True,
+            data={"total_matches": 0, "source_documents": [], "excerpts": []},
+        )
+        assert "No documents match" in result.observation
 
 
 if __name__ == "__main__":

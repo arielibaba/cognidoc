@@ -207,6 +207,7 @@ Use parallel actions ONLY for independent operations (e.g., retrieving info abou
 
 ## When to use each tool
 - `database_stats`: ONLY for "how many documents?", "list documents", etc.
+- `exhaustive_search`: For corpus-wide keyword questions: "how many documents mention X?", "list all documents about Y", "does any document discuss Z?"
 - `retrieve_vector`: Factual questions about document content
 - `retrieve_graph`: Questions about relationships between entities
 - `lookup_entity`: Only if you need detailed info about ONE specific entity

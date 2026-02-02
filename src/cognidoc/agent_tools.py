@@ -50,6 +50,7 @@ class ToolName(str, Enum):
     ASK_CLARIFICATION = "ask_clarification"
     FINAL_ANSWER = "final_answer"
     DATABASE_STATS = "database_stats"
+    EXHAUSTIVE_SEARCH = "exhaustive_search"
 
 
 @dataclass
@@ -125,6 +126,20 @@ class ToolResult:
                 names = stats["document_names"]
                 parts.append(f"Document names: {', '.join(names)}")
             return "DATABASE STATS: " + ", ".join(parts) if parts else "No stats available"
+
+        elif self.tool == ToolName.EXHAUSTIVE_SEARCH:
+            data = self.data or {}
+            total = data.get("total_matches", 0)
+            docs = data.get("source_documents", [])
+            if total == 0:
+                return "No documents match this keyword search."
+            parts = [f"Found {total} matching chunks across {len(docs)} documents."]
+            if docs:
+                parts.append(f"Documents: {', '.join(docs[:20])}")
+            excerpts = data.get("excerpts", [])
+            for i, exc in enumerate(excerpts[:5], 1):
+                parts.append(f"[{i}] {exc}")
+            return "\n".join(parts)
 
         return str(self.data)
 
@@ -697,6 +712,110 @@ class DatabaseStatsTool(BaseTool):
 
 
 # =============================================================================
+# Exhaustive Search Tool
+# =============================================================================
+
+
+class ExhaustiveSearchTool(BaseTool):
+    """Exhaustive keyword search across the entire corpus via BM25."""
+
+    name = ToolName.EXHAUSTIVE_SEARCH
+    description = (
+        "Search the ENTIRE corpus for documents matching keywords. "
+        "Unlike retrieve_vector (top-K semantic), this searches ALL documents "
+        "and returns the total count, list of matching source documents, and excerpts. "
+        "Use for: 'how many documents mention X?', 'list all documents about Y', "
+        "'does any document mention Z?'."
+    )
+    parameters = {
+        "query": "Keywords to search for (e.g., 'budget 2024')",
+        "max_excerpts": "Maximum number of excerpts to return (default: 5)",
+    }
+
+    def __init__(self, retriever: "HybridRetriever"):
+        self.retriever = retriever
+
+    def execute(self, query: str = "", max_excerpts: str = "5", **kwargs) -> ToolResult:
+        """Execute exhaustive BM25 search across all indexed documents."""
+        if not query.strip():
+            return ToolResult(tool=self.name, success=False, error="Query is required.")
+
+        try:
+            n_excerpts = min(int(max_excerpts), 10)
+        except (ValueError, TypeError):
+            n_excerpts = 5
+
+        try:
+            # Try BM25 first (exhaustive), fall back to keyword index
+            bm25 = self.retriever._bm25_index
+            if bm25 is None:
+                self.retriever._ensure_bm25_loaded()
+                bm25 = self.retriever._bm25_index
+
+            if bm25 is not None:
+                all_matches = bm25.search(query, top_k=bm25.N)
+            else:
+                all_matches = self._fallback_keyword_search(query)
+
+            if not all_matches:
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={"total_matches": 0, "source_documents": [], "excerpts": []},
+                )
+
+            # Aggregate by source document
+            seen_sources: Dict[str, Dict[str, Any]] = {}
+            excerpts = []
+            for doc_dict, score in all_matches:
+                meta = doc_dict.get("metadata", {})
+                source = meta.get("source", {})
+                doc_name = source.get("document", meta.get("name", "unknown"))
+                if doc_name not in seen_sources:
+                    seen_sources[doc_name] = {"count": 0, "best_score": score}
+                seen_sources[doc_name]["count"] += 1
+
+                if len(excerpts) < n_excerpts:
+                    text = doc_dict.get("text", "")[:200]
+                    excerpts.append(f"({doc_name}, score={score:.2f}) {text}")
+
+            sorted_sources = sorted(
+                seen_sources.keys(),
+                key=lambda s: seen_sources[s]["count"],
+                reverse=True,
+            )
+
+            return ToolResult(
+                tool=self.name,
+                success=True,
+                data={
+                    "total_matches": len(all_matches),
+                    "source_documents": sorted_sources,
+                    "document_details": {name: seen_sources[name] for name in sorted_sources[:20]},
+                    "excerpts": excerpts,
+                },
+                metadata={"bm25_used": bm25 is not None},
+            )
+        except Exception as e:
+            logger.error(f"Exhaustive search failed: {e}")
+            return ToolResult(tool=self.name, success=False, error=str(e))
+
+    def _fallback_keyword_search(self, query: str) -> list:
+        """Manual keyword search when BM25 is unavailable."""
+        kw_index = self.retriever._keyword_index
+        if kw_index is None:
+            return []
+        all_docs = kw_index.get_all_documents()
+        terms = query.lower().split()
+        matches = []
+        for doc in all_docs:
+            text_lower = doc.text.lower()
+            if any(t in text_lower for t in terms):
+                matches.append(({"text": doc.text, "metadata": doc.metadata}, 1.0))
+        return matches
+
+
+# =============================================================================
 # Tool Registry
 # =============================================================================
 
@@ -778,6 +897,9 @@ def create_tool_registry(
     # Database stats tool (for meta-questions)
     registry.register(DatabaseStatsTool(retriever))
 
+    # Exhaustive search tool (for corpus-wide keyword queries)
+    registry.register(ExhaustiveSearchTool(retriever))
+
     # Special tools
     registry.register(AskClarificationTool())
     registry.register(FinalAnswerTool())
@@ -800,6 +922,7 @@ __all__ = [
     "AskClarificationTool",
     "FinalAnswerTool",
     "DatabaseStatsTool",
+    "ExhaustiveSearchTool",
     "ToolRegistry",
     "create_tool_registry",
 ]
