@@ -1110,7 +1110,7 @@ def has_valid_knowledge_graph(path: str = None) -> bool:
             nodes_data = json.load(f)
         # Valid if we have at least one entity
         return len(nodes_data) > 0
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
         return False
 
 
@@ -1137,7 +1137,7 @@ def get_knowledge_graph_stats(path: str = None) -> Dict[str, int]:
             with open(nodes_file, "r", encoding="utf-8") as f:
                 nodes_data = json.load(f)
             stats["nodes"] = len(nodes_data)
-        except Exception as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.debug(f"Could not read nodes.json: {e}")
 
     # Count communities
@@ -1147,7 +1147,7 @@ def get_knowledge_graph_stats(path: str = None) -> Dict[str, int]:
             with open(communities_file, "r", encoding="utf-8") as f:
                 communities_data = json.load(f)
             stats["communities"] = len(communities_data)
-        except Exception as e:
+        except (json.JSONDecodeError, OSError) as e:
             logger.debug(f"Could not read communities.json: {e}")
 
     # Count edges from graph JSON (with pickle fallback for legacy data)
@@ -1159,7 +1159,7 @@ def get_knowledge_graph_stats(path: str = None) -> Dict[str, int]:
                 graph_data = json.load(f)
             graph = nx.node_link_graph(graph_data)
             stats["edges"] = graph.number_of_edges()
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, ValueError) as e:
             logger.debug(f"Could not read graph.json: {e}")
     elif graph_pickle.exists():
         try:
@@ -1168,7 +1168,7 @@ def get_knowledge_graph_stats(path: str = None) -> Dict[str, int]:
             with open(graph_pickle, "rb") as f:
                 graph = pickle.load(f)
             stats["edges"] = graph.number_of_edges()
-        except Exception as e:
+        except (FileNotFoundError, EOFError, OSError) as e:
             logger.debug(f"Could not read graph.gpickle: {e}")
 
     return stats

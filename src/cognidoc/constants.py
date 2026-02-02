@@ -89,6 +89,7 @@ INGESTION_LLM_MODEL = os.getenv("INGESTION_LLM_MODEL", "gemini-3-flash-preview")
 OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "granite3.3:8b")
 OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b-instruct")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "qwen3-embedding:4b-q8_0")
+EMBEDDING_FALLBACK_DIMENSION = int(os.getenv("EMBEDDING_FALLBACK_DIMENSION", "896"))
 
 # Qwen3-Embedding task instruction for query embeddings (improves retrieval accuracy by ~1-5%)
 # Format: "Instruct: {task}\nQuery:{query}" - documents don't need instructions

@@ -8,6 +8,7 @@ Provides retrieval capabilities from the knowledge graph including:
 - Path finding between entities
 """
 
+import json
 import re
 import time
 from collections import OrderedDict
@@ -369,7 +370,7 @@ def retrieve_by_community(
     # Get query embedding with task instruction (improves accuracy for Qwen3-Embedding)
     try:
         query_embedding = get_query_embedding(query)
-    except Exception as e:
+    except (ValueError, ConnectionError, TimeoutError, OSError) as e:
         logger.error(f"Failed to get query embedding: {e}")
         # Fallback to text matching
         query_embedding = None
@@ -447,8 +448,17 @@ def retrieve_from_graph(
     """
     Main retrieval function that combines multiple retrieval strategies.
 
-    Automatically determines the best retrieval strategy based on the query.
-    Uses the unified LLM client (Gemini by default) for entity extraction.
+    Tries entity-based retrieval first (LLM entity extraction → graph lookup),
+    then falls back to community-based retrieval if no entities are found.
+
+    Args:
+        query: Natural language query.
+        kg: Loaded KnowledgeGraph instance.
+        config: Optional GraphConfig for schema and retrieval parameters.
+
+    Returns:
+        GraphRetrievalResult with context string, confidence score,
+        matched entities, and retrieval type ("entity", "community", or "none").
     """
     if config is None:
         config = get_graph_config()
@@ -527,7 +537,7 @@ class GraphRetriever:
             self.kg = KnowledgeGraph.load(self.graph_path, self.config)
             self._cache.clear()
             return len(self.kg.nodes) > 0
-        except Exception as e:
+        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError) as e:
             logger.error(f"Failed to load knowledge graph: {e}")
             return False
 
@@ -536,7 +546,19 @@ class GraphRetriever:
         return self.kg is not None and len(self.kg.nodes) > 0
 
     def retrieve(self, query: str) -> GraphRetrievalResult:
-        """Retrieve from the knowledge graph using unified LLM client."""
+        """
+        Retrieve context from the knowledge graph for a query.
+
+        Uses an in-memory LRU cache. If the graph is not loaded, attempts
+        to load it first. Delegates to ``retrieve_from_graph()`` for the
+        actual entity/community/path retrieval logic.
+
+        Args:
+            query: Natural language query.
+
+        Returns:
+            GraphRetrievalResult with context, confidence, and matched entities.
+        """
         if not self.is_loaded():
             logger.warning("Knowledge graph not loaded, attempting to load...")
             if not self.load():

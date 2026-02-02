@@ -271,7 +271,7 @@ class TestProviderAvailability:
     @patch("httpx.get")
     def test_ollama_not_available(self, mock_get):
         """Test Ollama availability check when server is not running."""
-        mock_get.side_effect = Exception("Connection refused")
+        mock_get.side_effect = ConnectionError("Connection refused")
 
         assert is_ollama_available() is False
 

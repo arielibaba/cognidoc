@@ -8,7 +8,7 @@ No LlamaIndex dependencies - uses direct Ollama calls.
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Optional
+from typing import Any, Dict, Generator, List, Tuple, TYPE_CHECKING, Optional
 
 import markdown
 from bs4 import BeautifulSoup
@@ -324,7 +324,9 @@ def limit_chat_history(history: List[dict], max_tokens: Optional[int] = None) ->
     return list(reversed(truncated))
 
 
-def run_streaming(messages: List[Dict[str, str]], temperature: float = 0.7):
+def run_streaming(
+    messages: List[Dict[str, str]], temperature: float = 0.7
+) -> Generator[str, None, None]:
     """
     Run LLM in streaming mode using the unified LLM client.
 

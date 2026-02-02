@@ -113,12 +113,12 @@ def warmup_models_and_indexes():
 
     # 4. Warm up reranker model (Ollama keeps model in memory after first call)
     try:
-        from .constants import CROSS_ENCODER_MODEL
+        from .constants import CROSS_ENCODER_MODEL, OLLAMA_URL
         import httpx
 
         # Single dummy rerank call to load model into Ollama's memory
         httpx.post(
-            "http://localhost:11434/api/embeddings",
+            f"{OLLAMA_URL}/api/embeddings",
             json={"model": CROSS_ENCODER_MODEL, "prompt": "warmup"},
             timeout=30.0,
         )

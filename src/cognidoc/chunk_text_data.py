@@ -18,6 +18,7 @@ from .constants import (
     PROCESSED_DIR,
     CHUNKS_DIR,
     EMBED_MODEL,
+    EMBEDDING_FALLBACK_DIMENSION,
     MAX_CHUNK_SIZE,
     SEMANTIC_CHUNK_BUFFER,
     SEMANTIC_BREAKPOINT_METHOD,
@@ -38,7 +39,7 @@ def get_embeddings_batch(texts: List[str], model: str) -> List[List[float]]:
             if embeddings:
                 embeddings.append([0.0] * len(embeddings[0]))
             else:
-                embeddings.append([0.0] * 896)  # Fallback dimension
+                embeddings.append([0.0] * EMBEDDING_FALLBACK_DIMENSION)
     return embeddings
 
 

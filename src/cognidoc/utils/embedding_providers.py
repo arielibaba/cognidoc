@@ -147,6 +147,8 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     def embed_single(self, text: str) -> List[float]:
         response = self.client.embeddings(model=self.config.model, prompt=text)
+        if "embedding" not in response:
+            raise ValueError(f"Ollama response missing 'embedding' key: {list(response.keys())}")
         result: List[float] = response["embedding"]
         return result
 
@@ -359,10 +361,11 @@ def is_ollama_available() -> bool:
     """Check if Ollama is installed and server is running."""
     try:
         import httpx
+        from ..constants import OLLAMA_URL
 
-        resp = httpx.get("http://localhost:11434/api/tags", timeout=2)
+        resp = httpx.get(f"{OLLAMA_URL}/api/tags", timeout=2)
         return resp.status_code == 200
-    except Exception:
+    except (ImportError, OSError, ConnectionError, ValueError):
         return False
 
 

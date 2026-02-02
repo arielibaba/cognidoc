@@ -232,7 +232,7 @@ _weights_loaded = False
 _weights_lock = threading.Lock()
 
 
-def _load_custom_weights():
+def _load_custom_weights() -> None:
     """Load custom query weights from graph_schema.yaml if available (thread-safe)."""
     global _weights_loaded, WEIGHT_CONFIG
     if _weights_loaded:
@@ -263,7 +263,7 @@ def _load_custom_weights():
                     cfg["graph"] = float(weights["graph"])
                 WEIGHT_CONFIG[qt] = cfg
         logger.info(f"Loaded custom query weights for {len(custom)} query types")
-    except Exception as e:
+    except (FileNotFoundError, KeyError, ValueError, OSError) as e:
         logger.debug(f"Could not load custom query weights: {e}, using defaults")
 
 
@@ -381,7 +381,7 @@ def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
 
         return (query_type, confidence, reasoning, entities)
 
-    except Exception as e:
+    except (TimeoutError, ConnectionError, ValueError, KeyError, OSError) as e:
         logger.warning(f"LLM classification failed: {e}, falling back to rules")
         query_type, confidence, reasoning = classify_query_rules(query)
         return (query_type, confidence, reasoning, [])

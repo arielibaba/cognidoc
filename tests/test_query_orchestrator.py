@@ -112,7 +112,7 @@ class TestClassifyQueryLLM:
 
     @patch("cognidoc.query_orchestrator.llm_chat")
     def test_fallback_on_error(self, mock_llm):
-        mock_llm.side_effect = Exception("API error")
+        mock_llm.side_effect = ConnectionError("API error")
         qt, conf, _, _ = classify_query_llm("What is X?")
         # Should fallback to rule-based
         assert isinstance(qt, QueryType)

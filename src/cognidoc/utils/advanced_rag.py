@@ -377,7 +377,12 @@ def hybrid_search_fusion(
 # =============================================================================
 
 # Ollama API URL for reranking
-OLLAMA_API_URL = "http://localhost:11434/api/generate"
+try:
+    from ..constants import OLLAMA_URL
+
+    OLLAMA_API_URL = f"{OLLAMA_URL}/api/generate"
+except ImportError:
+    OLLAMA_API_URL = "http://localhost:11434/api/generate"
 
 # Default reranker model (can be overridden via CROSS_ENCODER_MODEL env var)
 try:

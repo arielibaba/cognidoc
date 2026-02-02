@@ -535,11 +535,15 @@ class CogniDoc:
 
         Args:
             message: User message
-            history: Conversation history
-            stream: Whether to stream the response
+            history: Conversation history as list of ``{"role": ..., "content": ...}`` dicts
+            stream: If True, returns a ``Generator[str, None, None]`` that yields
+                the full answer in a single chunk. If False, returns a plain string.
 
         Returns:
-            Response string or generator (if streaming)
+            Complete answer string, or a single-yield generator when ``stream=True``.
+
+        Raises:
+            RuntimeError: If the retrieval pipeline is not initialized.
         """
         # For now, just use query
         result = self.query(message)
@@ -556,7 +560,7 @@ class CogniDoc:
         port: int = 7860,
         share: bool = False,
         no_rerank: bool = False,
-    ):
+    ) -> None:
         """
         Launch the Gradio web interface.
 
@@ -589,22 +593,25 @@ class CogniDoc:
             app = create_fastapi_app(demo)
             uvicorn.run(app, host="0.0.0.0", port=port)
 
-    def save(self, path: str):
+    def save(self, path: str) -> None:
         """
-        Save indexes to disk.
+        Save indexes to disk (deprecated, no-op).
 
-        Indexes are automatically persisted during ingestion, so explicit saving
-        is not required. Use ``CogniDoc(data_dir=path)`` to point at an existing
-        index directory.
+        Indexes are automatically persisted during ``ingest()``. To reload an
+        existing knowledge base, use ``CogniDoc(data_dir=path)`` instead.
+
+        .. deprecated::
+            Will be removed in a future version. No action needed — indexes
+            persist automatically.
 
         Args:
-            path: Directory to save to (unused — kept for API compatibility)
+            path: Unused — kept for API compatibility.
         """
         import warnings
 
         warnings.warn(
-            "save() is unnecessary — indexes are persisted during ingestion. "
-            "Use CogniDoc(data_dir=...) to load an existing knowledge base.",
+            "save() is a no-op — indexes are persisted automatically during ingest(). "
+            "Remove this call. To reload, use CogniDoc(data_dir=path).",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -616,21 +623,22 @@ class CogniDoc:
     @classmethod
     def load(cls, path: str, **kwargs) -> "CogniDoc":
         """
-        Load from saved indexes.
+        Load from saved indexes (deprecated).
 
-        Equivalent to ``CogniDoc(data_dir=path, **kwargs)``.
+        .. deprecated::
+            Use ``CogniDoc(data_dir=path)`` instead.
 
         Args:
             path: Directory containing a ``data/`` tree with indexes
-            **kwargs: Additional configuration options
+            **kwargs: Additional configuration options forwarded to ``__init__``
 
         Returns:
-            CogniDoc instance
+            CogniDoc instance configured to use the given data directory.
         """
         import warnings
 
         warnings.warn(
-            "load() is deprecated — use CogniDoc(data_dir=path) instead.",
+            "load() is deprecated — replace with: CogniDoc(data_dir=path).",
             DeprecationWarning,
             stacklevel=2,
         )

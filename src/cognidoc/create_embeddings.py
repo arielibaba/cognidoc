@@ -185,7 +185,7 @@ def collect_chunks_to_embed(
         # Read file content
         try:
             text = file_path.read_text(encoding="utf-8")
-        except Exception as e:
+        except (FileNotFoundError, UnicodeDecodeError, OSError) as e:
             logger.error(f"Error reading {file_path.name}: {e}")
             stats["errors"] += 1
             continue
@@ -248,7 +248,9 @@ async def embed_batch_async(
     import httpx
 
     cache = get_embedding_cache() if use_cache else None
-    host = "http://localhost:11434"
+    from .constants import OLLAMA_URL
+
+    host = OLLAMA_URL
     success = 0
     errors = 0
 
@@ -286,7 +288,7 @@ async def embed_batch_async(
                     success += 1
                     return True
 
-                except Exception as e:
+                except (ValueError, ConnectionError, TimeoutError, OSError) as e:
                     logger.error(f"Error embedding {chunk.file_path.name}: {e}")
                     errors += 1
                     return False

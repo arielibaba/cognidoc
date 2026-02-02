@@ -1989,7 +1989,7 @@ class TestApiSaveLoadDeprecation:
                 doc.save("/tmp/test")
                 assert len(w) == 1
                 assert issubclass(w[0].category, DeprecationWarning)
-                assert "unnecessary" in str(w[0].message).lower()
+                assert "no-op" in str(w[0].message).lower()
 
     def test_load_returns_cognidoc_instance(self):
         from cognidoc.api import CogniDoc
