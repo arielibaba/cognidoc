@@ -1112,3 +1112,188 @@ class TestModeratePathDifferentiation:
         if 0.35 <= score < 0.55:
             effective_top_k = round(TOP_K_RETRIEVED_CHILDREN * 1.5)
         assert effective_top_k == TOP_K_RETRIEVED_CHILDREN
+
+
+# =============================================================================
+# 13. Cache Invalidation After Ingestion Tests
+# =============================================================================
+
+
+class TestCacheInvalidation:
+    """Tests for cache invalidation after ingestion."""
+
+    def test_clear_retrieval_cache_exists(self):
+        """clear_retrieval_cache function should exist and be callable."""
+        from cognidoc.hybrid_retriever import clear_retrieval_cache
+
+        # Should not raise
+        clear_retrieval_cache()
+
+    def test_clear_query_embedding_cache_exists(self):
+        """clear_query_embedding_cache function should exist and be callable."""
+        from cognidoc.utils.rag_utils import clear_query_embedding_cache
+
+        # Should not raise
+        clear_query_embedding_cache()
+
+    def test_clear_reranking_cache_exists(self):
+        """clear_reranking_cache function should exist and be callable."""
+        from cognidoc.utils.advanced_rag import clear_reranking_cache
+
+        # Should not raise
+        clear_reranking_cache()
+
+
+# =============================================================================
+# 14. Lost-in-the-Middle Fusion Tests
+# =============================================================================
+
+
+class TestLostInTheMiddleFusion:
+    """Tests for lost-in-the-middle reordering at the fusion level."""
+
+    def _make_vector_results(self, n):
+        results = []
+        for i in range(n):
+            node = Mock()
+            node.text = f"Vector doc {i} content"
+            node.metadata = {"name": f"doc_{i}.pdf"}
+            nws = Mock()
+            nws.node = node
+            nws.score = 1.0 - i * 0.1
+            results.append(nws)
+        return results
+
+    def _make_graph_result(self, n_entities=2):
+        graph = Mock()
+        entities = []
+        for i in range(n_entities):
+            entity = Mock()
+            entity.source_chunks = [f"graph_chunk_{i}"]
+            entities.append(entity)
+        graph.entities = entities
+        graph.context = "Graph context text"
+        return graph
+
+    def _make_analysis(self, vector_weight, graph_weight):
+        analysis = Mock()
+        analysis.vector_weight = vector_weight
+        analysis.graph_weight = graph_weight
+        return analysis
+
+    def test_sandwich_when_vector_dominant(self):
+        """Graph context sandwiched between vector docs when vector_weight >= graph_weight."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        vector = self._make_vector_results(5)
+        graph = self._make_graph_result()
+        analysis = self._make_analysis(0.7, 0.3)
+
+        context, _ = fuse_results("test", vector, graph, analysis)
+
+        # Vector docs should appear before AND after graph context
+        graph_pos = context.index("KNOWLEDGE GRAPH CONTEXT")
+        first_doc_pos = context.index("Vector doc")
+        last_doc_pos = context.rindex("Vector doc")
+
+        assert first_doc_pos < graph_pos, "First vector doc should precede graph context"
+        assert last_doc_pos > graph_pos, "Last vector doc should follow graph context"
+
+    def test_best_chunks_at_extremities(self):
+        """Most relevant vector chunks should occupy start and end positions."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        # Input order: doc0 (best) → doc4 (worst) by relevance
+        vector = self._make_vector_results(5)
+        graph = self._make_graph_result()
+        analysis = self._make_analysis(1.0, 0.3)
+
+        context, _ = fuse_results("test", vector, graph, analysis)
+
+        # After reorder_lost_in_middle: [0,2,4,3,1] then sandwich split
+        # doc0 (best) should be first vector doc in context
+        # doc1 (2nd best) should be last vector doc in context
+        lines = context.split("\n")
+        vector_doc_lines = [l for l in lines if l.startswith("Vector doc")]
+        assert vector_doc_lines[0] == "Vector doc 0 content", "Best chunk should be first"
+        assert vector_doc_lines[-1] == "Vector doc 1 content", "2nd best chunk should be last"
+
+    def test_graph_first_when_graph_dominant(self):
+        """Graph context comes first when graph_weight > vector_weight."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        vector = self._make_vector_results(5)
+        graph = self._make_graph_result()
+        analysis = self._make_analysis(0.2, 0.8)
+
+        context, _ = fuse_results("test", vector, graph, analysis)
+
+        graph_pos = context.index("KNOWLEDGE GRAPH CONTEXT")
+        first_doc_pos = context.index("Vector doc")
+
+        assert graph_pos < first_doc_pos, "Graph should come first when graph-dominant"
+
+    def test_no_sandwich_with_few_vector_results(self):
+        """No sandwich when fewer than 3 vector results (not enough to split)."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        vector = self._make_vector_results(2)
+        graph = self._make_graph_result()
+        analysis = self._make_analysis(0.7, 0.3)
+
+        context, _ = fuse_results("test", vector, graph, analysis)
+
+        # With only 2 vector docs, graph should come first (default order)
+        graph_pos = context.index("KNOWLEDGE GRAPH CONTEXT")
+        first_doc_pos = context.index("Vector doc")
+        assert graph_pos < first_doc_pos
+
+    def test_sandwich_preserves_all_documents(self):
+        """All capped vector documents and graph context present after sandwich reorder."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        vector = self._make_vector_results(5)
+        graph = self._make_graph_result()
+        # vector_weight=1.0 so max_vector = round(5*1.0) = 5 (no capping)
+        analysis = self._make_analysis(1.0, 0.3)
+
+        context, sources = fuse_results("test", vector, graph, analysis)
+
+        for i in range(5):
+            assert f"Vector doc {i} content" in context, f"Doc {i} missing from context"
+        assert "Graph context text" in context
+        doc_sources = [s for s in sources if s.startswith("doc_")]
+        assert len(doc_sources) == 5
+
+    def test_vector_only_no_sandwich(self):
+        """No sandwich when graph has no context (vector-only retrieval)."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        vector = self._make_vector_results(5)
+        graph = Mock()
+        graph.context = ""
+        graph.entities = []
+        analysis = self._make_analysis(1.0, 0.0)
+
+        context, _ = fuse_results("test", vector, graph, analysis)
+
+        assert "KNOWLEDGE GRAPH CONTEXT" not in context
+        assert "DOCUMENT CONTEXT" in context
+
+    def test_litm_disabled_preserves_relevance_order(self):
+        """When use_lost_in_middle=False, vector docs keep relevance order."""
+        from cognidoc.hybrid_retriever import fuse_results
+
+        vector = self._make_vector_results(5)
+        graph = Mock()
+        graph.context = ""
+        graph.entities = []
+        analysis = self._make_analysis(1.0, 0.0)
+
+        context, _ = fuse_results("test", vector, graph, analysis, use_lost_in_middle=False)
+
+        lines = context.split("\n")
+        vector_doc_lines = [l for l in lines if l.startswith("Vector doc")]
+        # Should be in original relevance order: 0, 1, 2, 3, 4
+        for i, line in enumerate(vector_doc_lines):
+            assert line == f"Vector doc {i} content"

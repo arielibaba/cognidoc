@@ -15,7 +15,7 @@ Complexity signals:
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .query_orchestrator import QueryType, RoutingDecision
 from .utils.logger import logger
@@ -61,8 +61,34 @@ MODERATE_QUERY_TYPES = {
     QueryType.EXPLORATORY,
 }
 
-# Keywords indicating complex reasoning needs
-COMPLEX_KEYWORDS = [
+# Semantic complexity categories — reference phrases for embedding-based matching
+COMPLEXITY_CATEGORIES: Dict[str, List[str]] = {
+    "causal": [
+        "why does this happen, what is the cause, what are the consequences and effects",
+        "pourquoi, quelle est la cause, quelles sont les conséquences et effets",
+    ],
+    "analytical": [
+        "analyze and evaluate, explain and justify the reasoning",
+        "analyser et évaluer, expliquer et justifier le raisonnement",
+    ],
+    "comparative": [
+        "compare the advantages and disadvantages, what are the differences",
+        "comparer les avantages et inconvénients, quelles sont les différences",
+    ],
+    "multi_step": [
+        "what are the steps in the process, first do this then do that",
+        "quelles sont les étapes du processus, d'abord faire ceci puis cela",
+    ],
+    "synthesis": [
+        "summarize and give an overview, provide a synthesis",
+        "résumer et donner une vue d'ensemble, fournir une synthèse",
+    ],
+}
+
+SEMANTIC_SIMILARITY_THRESHOLD = 0.45
+
+# Regex fallback keywords (used when embedding provider is unavailable)
+_COMPLEX_KEYWORDS_REGEX = [
     # Causal reasoning
     r"\bpourquoi\b",
     r"\bwhy\b",
@@ -220,21 +246,69 @@ LOW_CONFIDENCE_THRESHOLD = 0.4
 # =============================================================================
 
 
-def count_complex_keywords(query: str) -> Tuple[int, List[str]]:
-    """
-    Count complex reasoning keywords in query.
+_category_embeddings: Optional[Dict[str, List[List[float]]]] = None
 
-    Returns:
-        Tuple of (count, list of matched keywords)
-    """
+
+def _get_category_embeddings() -> Dict[str, List[List[float]]]:
+    """Lazily compute and cache category reference embeddings."""
+    global _category_embeddings
+    if _category_embeddings is not None:
+        return _category_embeddings
+
+    from .utils.rag_utils import get_embedding
+
+    _category_embeddings = {}
+    for category, phrases in COMPLEXITY_CATEGORIES.items():
+        _category_embeddings[category] = [get_embedding(p) for p in phrases]
+    return _category_embeddings
+
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity between two vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(dot / (norm_a * norm_b))
+
+
+def _count_complex_keywords_regex(query: str) -> Tuple[int, List[str]]:
+    """Regex fallback for keyword counting (when embeddings unavailable)."""
     query_lower = query.lower()
     matches = []
-
-    for pattern in COMPLEX_KEYWORDS:
+    for pattern in _COMPLEX_KEYWORDS_REGEX:
         if re.search(pattern, query_lower, re.IGNORECASE):
             matches.append(pattern)
-
     return len(matches), matches
+
+
+def count_complex_keywords(query: str) -> Tuple[int, List[str]]:
+    """
+    Count complexity categories matched via semantic similarity.
+
+    Embeds the query and computes cosine similarity against pre-computed
+    category reference phrases. Falls back to regex matching if the
+    embedding provider is unavailable.
+
+    Returns:
+        Tuple of (count, list of matched category names)
+    """
+    try:
+        from .utils.rag_utils import get_embedding
+
+        query_emb = get_embedding(query)
+        cat_embs = _get_category_embeddings()
+
+        matched = []
+        for category, ref_embeddings in cat_embs.items():
+            max_sim = max(_cosine_similarity(query_emb, ref) for ref in ref_embeddings)
+            if max_sim >= SEMANTIC_SIMILARITY_THRESHOLD:
+                matched.append(category)
+
+        return len(matched), matched
+    except Exception:
+        return _count_complex_keywords_regex(query)
 
 
 def count_subquestions(rewritten_query: str) -> int:
@@ -318,9 +392,9 @@ def evaluate_complexity(
         reasoning_parts.append(f"{subq_count} sub-questions identified (score={subq_score:.2f})")
     factors["subquestion_count"] = subq_score
 
-    # 4. Complex keywords factor (continuous: 0 → 0.0, 2 → 0.5, 4+ → 1.0)
+    # 4. Complex keywords factor (continuous: 0 → 0.0, 1 → 0.33, 3+ → 1.0)
     keyword_count, matched_keywords = count_complex_keywords(query)
-    keyword_score = min(keyword_count / 4.0, 1.0)
+    keyword_score = min(keyword_count / 3.0, 1.0)
     if keyword_count >= 1:
         reasoning_parts.append(f"{keyword_count} complex keywords (score={keyword_score:.2f})")
     factors["keyword_matches"] = keyword_score

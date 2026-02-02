@@ -3,6 +3,7 @@ Unit tests for complexity evaluation module.
 """
 
 import pytest
+from unittest.mock import patch, MagicMock
 
 from cognidoc.complexity import (
     ComplexityLevel,
@@ -10,9 +11,12 @@ from cognidoc.complexity import (
     evaluate_complexity,
     should_use_agent,
     count_complex_keywords,
+    _count_complex_keywords_regex,
+    _cosine_similarity,
     count_subquestions,
     is_ambiguous,
     AGENT_THRESHOLD,
+    COMPLEXITY_CATEGORIES,
 )
 from cognidoc.query_orchestrator import (
     RoutingDecision,
@@ -58,32 +62,145 @@ class TestComplexityScore:
 
 
 class TestCountComplexKeywords:
-    """Tests for complex keyword detection."""
+    """Tests for complex keyword detection (regex fallback)."""
 
-    def test_no_keywords(self):
-        """Query without complex keywords."""
-        count, matches = count_complex_keywords("Quelle est la date?")
+    def test_no_keywords_regex(self):
+        """Query without complex keywords (regex fallback)."""
+        count, matches = _count_complex_keywords_regex("Quelle est la date?")
         assert count == 0
         assert matches == []
 
-    def test_french_keywords(self):
-        """French complex keywords detected."""
-        count, matches = count_complex_keywords("Pourquoi et comment analyser les conséquences?")
+    def test_french_keywords_regex(self):
+        """French complex keywords detected (regex fallback)."""
+        count, matches = _count_complex_keywords_regex(
+            "Pourquoi et comment analyser les conséquences?"
+        )
         assert count >= 3  # pourquoi, analyser, conséquences
 
-    def test_english_keywords(self):
-        """English complex keywords detected."""
-        count, matches = count_complex_keywords(
+    def test_english_keywords_regex(self):
+        """English complex keywords detected (regex fallback)."""
+        count, matches = _count_complex_keywords_regex(
             "Why does this cause such an effect? Explain the reason."
         )
         assert count >= 3  # why, cause, effect, explain, reason
 
-    def test_comparative_keywords(self):
-        """Comparative keywords detected."""
-        count, matches = count_complex_keywords(
+    def test_comparative_keywords_regex(self):
+        """Comparative keywords detected (regex fallback)."""
+        count, matches = _count_complex_keywords_regex(
             "Compare the advantages and differences between A and B"
         )
         assert count >= 2  # compare, advantage, difference
+
+
+class TestSemanticKeywordClassifier:
+    """Tests for embedding-based keyword classifier."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_category_cache(self):
+        """Reset the module-level category embeddings cache after each test."""
+        import cognidoc.complexity as comp
+
+        original = comp._category_embeddings
+        yield
+        comp._category_embeddings = original
+
+    # Pre-computed one-hot category embeddings (dim=10, one per category)
+    _CAT_EMBEDDINGS = {
+        "causal": [[1, 0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
+        "analytical": [[0, 1, 0, 0, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0, 0, 0]],
+        "comparative": [[0, 0, 1, 0, 0, 0, 0, 0, 0, 0], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0]],
+        "multi_step": [[0, 0, 0, 1, 0, 0, 0, 0, 0, 0], [0, 0, 0, 1, 0, 0, 0, 0, 0, 0]],
+        "synthesis": [[0, 0, 0, 0, 1, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 0, 0, 0, 0, 0]],
+    }
+
+    @patch("cognidoc.utils.rag_utils.get_embedding")
+    def test_no_categories_matched(self, mock_embed):
+        """Simple query should match no categories."""
+        import cognidoc.complexity as comp
+
+        comp._category_embeddings = self._CAT_EMBEDDINGS
+        # Query: zero vector → cosine 0.0 with all categories
+        mock_embed.return_value = [0.0] * 10
+
+        count, matched = count_complex_keywords("Quelle est la date?")
+        assert count == 0
+        assert matched == []
+
+    @patch("cognidoc.utils.rag_utils.get_embedding")
+    def test_causal_category_matched(self, mock_embed):
+        """Query similar to causal category should match."""
+        import cognidoc.complexity as comp
+
+        comp._category_embeddings = self._CAT_EMBEDDINGS
+        # Query: matches causal (index 0) → cosine 1.0
+        mock_embed.return_value = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        count, matched = count_complex_keywords("Pourquoi cela arrive-t-il?")
+        assert count == 1
+        assert "causal" in matched
+
+    @patch("cognidoc.utils.rag_utils.get_embedding")
+    def test_multiple_categories_matched(self, mock_embed):
+        """Query can match multiple categories."""
+        import cognidoc.complexity as comp
+
+        comp._category_embeddings = self._CAT_EMBEDDINGS
+        # Query: matches causal (0) and comparative (2), normalized
+        import math
+
+        norm = math.sqrt(2)
+        mock_embed.return_value = [1 / norm, 0, 1 / norm, 0, 0, 0, 0, 0, 0, 0]
+
+        count, matched = count_complex_keywords("Why compare these effects?")
+        assert count == 2
+        assert "causal" in matched
+        assert "comparative" in matched
+
+    def test_fallback_on_embedding_error(self):
+        """Should fall back to regex when embeddings fail."""
+        import cognidoc.complexity as comp
+
+        old_cache = comp._category_embeddings
+        comp._category_embeddings = None
+        try:
+            with patch(
+                "cognidoc.utils.rag_utils.get_embedding",
+                side_effect=RuntimeError("No Ollama"),
+            ):
+                count, matched = count_complex_keywords("Why does this cause an effect?")
+                # Falls back to regex: why, cause, effect → at least 3
+                assert count >= 3
+        finally:
+            comp._category_embeddings = old_cache
+
+    @patch("cognidoc.utils.rag_utils.get_embedding")
+    def test_category_embeddings_cached(self, mock_embed):
+        """Category embeddings should be computed once and cached."""
+        import cognidoc.complexity as comp
+
+        mock_embed.return_value = [0.0] * 10
+        comp._category_embeddings = None
+
+        count_complex_keywords("test query 1")
+        first_call_count = mock_embed.call_count
+        # 10 category phrases + 1 query = 11 calls
+
+        count_complex_keywords("test query 2")
+        second_call_count = mock_embed.call_count
+        # Only 1 more call (the query), categories are cached
+        assert second_call_count == first_call_count + 1
+
+    def test_cosine_similarity_identical(self):
+        """Identical vectors should have similarity 1.0."""
+        assert abs(_cosine_similarity([1, 0, 0], [1, 0, 0]) - 1.0) < 1e-9
+
+    def test_cosine_similarity_orthogonal(self):
+        """Orthogonal vectors should have similarity 0.0."""
+        assert abs(_cosine_similarity([1, 0, 0], [0, 1, 0])) < 1e-9
+
+    def test_cosine_similarity_zero_vector(self):
+        """Zero vector should return 0.0."""
+        assert _cosine_similarity([0, 0, 0], [1, 0, 0]) == 0.0
 
 
 class TestCountSubquestions:
@@ -298,11 +415,12 @@ class TestContinuousScoring:
                 f"got {result.factors['subquestion_count']:.2f}"
             )
 
-    def test_keyword_count_proportional(self):
-        """Keyword count scores proportionally: 1 → 0.25, 2 → 0.5, 4+ → 1.0."""
+    @patch("cognidoc.utils.rag_utils.get_embedding", side_effect=RuntimeError("no embeddings"))
+    def test_keyword_count_proportional(self, _mock_emb):
+        """Keyword count scores proportionally: 1 → 0.33, 2 → 0.67, 3+ → 1.0."""
         result = evaluate_complexity("Why is this happening?")
-        # "why" matches → 1 keyword → score = 0.25
-        assert result.factors["keyword_matches"] == pytest.approx(0.25, abs=0.01)
+        # "why" matches → 1 keyword via regex fallback → score = 1/3.0 ≈ 0.33
+        assert result.factors["keyword_matches"] == pytest.approx(1 / 3.0, abs=0.01)
 
     def test_confidence_ramp(self):
         """Confidence scores linearly: 0.7+ → 0.0, 0.45 → 0.5, 0.2 → 1.0."""

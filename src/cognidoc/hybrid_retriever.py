@@ -247,9 +247,15 @@ def fuse_results(
     graph_result: GraphRetrievalResult,
     analysis: QueryAnalysis,
     model: str = None,
+    use_lost_in_middle: bool = True,
 ) -> Tuple[str, List[str]]:
     """
     Fuse results from vector and graph retrieval.
+
+    When use_lost_in_middle is True and vector is the dominant source,
+    applies lost-in-the-middle reordering: vector chunks are reordered so
+    the most relevant occupy start/end positions, with graph context
+    sandwiched in the middle.
 
     Returns:
         Tuple of (fused_context, source_chunks)
@@ -276,37 +282,81 @@ def fuse_results(
     else:
         max_graph_entities = 0
 
-    # Add graph context if available and weighted
-    if graph_result and graph_result.context and analysis.graph_weight > 0:
-        context_parts.append("=== KNOWLEDGE GRAPH CONTEXT ===")
-        context_parts.append(graph_result.context)
-        context_parts.append("")
+    has_graph = bool(graph_result and graph_result.context and analysis.graph_weight > 0)
+    has_vector = bool(vector_results and analysis.vector_weight > 0)
+    capped_vector = vector_results[:max_vector] if has_vector else []
 
-        # Track source chunks from graph (with limits to prevent LLM timeout)
+    # Build graph context block and track source chunks
+    graph_block = []
+    if has_graph:
+        graph_block.append("=== KNOWLEDGE GRAPH CONTEXT ===")
+        graph_block.append(graph_result.context)
+        graph_block.append("")
+
         entities_used = 0
         for entity in graph_result.entities:
             if entities_used >= max_graph_entities:
                 break
             entities_used += 1
-            # Cap per-entity chunks
             entity_chunks = entity.source_chunks[:MAX_SOURCE_CHUNKS_PER_ENTITY]
             source_chunks.extend(entity_chunks)
-            # Stop if total limit reached
             if len(source_chunks) >= MAX_SOURCE_CHUNKS_FROM_GRAPH:
                 source_chunks = source_chunks[:MAX_SOURCE_CHUNKS_FROM_GRAPH]
                 break
 
-    # Add vector results if available and weighted (proportionally capped)
-    if vector_results and analysis.vector_weight > 0:
+    # #14: Lost-in-the-middle fusion
+    # When vector is dominant, reorder vector chunks so the most relevant
+    # occupy start/end positions, then sandwich graph context in the middle.
+    # Vector results arrive sorted by relevance (descending) from reranking.
+    vector_dominant = analysis.vector_weight >= analysis.graph_weight
+    apply_litm = use_lost_in_middle and has_vector and len(capped_vector) > 2
+    use_sandwich = apply_litm and has_graph and vector_dominant
+
+    # Reorder vector chunks: [1,2,3,4,5] → [1,3,5,4,2] (best at start/end)
+    if apply_litm:
+        docs_reordered = reorder_lost_in_middle([nws.node for nws in capped_vector])
+        capped_vector = [
+            NodeWithScore(
+                node=doc,
+                score=capped_vector[i].score if i < len(capped_vector) else 0,
+            )
+            for i, doc in enumerate(docs_reordered)
+        ]
+
+    if use_sandwich:
+        mid = len(capped_vector) // 2
+        first_half = capped_vector[:mid]
+        second_half = capped_vector[mid:]
+
         context_parts.append("=== DOCUMENT CONTEXT ===")
-        for i, nws in enumerate(vector_results[:max_vector], 1):
+        for i, nws in enumerate(first_half, 1):
             context_parts.append(f"[Document {i}]")
             context_parts.append(nws.node.text)
             context_parts.append("")
-
-            # Track source chunk
             if "name" in nws.node.metadata:
                 source_chunks.append(nws.node.metadata["name"])
+
+        context_parts.extend(graph_block)
+
+        for i, nws in enumerate(second_half, len(first_half) + 1):
+            context_parts.append(f"[Document {i}]")
+            context_parts.append(nws.node.text)
+            context_parts.append("")
+            if "name" in nws.node.metadata:
+                source_chunks.append(nws.node.metadata["name"])
+    else:
+        # Default order: graph first (gets beginning attention), then vector
+        if graph_block:
+            context_parts.extend(graph_block)
+
+        if has_vector:
+            context_parts.append("=== DOCUMENT CONTEXT ===")
+            for i, nws in enumerate(capped_vector, 1):
+                context_parts.append(f"[Document {i}]")
+                context_parts.append(nws.node.text)
+                context_parts.append("")
+                if "name" in nws.node.metadata:
+                    source_chunks.append(nws.node.metadata["name"])
 
     # Deduplicate source chunks
     source_chunks = list(dict.fromkeys(source_chunks))
@@ -723,17 +773,9 @@ class HybridRetriever:
                             )
                             logger.debug(f"LLM reranking: {len(parent_results)} results")
 
-                    # #14: Lost-in-the-middle reordering
-                    if use_lost_in_middle and len(parent_results) > 2:
-                        docs_ordered = reorder_lost_in_middle([nws.node for nws in parent_results])
-                        parent_results = [
-                            NodeWithScore(
-                                node=doc,
-                                score=parent_results[i].score if i < len(parent_results) else 0,
-                            )
-                            for i, doc in enumerate(docs_ordered)
-                        ]
-                        logger.debug("Applied lost-in-the-middle reordering")
+                    # NOTE: Lost-in-the-middle reordering (#14) is applied once
+                    # at the fusion level in fuse_results(), not here, to avoid
+                    # double-reordering that would break the relevance ordering.
 
                     # Use parent results as main vector results
                     if parent_results:
@@ -810,13 +852,14 @@ class HybridRetriever:
                 analysis.vector_weight = adjusted_routing.vector_weight
                 analysis.graph_weight = adjusted_routing.graph_weight
 
-        # Fuse results
+        # Fuse results (lost-in-the-middle reordering applied here, not before)
         fused_context, source_chunks = fuse_results(
             query,
             vector_results,
             graph_result,
             analysis,
             model,
+            use_lost_in_middle=use_lost_in_middle,
         )
 
         # #13: Contextual compression

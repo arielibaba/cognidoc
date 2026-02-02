@@ -942,6 +942,35 @@ async def _run_graph_building(
     return stats
 
 
+def _clear_query_caches():
+    """Clear all query-time caches after ingestion to prevent stale results."""
+    try:
+        from .hybrid_retriever import clear_retrieval_cache
+
+        clear_retrieval_cache()
+    except ImportError:
+        pass
+    try:
+        from .utils.rag_utils import clear_query_embedding_cache
+
+        clear_query_embedding_cache()
+    except ImportError:
+        pass
+    try:
+        from .utils.advanced_rag import clear_reranking_cache
+
+        clear_reranking_cache()
+    except ImportError:
+        pass
+    try:
+        from .utils.tool_cache import get_tool_cache
+
+        get_tool_cache().clear()
+    except ImportError:
+        pass
+    logger.info("Query caches cleared after ingestion")
+
+
 async def run_ingestion_pipeline_async(
     vision_provider: str = None,
     extraction_provider: str = "gemini",
@@ -1158,6 +1187,9 @@ async def run_ingestion_pipeline_async(
         manifest.save(manifest_path)
     except Exception as e:
         logger.warning(f"Failed to save ingestion manifest: {e}")
+
+    # Clear query-time caches to prevent stale results
+    _clear_query_caches()
 
     # End pipeline
     pipeline_summary = pipeline_timer.end()
