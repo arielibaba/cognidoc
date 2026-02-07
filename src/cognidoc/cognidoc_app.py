@@ -683,53 +683,97 @@ CUSTOM_CSS = """
 }
 
 /* Dashboard styles */
+.metrics-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 1rem;
+}
+
+@media (max-width: 900px) {
+    .metrics-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+@media (max-width: 500px) {
+    .metrics-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
 .metrics-card {
     background: white;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 1.25rem 1.5rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.metrics-card-title {
-    color: #1a202c;
-    font-size: 0.875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 1rem;
+.metrics-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.metrics-card-header {
+    margin-bottom: 0.75rem;
+}
+
+.metrics-card-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .metrics-value {
-    font-size: 2rem;
+    font-size: 1.75rem;
     font-weight: 700;
-    color: #667eea;
+    color: #1e293b;
+    line-height: 1.2;
+}
+
+.metrics-unit {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #64748b;
+    margin-left: 2px;
 }
 
 .metrics-label {
-    font-size: 0.8rem;
-    color: #64748b;
-    margin-top: 0.25rem;
-}
-
-.metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-}
-
-.dashboard-section {
-    margin-bottom: 2rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-top: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 .dashboard-section-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #1a202c;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid #667eea;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+/* Primary refresh button */
+.refresh-primary-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    transition: all 0.2s ease !important;
+}
+
+.refresh-primary-btn:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
 }
 
 /* =====================================================
@@ -864,8 +908,20 @@ html.dark-mode .metrics-card {
     border-color: var(--border-color) !important;
 }
 
-html.dark-mode .metrics-card-title {
+html.dark-mode .metrics-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+html.dark-mode .metrics-card-icon {
+    opacity: 0.85;
+}
+
+html.dark-mode .metrics-value {
     color: var(--text-primary) !important;
+}
+
+html.dark-mode .metrics-unit {
+    color: var(--text-secondary) !important;
 }
 
 html.dark-mode .metrics-label {
@@ -873,7 +929,7 @@ html.dark-mode .metrics-label {
 }
 
 html.dark-mode .dashboard-section-title {
-    color: var(--text-primary) !important;
+    color: var(--text-secondary) !important;
 }
 
 html.dark-mode .footer {
@@ -1558,27 +1614,70 @@ def chat_conversation(
 # =============================================================================
 
 
+def _dashboard_layout(**overrides) -> dict:
+    """Return shared Plotly layout config for dashboard charts."""
+    layout = dict(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, system-ui, sans-serif", color="#94a3b8"),
+        xaxis=dict(
+            gridcolor="rgba(148,163,184,0.2)",
+            linecolor="rgba(148,163,184,0.3)",
+            tickfont=dict(color="#94a3b8"),
+        ),
+        yaxis=dict(
+            gridcolor="rgba(148,163,184,0.2)",
+            linecolor="rgba(148,163,184,0.3)",
+            tickfont=dict(color="#94a3b8"),
+        ),
+        height=320,
+        margin=dict(t=20, b=40, l=50, r=20),
+        hoverlabel=dict(bgcolor="#1e293b", font_color="#f1f5f9", font_size=13),
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(color="#94a3b8"),
+        ),
+    )
+    layout.update(overrides)
+    return layout
+
+
+def _empty_chart_figure(message: str = "No data yet") -> go.Figure:
+    """Return a styled empty-state chart."""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=16, color="#94a3b8", family="Inter, system-ui, sans-serif"),
+    )
+    fig.update_layout(
+        **_dashboard_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
+    )
+    return fig
+
+
 def create_latency_by_path_chart():
     """Create bar chart of average latency by path."""
     stats = get_performance_metrics().get_global_stats()
     path_stats = stats.get("path_distribution", {})
 
     if not path_stats:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No data yet",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=20),
-        )
-        fig.update_layout(height=300)
-        return fig
+        return _empty_chart_figure()
 
     paths = list(path_stats.keys())
-    latencies = [path_stats[p]["avg_latency_ms"] for p in paths]
+    latencies_s = [path_stats[p]["avg_latency_ms"] / 1000 for p in paths]
     counts = [path_stats[p]["count"] for p in paths]
 
     colors = {"fast": "#22c55e", "enhanced": "#eab308", "agent": "#ef4444"}
@@ -1588,21 +1687,26 @@ def create_latency_by_path_chart():
         data=[
             go.Bar(
                 x=paths,
-                y=latencies,
-                text=[f"{l:.0f}ms" for l in latencies],
+                y=latencies_s,
+                text=[f"{v:.2f}s" for v in latencies_s],
                 textposition="outside",
+                textfont=dict(color="#94a3b8", size=12),
                 marker_color=bar_colors,
-                hovertemplate="<b>%{x}</b><br>Avg: %{y:.0f}ms<br>Count: %{customdata}<extra></extra>",
+                hovertemplate="<b>%{x}</b><br>Avg: %{y:.2f}s<br>Count: %{customdata}<extra></extra>",
                 customdata=counts,
             )
         ]
     )
     fig.update_layout(
-        title="Average Latency by Path",
-        xaxis_title="Path",
-        yaxis_title="Latency (ms)",
-        height=300,
-        margin=dict(t=50, b=50, l=50, r=20),
+        **_dashboard_layout(
+            yaxis=dict(
+                title="Latency (s)",
+                gridcolor="rgba(148,163,184,0.2)",
+                linecolor="rgba(148,163,184,0.3)",
+                tickfont=dict(color="#94a3b8"),
+            ),
+            showlegend=False,
+        )
     )
     return fig
 
@@ -1612,18 +1716,7 @@ def create_latency_over_time_chart():
     data = get_performance_metrics().get_latency_over_time(limit=50)
 
     if not data:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No data yet",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=20),
-        )
-        fig.update_layout(height=300)
-        return fig
+        return _empty_chart_figure()
 
     df = pd.DataFrame(data)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -1636,44 +1729,42 @@ def create_latency_over_time_chart():
         fig.add_trace(
             go.Scatter(
                 x=path_df["timestamp"],
-                y=path_df["total_time_ms"],
+                y=path_df["total_time_ms"] / 1000,
                 mode="lines+markers",
                 name=path,
-                line=dict(color=colors.get(path, "#667eea")),
-                hovertemplate="<b>%{x}</b><br>%{y:.0f}ms<extra></extra>",
+                line=dict(color=colors.get(path, "#667eea"), shape="spline", width=2),
+                marker=dict(size=7, line=dict(color="white", width=2)),
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}s<extra></extra>",
             )
         )
 
     fig.update_layout(
-        title="Latency Over Time",
-        xaxis_title="Time",
-        yaxis_title="Latency (ms)",
-        height=300,
-        margin=dict(t=50, b=50, l=50, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        **_dashboard_layout(
+            xaxis=dict(
+                gridcolor="rgba(148,163,184,0.2)",
+                linecolor="rgba(148,163,184,0.3)",
+                tickfont=dict(color="#94a3b8"),
+            ),
+            yaxis=dict(
+                title="Latency (s)",
+                gridcolor="rgba(148,163,184,0.2)",
+                linecolor="rgba(148,163,184,0.3)",
+                tickfont=dict(color="#94a3b8"),
+            ),
+        )
     )
     return fig
 
 
 def create_path_distribution_chart():
-    """Create pie chart of query path distribution."""
+    """Create donut chart of query path distribution."""
     distribution = get_performance_metrics().get_path_distribution()
 
     if not distribution:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No data yet",
-            xref="paper",
-            yref="paper",
-            x=0.5,
-            y=0.5,
-            showarrow=False,
-            font=dict(size=20),
-        )
-        fig.update_layout(height=300)
-        return fig
+        return _empty_chart_figure()
 
     colors = {"fast": "#22c55e", "enhanced": "#eab308", "agent": "#ef4444"}
+    total = sum(distribution.values())
 
     fig = go.Figure(
         data=[
@@ -1681,15 +1772,24 @@ def create_path_distribution_chart():
                 labels=list(distribution.keys()),
                 values=list(distribution.values()),
                 marker_colors=[colors.get(p, "#667eea") for p in distribution.keys()],
-                textinfo="label+percent",
+                hole=0.55,
+                textinfo="percent",
+                textfont=dict(size=13, color="#f1f5f9"),
                 hovertemplate="<b>%{label}</b><br>Count: %{value}<br>%{percent}<extra></extra>",
             )
         ]
     )
+    fig.add_annotation(
+        text=f"<b>{total}</b><br><span style='font-size:12px;color:#94a3b8'>queries</span>",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(size=22, color="#e2e8f0", family="Inter, system-ui, sans-serif"),
+    )
     fig.update_layout(
-        title="Query Distribution by Path",
-        height=300,
-        margin=dict(t=50, b=20, l=20, r=20),
+        **_dashboard_layout(
+            margin=dict(t=20, b=20, l=20, r=20),
+        )
     )
     return fig
 
@@ -1699,43 +1799,75 @@ def get_recent_queries_dataframe():
     queries = get_performance_metrics().get_recent_queries(limit=20)
 
     if not queries:
-        return pd.DataFrame(columns=["Time", "Path", "Type", "Latency (ms)", "Cache Hits", "Steps"])
+        return pd.DataFrame(columns=["Time", "Path", "Type", "Latency (s)", "Cache Hits", "Steps"])
 
     df = pd.DataFrame(queries)
+    df["latency_ms"] = df["latency_ms"] / 1000
     df = df.rename(
         columns={
             "timestamp": "Time",
             "path": "Path",
             "query_type": "Type",
-            "latency_ms": "Latency (ms)",
+            "latency_ms": "Latency (s)",
             "cache_hits": "Cache Hits",
             "agent_steps": "Steps",
         }
     )
-    return df[["Time", "Path", "Type", "Latency (ms)", "Cache Hits", "Steps"]]
+    return df[["Time", "Path", "Type", "Latency (s)", "Cache Hits", "Steps"]]
 
 
 def get_global_stats_html():
     """Generate HTML for global stats display."""
     stats = get_performance_metrics().get_global_stats()
+    avg_latency_s = stats.get("avg_latency_ms", 0) / 1000
 
     return f"""
     <div class="metrics-grid">
-        <div class="metrics-card">
+        <div class="metrics-card" style="border-top: 3px solid #667eea;">
+            <div class="metrics-card-header">
+                <div class="metrics-card-icon" style="background: rgba(102,126,234,0.12);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                    </svg>
+                </div>
+            </div>
             <div class="metrics-value">{stats.get('total_queries', 0)}</div>
-            <div class="metrics-label">Total Queries</div>
+            <div class="metrics-label">TOTAL QUERIES</div>
         </div>
-        <div class="metrics-card">
-            <div class="metrics-value">{stats.get('avg_latency_ms', 0):.0f}ms</div>
-            <div class="metrics-label">Avg Latency</div>
+        <div class="metrics-card" style="border-top: 3px solid #3b82f6;">
+            <div class="metrics-card-header">
+                <div class="metrics-card-icon" style="background: rgba(59,130,246,0.12);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="metrics-value">{avg_latency_s:.2f}<span class="metrics-unit">s</span></div>
+            <div class="metrics-label">AVG LATENCY</div>
         </div>
-        <div class="metrics-card">
-            <div class="metrics-value">{stats.get('cache_hit_rate', 0):.1f}%</div>
-            <div class="metrics-label">Cache Hit Rate</div>
+        <div class="metrics-card" style="border-top: 3px solid #22c55e;">
+            <div class="metrics-card-header">
+                <div class="metrics-card-icon" style="background: rgba(34,197,94,0.12);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="metrics-value">{stats.get('cache_hit_rate', 0):.1f}<span class="metrics-unit">%</span></div>
+            <div class="metrics-label">CACHE HIT RATE</div>
         </div>
-        <div class="metrics-card">
+        <div class="metrics-card" style="border-top: 3px solid #ef4444;">
+            <div class="metrics-card-header">
+                <div class="metrics-card-icon" style="background: rgba(239,68,68,0.12);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/>
+                        <polyline points="2 12 12 17 22 12"/>
+                    </svg>
+                </div>
+            </div>
             <div class="metrics-value">{stats.get('avg_agent_steps', 0):.1f}</div>
-            <div class="metrics-label">Avg Agent Steps</div>
+            <div class="metrics-label">AVG AGENT STEPS</div>
         </div>
     </div>
     """
@@ -2003,28 +2135,32 @@ def create_gradio_app(default_reranking: bool = True):
             # Metrics Tab
             # =====================================================================
             with gr.Tab("📊 Metrics"):
-                gr.HTML("<h3 class='dashboard-section-title'>Global Statistics</h3>")
+                gr.HTML("<div class='dashboard-section-title'>Overview</div>")
                 stats_display = gr.HTML(get_global_stats_html())
 
-                gr.HTML("<h3 class='dashboard-section-title'>Performance Charts</h3>")
-                with gr.Row():
+                gr.HTML("<div class='dashboard-section-title' style='margin-top: 1.5rem;'>Performance</div>")
+                with gr.Row(equal_height=True):
                     latency_chart = gr.Plot(value=create_latency_by_path_chart())
                     distribution_chart = gr.Plot(value=create_path_distribution_chart())
 
                 with gr.Row():
                     timeline_chart = gr.Plot(value=create_latency_over_time_chart())
 
-                gr.HTML("<h3 class='dashboard-section-title'>Recent Queries</h3>")
+                gr.HTML("<div class='dashboard-section-title' style='margin-top: 1.5rem;'>Recent Queries</div>")
                 queries_table = gr.Dataframe(
                     value=get_recent_queries_dataframe(),
-                    headers=["Time", "Path", "Type", "Latency (ms)", "Cache Hits", "Steps"],
+                    headers=["Time", "Path", "Type", "Latency (s)", "Cache Hits", "Steps"],
                     interactive=False,
                 )
 
                 with gr.Row():
-                    refresh_btn = gr.Button("🔄 Refresh Metrics", variant="secondary")
-                    export_csv_btn = gr.Button("📥 Export CSV", variant="secondary")
-                    export_json_btn = gr.Button("📥 Export JSON", variant="secondary")
+                    refresh_btn = gr.Button(
+                        "Refresh",
+                        variant="primary",
+                        elem_classes=["refresh-primary-btn"],
+                    )
+                    export_csv_btn = gr.Button("Export CSV", variant="secondary", elem_classes=["secondary-btn"])
+                    export_json_btn = gr.Button("Export JSON", variant="secondary", elem_classes=["secondary-btn"])
 
                 export_file = gr.File(label="Download", visible=False)
 
