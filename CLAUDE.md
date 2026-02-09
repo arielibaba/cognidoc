@@ -22,7 +22,7 @@ CogniDoc is a Hybrid RAG (Vector + GraphRAG) document assistant that converts mu
 make install          # Create venv and install dependencies
 make sync             # Sync environment with lock file
 make lock             # Lock dependencies
-make refactor         # Format + lint (root-level *.py only)
+make refactor         # Format + lint (root-level *.py and code/*.py)
 make help             # Display all available Makefile targets
 uv sync --group dev   # Install dev dependencies (pytest, black, pylint, mypy)
 
@@ -34,7 +34,7 @@ UV_LINK_MODE=copy uv pip install -e ".[all,dev]"
 
 # Code quality (black: line-length=100, target py310-py312)
 # pylint disables: C0114, C0115, C0116 (missing docstrings), R0903 (too-few-public-methods)
-# NOTE: make format/lint only target root-level *.py files, NOT src/cognidoc/
+# NOTE: make format targets root-level *.py; make lint targets *.py and code/*.py (NOT src/cognidoc/)
 # Use direct commands below for the main source code:
 uv run black src/cognidoc/       # Format source code
 uv run pylint src/cognidoc/      # Lint source code
@@ -90,6 +90,15 @@ CI runs on push/PR to `master` with three jobs:
 - **test**: pytest across Python 3.10/3.11/3.12 with `-x` (fail-fast), excludes `test_00_e2e_pipeline.py` and `test_benchmark.py`
 - **docker**: builds the Docker image (no runtime tests)
 
+## Documentation
+
+| File | Content |
+|------|---------|
+| `CLAUDE.md` | This file — instructions for Claude Code |
+| `README.md` | User-facing setup and usage guide |
+| `docs/ROADMAP.md` | Implementation plans (Phases 1-3: graph enrichment → Kùzu → Neo4j) |
+| `docs/architecture/query_pipeline.md` | Deep dive into query internals |
+
 ## Architecture
 
 > **Deep dive:** For detailed explanations of the query pipeline internals (complexity evaluation formula, LRU cache, vector/graph fusion, ReAct agent loop), see [`docs/architecture/query_pipeline.md`](docs/architecture/query_pipeline.md).
@@ -128,6 +137,11 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `utils/llm_providers.py` | Multi-provider abstraction layer |
 | `utils/rag_utils.py` | Document, VectorIndex, KeywordIndex classes |
 | `utils/embedding_providers.py` | Embedding providers with async batch and connection pooling |
+| `utils/metrics.py` | Performance metrics tracking (ingestion stats, query latency) |
+| `utils/logger.py` | Structured logging utilities |
+| `utils/tool_cache.py` | SQLite-backed persistent tool result caching with per-tool TTL |
+| `utils/error_classifier.py` | Error classification for retry logic |
+| `utils/async_utils.py` | Async concurrency helpers |
 
 ### Ingestion Pipeline
 
@@ -449,7 +463,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 
 | Module | Tests | Description |
 |--------|-------|-------------|
-| `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
+| `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 60 | Agent ReAct loop |
 | `test_agent_tools.py` | 43 | Tool implementations |
 | `test_api.py` | 12 | CogniDoc public API, config validation, deprecation |
@@ -461,7 +475,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_complexity.py` | 38 | Query complexity evaluation |
 | `test_conversion.py` | 29 | Document format conversion |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
-| `test_entity_resolution.py` | 34 | Entity resolution (blocking, matching, clustering, merging) |
+| `test_entity_resolution.py` | 26 | Entity resolution (blocking, matching, clustering, merging) |
 | `test_extract_entities.py` | 21 | Entity/relationship extraction, JSON parsing, prompts |
 | `test_graph_config.py` | 25 | GraphRAG schema loading and validation |
 | `test_graph_retrieval.py` | 16 | Graph retrieval cache, retriever, result dataclass |
@@ -474,7 +488,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_pipeline_stages.py` | 22 | Individual pipeline stage unit tests |
 | `test_providers.py` | 32 | LLM/Embedding providers |
 | `test_query_orchestrator.py` | 31 | Query classification, routing, weight config |
-| `test_schema_generation.py` | 75 | Corpus-based schema generation (sampling, LLM pipeline, fallbacks) |
+| `test_schema_generation.py` | 43 | Corpus-based schema generation (sampling, LLM pipeline, fallbacks) |
 
 **Test Infrastructure:**
 - `conftest.py` provides session-scoped `cognidoc_session` fixture to avoid Qdrant lock conflicts
