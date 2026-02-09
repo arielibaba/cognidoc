@@ -55,6 +55,7 @@ cognidoc ingest ./data/sources --regenerate-schema     # Force schema regenerati
 cognidoc query "What is X?"
 cognidoc serve --port 7860 --share
 cognidoc info
+cognidoc migrate-graph                         # Migrate NetworkX graph to Kùzu
 
 # Direct module execution
 python -m cognidoc.setup                  # Interactive wizard
@@ -120,7 +121,10 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `run_ingestion_pipeline.py` | Async pipeline orchestrator |
 | `cognidoc_app.py` | Gradio chat with FastAPI static file serving |
 | `hybrid_retriever.py` | Vector + Graph fusion with query orchestration and caching |
-| `knowledge_graph.py` | NetworkX graph with Louvain community detection |
+| `knowledge_graph.py` | Graph facade with pluggable backend (NetworkX/Kùzu) + Louvain communities |
+| `graph_backend.py` | Abstract GraphBackend ABC (Strategy pattern) |
+| `graph_backend_networkx.py` | NetworkX backend implementation (default) |
+| `graph_backend_kuzu.py` | Kùzu backend implementation (optional, Cypher-native) |
 | `entity_resolution.py` | Semantic entity deduplication (4-phase: blocking, matching, clustering, merging) |
 | `query_orchestrator.py` | LLM-based query classification and routing |
 | `complexity.py` | Query complexity evaluation for agentic routing |
@@ -131,7 +135,7 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `constants.py` | Central config (paths, thresholds, model names) |
 | `checkpoint.py` | Resumable pipeline execution with atomic saves |
 | `ingestion_manifest.py` | Incremental ingestion tracking (new/modified file detection via SHA-256) |
-| `cli.py` | Command-line interface (ingest, query, serve, init, info, schema-generate) |
+| `cli.py` | Command-line interface (ingest, query, serve, init, info, schema-generate, migrate-graph) |
 | `graph_config.py` | GraphRAG schema loading and validation |
 | `utils/llm_client.py` | Singleton LLM client (Gemini default) |
 | `utils/llm_providers.py` | Multi-provider abstraction layer |
@@ -346,7 +350,7 @@ The ingestion pipeline can also use a separate LLM model via `INGESTION_LLM_MODE
 | Layout Detection | YOLOv11x | `yolov11x_best.pt` (~109 MB, optional) |
 | Vector Storage | Qdrant | Embedded mode (no server) |
 | Sparse Index | BM25 | In-memory keyword index |
-| Graph Storage | NetworkX | With Louvain community detection |
+| Graph Storage | NetworkX (default) / Kùzu (optional) | Pluggable backend via `GRAPH_BACKEND` env var, Louvain community detection |
 
 ### LLM Models by Pipeline Stage
 
@@ -397,6 +401,11 @@ See `.env.example` for the complete list of all configurable environment variabl
 - `OLLAMA_EMBED_MODEL`: qwen3-embedding:4b-q8_0
 - `ENABLE_CONTEXTUAL_COMPRESSION`: false
 - `CONTEXT_WINDOW`: 128000, `MEMORY_WINDOW`: 64000
+
+### Graph Backend Configuration
+
+- `GRAPH_BACKEND`: `networkx` (default) or `kuzu`
+- `KUZU_DB_DIR`: Path to Kùzu database directory (default: `data/indexes/kuzu_db`)
 
 ### Entity Resolution Configuration
 
@@ -481,6 +490,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_entity_resolution.py` | 26 | Entity resolution (blocking, matching, clustering, merging) |
 | `test_extract_entities.py` | 28 | Entity/relationship extraction, JSON parsing, prompts, attributes |
+| `test_graph_backend.py` | 47 | Graph backend ABC (NetworkX + Kùzu parametrized, CRUD, traversal, export) |
 | `test_graph_config.py` | 30 | GraphRAG schema loading and validation |
 | `test_graph_retrieval.py` | 16 | Graph retrieval cache, retriever, result dataclass |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing |

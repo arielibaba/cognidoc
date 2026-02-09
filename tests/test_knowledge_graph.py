@@ -100,7 +100,7 @@ class TestKnowledgeGraphCRUD:
         kg.add_entity(_make_entity("A"))
         kg.add_entity(_make_entity("B"))
         assert kg.add_relationship(_make_relationship("A", "B", "USES"))
-        assert kg.graph.has_edge(kg._find_existing_node("A"), kg._find_existing_node("B"))
+        assert kg.has_edge(kg._find_existing_node("A"), kg._find_existing_node("B"))
 
     def test_add_relationship_missing_entity(self):
         kg = KnowledgeGraph()
@@ -115,7 +115,7 @@ class TestKnowledgeGraphCRUD:
         kg.add_relationship(_make_relationship("A", "B", chunk="c2"))
         src = kg._find_existing_node("A")
         tgt = kg._find_existing_node("B")
-        assert kg.graph.edges[src, tgt]["weight"] == 2.0
+        assert kg.get_edge_data(src, tgt)["weight"] == 2.0
 
     def test_build_from_extraction_results(self):
         result = ExtractionResult(
@@ -251,7 +251,7 @@ class TestKnowledgeGraphPersistence:
         save_path, original = self._build_and_save(tmp_path)
         loaded = KnowledgeGraph.load(save_path)
         assert len(loaded.nodes) == len(original.nodes)
-        assert loaded.graph.number_of_edges() == original.graph.number_of_edges()
+        assert loaded.number_of_edges() == original.number_of_edges()
         assert loaded.get_node_by_name("Alpha") is not None
 
     def test_load_missing_path(self, tmp_path):

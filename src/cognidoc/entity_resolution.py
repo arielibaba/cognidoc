@@ -226,9 +226,9 @@ def get_entity_relations_summary(
     relations = []
 
     # Outgoing relationships
-    if entity.id in graph.graph:
-        for successor in list(graph.graph.successors(entity.id))[:max_relations]:
-            edge_data = graph.graph.edges[entity.id, successor]
+    if graph.has_node(entity.id):
+        for successor in graph.get_successors(entity.id)[:max_relations]:
+            edge_data = graph.get_edge_data(entity.id, successor) or {}
             target = graph.nodes.get(successor)
             if target:
                 rel_type = edge_data.get("relationship_type", "RELATED_TO")
@@ -237,8 +237,8 @@ def get_entity_relations_summary(
         # Incoming relationships
         remaining = max_relations - len(relations)
         if remaining > 0:
-            for predecessor in list(graph.graph.predecessors(entity.id))[:remaining]:
-                edge_data = graph.graph.edges[predecessor, entity.id]
+            for predecessor in graph.get_predecessors(entity.id)[:remaining]:
+                edge_data = graph.get_edge_data(predecessor, entity.id) or {}
                 source = graph.nodes.get(predecessor)
                 if source:
                     rel_type = edge_data.get("relationship_type", "RELATED_TO")
@@ -790,9 +790,10 @@ async def apply_merges(
         node.source_chunks = merged.source_chunks
         node.merged_from = merged.merged_from
 
-        # Update NetworkX node attributes
-        graph.graph.nodes[canonical_id]["name"] = merged.canonical_name
-        graph.graph.nodes[canonical_id]["description"] = merged.description
+        # Update backend graph node attributes
+        graph.update_graph_node_attrs(
+            canonical_id, name=merged.canonical_name, description=merged.description
+        )
 
         # Process other members (redirect edges, remove nodes)
         for member_id in member_ids:
@@ -810,8 +811,8 @@ async def apply_merges(
 
                     del graph.nodes[member_id]
 
-                if member_id in graph.graph:
-                    graph.graph.remove_node(member_id)
+                if graph.has_node(member_id):
+                    graph.remove_graph_node(member_id)
 
                 stats["entities_merged"] += 1
 
@@ -835,56 +836,74 @@ def _redirect_edges(graph: KnowledgeGraph, old_id: str, new_id: str) -> int:
     """
     updated = 0
 
-    if old_id not in graph.graph:
+    if not graph.has_node(old_id):
         return 0
 
     # Outgoing edges
-    for successor in list(graph.graph.successors(old_id)):
+    for successor in list(graph.get_successors(old_id)):
         if successor == new_id:
             continue  # Skip self-loops
 
-        edge_data = dict(graph.graph.edges[old_id, successor])
+        edge_data = dict(graph.get_edge_data(old_id, successor) or {})
 
-        if not graph.graph.has_edge(new_id, successor):
-            graph.graph.add_edge(new_id, successor, **edge_data)
+        if not graph.has_edge(new_id, successor):
+            graph.add_edge_raw(new_id, successor, **edge_data)
         else:
             # Merge edge data
-            existing = graph.graph.edges[new_id, successor]
-            existing["weight"] = existing.get("weight", 1) + edge_data.get("weight", 1)
-            chunks = existing.get("source_chunks", [])
+            existing = graph.get_edge_data(new_id, successor) or {}
+            merged_weight = existing.get("weight", 1) + edge_data.get("weight", 1)
+            chunks = list(existing.get("source_chunks", []))
             chunks.extend(edge_data.get("source_chunks", []))
-            existing["source_chunks"] = list(dict.fromkeys(chunks))
+            merged_chunks = list(dict.fromkeys(chunks))
 
             # Merge descriptions if different
             old_desc = edge_data.get("description", "")
             new_desc = existing.get("description", "")
+            merged_desc = new_desc
             if old_desc and old_desc != new_desc:
-                existing["description"] = _concatenate_descriptions_smart([new_desc, old_desc])
+                merged_desc = _concatenate_descriptions_smart([new_desc, old_desc])
+
+            graph.update_edge_attrs(
+                new_id,
+                successor,
+                weight=merged_weight,
+                source_chunks=merged_chunks,
+                description=merged_desc,
+            )
 
         updated += 1
 
     # Incoming edges
-    for predecessor in list(graph.graph.predecessors(old_id)):
+    for predecessor in list(graph.get_predecessors(old_id)):
         if predecessor == new_id:
             continue  # Skip self-loops
 
-        edge_data = dict(graph.graph.edges[predecessor, old_id])
+        edge_data = dict(graph.get_edge_data(predecessor, old_id) or {})
 
-        if not graph.graph.has_edge(predecessor, new_id):
-            graph.graph.add_edge(predecessor, new_id, **edge_data)
+        if not graph.has_edge(predecessor, new_id):
+            graph.add_edge_raw(predecessor, new_id, **edge_data)
         else:
             # Merge edge data
-            existing = graph.graph.edges[predecessor, new_id]
-            existing["weight"] = existing.get("weight", 1) + edge_data.get("weight", 1)
-            chunks = existing.get("source_chunks", [])
+            existing = graph.get_edge_data(predecessor, new_id) or {}
+            merged_weight = existing.get("weight", 1) + edge_data.get("weight", 1)
+            chunks = list(existing.get("source_chunks", []))
             chunks.extend(edge_data.get("source_chunks", []))
-            existing["source_chunks"] = list(dict.fromkeys(chunks))
+            merged_chunks = list(dict.fromkeys(chunks))
 
             # Merge descriptions
             old_desc = edge_data.get("description", "")
             new_desc = existing.get("description", "")
+            merged_desc = new_desc
             if old_desc and old_desc != new_desc:
-                existing["description"] = _concatenate_descriptions_smart([new_desc, old_desc])
+                merged_desc = _concatenate_descriptions_smart([new_desc, old_desc])
+
+            graph.update_edge_attrs(
+                predecessor,
+                new_id,
+                weight=merged_weight,
+                source_chunks=merged_chunks,
+                description=merged_desc,
+            )
 
         updated += 1
 

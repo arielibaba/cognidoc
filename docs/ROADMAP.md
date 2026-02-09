@@ -92,7 +92,9 @@ Après ré-ingestion, vérifier que les attributs sont bien peuplés sur les ent
 
 ## Phase 2 : Migration vers Kùzu (BD graphe embarquée avec Cypher)
 
-**Objectif :** Remplacer NetworkX par Kùzu, une BD graphe embarquée supportant Cypher nativement. Cela débloque les vraies requêtes graphe (pattern matching, agrégation, recherche de chemins) sans code Python de traversée custom.
+**Statut :** Fait
+
+**Objectif :** Introduire une abstraction `GraphBackend` (Strategy pattern) permettant de brancher NetworkX (défaut) ou Kùzu (BD graphe embarquée, Cypher natif). Cela débloque les requêtes graphe Cypher tout en gardant la rétrocompatibilité NetworkX.
 
 ### Pourquoi Kùzu (pas Neo4j)
 
@@ -107,160 +109,104 @@ Après ré-ingestion, vérifier que les attributs sont bien peuplés sur les ent
 
 **Décision :** Kùzu pour dev/embarqué. Neo4j réservé pour la production cloud (Phase 3).
 
-### 2.1 Ajouter la dépendance Kùzu
+### 2.1 Ajouter la dépendance Kùzu — **Fait**
 
 **Fichier :** `pyproject.toml`
 
-```toml
-[project.optional-dependencies]
-graph = ["kuzu>=0.7"]
-```
+- Groupe optionnel : `kuzu = ["kuzu>=0.8"]`
+- Ajouté au groupe `all`
+- Override mypy pour les 3 nouveaux modules
 
-Garder `networkx` comme fallback.
+### 2.2 Ajouter la config GRAPH_BACKEND — **Fait**
 
-### 2.2 Créer l'abstraction GraphStorage
+**Fichier :** `src/cognidoc/constants.py`
 
-**Nouveau fichier :** `src/cognidoc/graph_storage.py`
+- `GRAPH_BACKEND = os.getenv("GRAPH_BACKEND", "networkx").lower()`
+- `KUZU_DB_DIR` : chemin configurable via `KUZU_DB_DIR` env var
 
-```python
-class GraphStorage(ABC):
-    """Abstract graph storage backend."""
+### 2.3 Créer le GraphBackend ABC — **Fait**
 
-    @abstractmethod
-    def add_node(self, node: GraphNode) -> None: ...
+**Nouveau fichier :** `src/cognidoc/graph_backend.py` (~90 lignes)
 
-    @abstractmethod
-    def add_edge(self, edge: GraphEdge) -> None: ...
+Interface complète : nœuds (add/has/remove/update/get_attrs/count), arêtes (add/has/get_data/update/iter/count), traversée (successors/predecessors/find_all_simple_paths/degree), export (to_undirected_networkx/to_node_link_data/from_node_link_data).
 
-    @abstractmethod
-    def get_node(self, node_id: str) -> Optional[GraphNode]: ...
+### 2.4 Extraire NetworkXBackend — **Fait**
 
-    @abstractmethod
-    def get_neighbors(self, node_id: str, depth: int = 1) -> List[GraphNode]: ...
+**Nouveau fichier :** `src/cognidoc/graph_backend_networkx.py` (~95 lignes)
 
-    @abstractmethod
-    def query_cypher(self, cypher: str, params: dict = None) -> List[dict]: ...
+Wraps `nx.DiGraph()` — méthodes 1:1 avec NetworkX, extraites de `knowledge_graph.py`.
 
-    @abstractmethod
-    def aggregate(self, entity_type: str, operation: str, attribute: str = None, filters: dict = None) -> Any: ...
+### 2.5 Refactorer KnowledgeGraph — **Fait**
 
-    @abstractmethod
-    def save(self, path: Path) -> None: ...
+**Fichier :** `src/cognidoc/knowledge_graph.py`
 
-    @abstractmethod
-    def load(self, path: Path) -> None: ...
-```
+- Remplacé `self.graph = nx.DiGraph()` par `self._backend: GraphBackend`
+- Factory `_create_backend()` : lit `GRAPH_BACKEND`, retourne `NetworkXBackend()` ou `KuzuBackend()`
+- Ajouté wrappers pour `entity_resolution.py` : `has_node()`, `get_successors()`, `get_predecessors()`, `get_edge_data()`, `has_edge()`, `add_edge_raw()`, `remove_graph_node()`, `update_graph_node_attrs()`, `update_edge_attrs()`, `iter_edges()`, `number_of_edges()`
+- `detect_communities()` : `self._backend.to_undirected_networkx()` pour Louvain
+- `save()`/`load()` : adapté pour les deux backends via node_link_data
 
-Deux implémentations :
-- `NetworkXStorage` — wraps la logique actuelle de `KnowledgeGraph`
-- `KuzuStorage` — Kùzu natif avec Cypher complet
+### 2.6 Adapter entity_resolution.py — **Fait**
 
-### 2.3 Implémenter `KuzuStorage`
+**Fichier :** `src/cognidoc/entity_resolution.py`
 
-**Nouveau fichier :** `src/cognidoc/graph_kuzu.py`
+~20 accès `graph.graph.*` remplacés par les wrappers KnowledgeGraph. `_redirect_edges()` refactoré : construction de dict explicite + `update_edge_attrs()` au lieu de mutation in-place.
 
-```python
-class KuzuStorage(GraphStorage):
-    def __init__(self, db_path: str):
-        import kuzu
-        self.db = kuzu.Database(db_path)
-        self.conn = kuzu.Connection(self.db)
-        self._init_schema()
+### 2.7 Adapter graph_retrieval.py et pipeline — **Fait**
 
-    def _init_schema(self):
-        """Create node/edge tables from graph_schema.yaml."""
-        config = get_graph_config()
-        for et in config.entities:
-            cols = "id STRING, name STRING, description STRING, community_id INT64"
-            for attr in et.attributes:
-                cols += f", {attr.name} {self._kuzu_type(attr.type)}"
-            self.conn.execute(f"CREATE NODE TABLE IF NOT EXISTS {et.name}({cols}, PRIMARY KEY(id))")
+- `graph_retrieval.py:329` : `kg.graph.edges(data=True)` → `kg.iter_edges(data=True)`
+- `run_ingestion_pipeline.py:934` : `kg.graph.number_of_edges()` → `kg.number_of_edges()`
 
-        for rt in config.relationships:
-            self.conn.execute(
-                f"CREATE REL TABLE IF NOT EXISTS {rt.name}("
-                f"FROM {rt.source_types[0]} TO {rt.target_types[0]}, "
-                f"description STRING, weight DOUBLE, confidence DOUBLE)"
-            )
+### 2.8 Implémenter KuzuBackend — **Fait**
 
-    def query_cypher(self, cypher: str, params: dict = None) -> List[dict]:
-        result = self.conn.execute(cypher, params or {})
-        columns = result.get_column_names()
-        return [dict(zip(columns, row)) for row in result.get_as_df().values]
-```
+**Nouveau fichier :** `src/cognidoc/graph_backend_kuzu.py` (~350 lignes)
 
-### 2.4 Remplacer le backend de `aggregate_graph` par Cypher
+- Schéma générique : table `Entity` (id, name, type, description, attrs JSON) + table `Relates` (relationship_type, description, weight, source_chunks JSON)
+- Attributs stockés en JSON string (pas de migration de schéma)
+- `find_all_simple_paths` : Cypher récursif `MATCH path = (a)-[*1..N]->(b)`
+- `to_undirected_networkx()` : export pour Louvain
+- Import conditionnel : `KUZU_AVAILABLE` flag
+
+### 2.9 Adapter AggregateGraphTool pour Cypher — **Fait**
 
 **Fichier :** `src/cognidoc/agent_tools.py`
 
-En Phase 2, le LLM génère du Cypher directement :
+- Branche conditionnelle Cypher pour COUNT et LIST quand backend = Kùzu
+- Méthode `_execute_cypher()` avec fallback Python si Cypher échoue
+- COUNT_BY, GROUP_BY, STATS restent en Python (logique complexe)
 
-```python
-class AggregateGraphTool(BaseTool):
-    def execute(self, ...):
-        cypher = self._generate_cypher(query, schema_context)
-        results = graph_storage.query_cypher(cypher)
-        return self._format_results(results)
-```
+### 2.10 Commande CLI migrate-graph — **Fait**
 
-Le prompt LLM inclut le schéma Kùzu (tables de noeuds, tables de relations, noms/types d'attributs). Une étape de validation vérifie la syntaxe Cypher avant exécution.
+**Fichier :** `src/cognidoc/cli.py`
 
-### 2.5 Ajouter l'outil agent `cypher_query` (optionnel)
+- Sous-commande `migrate-graph` avec `--graph-path` et `--kuzu-path`
+- Charge le graphe NetworkX (JSON), exporte via node_link_data, importe dans KuzuBackend
+- Validation de l'installation kuzu
 
-Pour les requêtes avancées, exposer Cypher brut à l'agent :
+### 2.11 Tests — **Fait**
 
-```python
-class CypherQueryTool(BaseTool):
-    """Execute a Cypher query on the knowledge graph (Kùzu backend only)."""
-    name = ToolName.CYPHER_QUERY
-```
+**Nouveau fichier :** `tests/test_graph_backend.py` (~250 lignes)
 
-### 2.6 Chemin de migration
+- Fixture parametrized `@pytest.fixture(params=["networkx", "kuzu"])` — skips kuzu si non installé
+- 47 tests (24 NetworkX, 23 Kùzu skippés sans kuzu) : CRUD nœuds/arêtes, traversée, paths, degree, export/import
+- Tests existants adaptés (`test_knowledge_graph.py`, `test_entity_resolution.py`) : `kg.graph.*` → wrappers
 
-Pour les utilisateurs existants avec des graphes NetworkX :
-
-1. Commande CLI : `cognidoc migrate-graph --backend kuzu`
-2. Lit le `knowledge_graph/` existant (NetworkX JSON)
-3. Crée une DB Kùzu et importe tous les noeuds/arêtes
-4. Préserve les community assignments
-
-Configuration dans `.env` ou `constants.py` :
-
-```
-GRAPH_BACKEND=kuzu  # ou "networkx" (défaut pour rétrocompatibilité)
-```
-
-### 2.7 Adapter les opérations graphe existantes
-
-| Fichier | Usage actuel | Migration |
-|---------|-------------|-----------|
-| `knowledge_graph.py` | `nx.DiGraph()` directement | Wrap en `NetworkXStorage` ou déléguer à `KuzuStorage` |
-| `graph_retrieval.py` | `kg.graph.neighbors()`, `kg.get_node()` | Utiliser `GraphStorage.get_neighbors()` |
-| `agent_tools.py` | `LookupEntityTool`, `CompareEntitiesTool` | Utiliser les méthodes `GraphStorage` |
-| `hybrid_retriever.py` | `self.graph_retriever` | Pas de changement (passe par `graph_retrieval.py`) |
-
-### 2.8 Détection de communautés
-
-Kùzu n'a pas de Louvain intégré. Approche recommandée : export vers NetworkX pour la détection de communautés uniquement (Kùzu -> NetworkX subgraph -> Louvain -> écriture des community_id). La détection de communautés ne s'exécute qu'une fois après l'ingestion.
-
-### 2.9 Tests
-
-- `test_graph_kuzu.py` : Nouveau fichier de tests pour le backend Kùzu
-- `test_knowledge_graph.py` : Paramétrer pour tester les deux backends
-- `test_agent_tools.py` : Tester `aggregate_graph` avec le backend Cypher
-
-### Scope Phase 2
+### Scope Phase 2 — **Fait**
 
 | Fichier | Changements |
 |---------|-------------|
-| `graph_storage.py` | Nouvelle base abstraite (~80 lignes) |
-| `graph_kuzu.py` | Nouvelle implémentation Kùzu (~250 lignes) |
-| `knowledge_graph.py` | Refactoring `GraphStorage` / wrap `NetworkXStorage` (~100 lignes) |
-| `graph_retrieval.py` | Adaptations mineures (~20 lignes) |
-| `agent_tools.py` | Mise à jour backend `AggregateGraphTool` (~40 lignes) |
-| `constants.py` | Ajout config `GRAPH_BACKEND` (~5 lignes) |
-| `cli.py` | Ajout commande `migrate-graph` (~40 lignes) |
-| Tests | ~150 lignes sur 2-3 fichiers |
+| `pyproject.toml` | Dépendance kuzu optionnelle |
+| `constants.py` | `GRAPH_BACKEND`, `KUZU_DB_DIR` (~5 lignes) |
+| `graph_backend.py` | **Nouveau** — ABC (~90 lignes) |
+| `graph_backend_networkx.py` | **Nouveau** — NetworkX impl (~95 lignes) |
+| `graph_backend_kuzu.py` | **Nouveau** — Kùzu impl (~350 lignes) |
+| `knowledge_graph.py` | Refactoring backend + wrappers (~80 lignes modifiées, ~30 ajoutées) |
+| `entity_resolution.py` | ~20 lignes modifiées (wrappers) |
+| `graph_retrieval.py` | 1 ligne modifiée |
+| `run_ingestion_pipeline.py` | 1 ligne modifiée |
+| `agent_tools.py` | Branche Cypher (~30 lignes ajoutées) |
+| `cli.py` | Commande migrate-graph (~60 lignes) |
+| `test_graph_backend.py` | **Nouveau** — 47 tests (~250 lignes) |
 
 ---
 
@@ -286,16 +232,19 @@ Phase 1 (enrichissement NetworkX) :          ✅ FAIT
   1.5  Tests                                                      ✅
   1.6  Ré-ingérer un corpus de test                               ⬜ À faire
 
-Phase 2 (migration Kùzu) :
-  2.1  Ajouter la dépendance kuzu
-  2.2  Créer l'abstraction GraphStorage
-  2.3  Implémenter KuzuStorage
-  2.4  Remplacer le backend de l'outil aggregate
-  2.5  Ajouter l'outil cypher_query (optionnel)
-  2.6  Commande CLI de migration
-  2.7  Adapter les opérations graphe existantes
-  2.8  Adaptateur détection de communautés
-  2.9  Tests
+Phase 2 (migration Kùzu) :                   ✅ FAIT
+  2.1   Ajouter la dépendance kuzu                                    ✅
+  2.2   Ajouter config GRAPH_BACKEND                                  ✅
+  2.3   Créer l'abstraction GraphBackend (ABC)                        ✅
+  2.4   Extraire NetworkXBackend                                      ✅
+  2.5   Refactorer KnowledgeGraph                                     ✅
+  2.6   Adapter entity_resolution.py                                  ✅
+  2.7   Adapter graph_retrieval.py + pipeline                         ✅
+  2.8   Implémenter KuzuBackend                                       ✅
+  2.9   Adapter AggregateGraphTool pour Cypher                        ✅
+  2.10  Commande CLI migrate-graph                                    ✅
+  2.11  Tests                                                         ✅
+  2.12  Documentation                                                 ✅
 ```
 
 ---
@@ -310,8 +259,8 @@ Implémente la Phase 1 du roadmap dans docs/ROADMAP.md.
 Commence par l'étape 1.1 (enrichir le prompt d'extraction dans extract_entities.py).
 ```
 
-**Phase 2 :**
+**Phase 3 :**
 ```
-Implémente la Phase 2 du roadmap dans docs/ROADMAP.md.
-Commence par l'étape 2.1 (ajouter la dépendance kuzu).
+Implémente la Phase 3 du roadmap dans docs/ROADMAP.md.
+Ajoute une implémentation Neo4jBackend(GraphBackend) dans graph_backend_neo4j.py.
 ```

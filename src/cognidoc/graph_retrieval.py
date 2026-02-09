@@ -326,7 +326,7 @@ def retrieve_by_relationship(
 
     # If only relationship type specified, find all of that type
     elif relationship_type:
-        for src, tgt, data in kg.graph.edges(data=True):
+        for src, tgt, data in kg.iter_edges(data=True):
             if data.get("relationship_type") == relationship_type:
                 src_node = kg.nodes.get(src)
                 tgt_node = kg.nodes.get(tgt)

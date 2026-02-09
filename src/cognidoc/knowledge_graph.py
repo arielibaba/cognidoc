@@ -1,7 +1,7 @@
 """
 Knowledge Graph module for GraphRAG.
 
-Builds and manages a knowledge graph using NetworkX.
+Builds and manages a knowledge graph with pluggable backends (NetworkX or Kùzu).
 Supports entity merging, community detection, and graph persistence.
 """
 
@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import networkx as nx
 
 from .extract_entities import Entity, Relationship, ExtractionResult
+from .graph_backend import GraphBackend
 from .graph_config import get_graph_config, GraphConfig
-from .constants import INDEX_DIR, EMBED_MODEL, MAX_CONSECUTIVE_QUOTA_ERRORS
+from .constants import INDEX_DIR, EMBED_MODEL, MAX_CONSECUTIVE_QUOTA_ERRORS, GRAPH_BACKEND
 from .utils.llm_client import llm_chat
 from .utils.logger import logger
 from .utils.rag_utils import get_embedding
@@ -24,6 +25,21 @@ from .utils.error_classifier import is_quota_or_rate_error, get_error_info, Erro
 
 # Directory for graph storage
 GRAPH_DIR = Path(INDEX_DIR) / "knowledge_graph"
+
+
+def _create_backend(backend_name: str = None) -> GraphBackend:
+    """Factory: create a GraphBackend from its name."""
+    if backend_name is None:
+        backend_name = GRAPH_BACKEND
+
+    if backend_name == "kuzu":
+        from .graph_backend_kuzu import KuzuBackend
+
+        return KuzuBackend()
+    else:
+        from .graph_backend_networkx import NetworkXBackend
+
+        return NetworkXBackend()
 
 
 @dataclass
@@ -107,7 +123,7 @@ class Community:
 
 class KnowledgeGraph:
     """
-    Knowledge Graph implementation using NetworkX.
+    Knowledge Graph with pluggable backend (NetworkX or Kùzu).
 
     Features:
     - Entity deduplication and merging
@@ -116,14 +132,19 @@ class KnowledgeGraph:
     - Multi-hop traversal
     """
 
-    def __init__(self, config: Optional[GraphConfig] = None):
+    def __init__(self, config: Optional[GraphConfig] = None, backend: str = None):
         """Initialize the knowledge graph."""
         self.config = config or get_graph_config()
-        self.graph = nx.DiGraph()
+        self._backend: GraphBackend = _create_backend(backend)
         self.nodes: Dict[str, GraphNode] = {}
         self.edges: List[GraphEdge] = []
         self.communities: Dict[int, Community] = {}
         self._name_to_id: Dict[str, str] = {}  # normalized name -> node id
+
+    @property
+    def backend_name(self) -> str:
+        """Return the backend type name."""
+        return type(self._backend).__name__
 
     def _normalize_name(self, name: str) -> str:
         """Normalize entity name for deduplication."""
@@ -133,6 +154,54 @@ class KnowledgeGraph:
         """Find existing node by name (case-insensitive)."""
         normalized = self._normalize_name(name)
         return self._name_to_id.get(normalized)
+
+    # ── Public wrappers for entity_resolution / external access ──────────
+
+    def has_node(self, node_id: str) -> bool:
+        """Check if a node exists in the backend graph."""
+        return self._backend.has_node(node_id)
+
+    def get_successors(self, node_id: str) -> List[str]:
+        """Get outgoing neighbor IDs."""
+        return self._backend.successors(node_id)
+
+    def get_predecessors(self, node_id: str) -> List[str]:
+        """Get incoming neighbor IDs."""
+        return self._backend.predecessors(node_id)
+
+    def get_edge_data(self, src: str, tgt: str) -> Optional[Dict[str, Any]]:
+        """Get edge attributes dict (or None)."""
+        return self._backend.get_edge_data(src, tgt)
+
+    def has_edge(self, src: str, tgt: str) -> bool:
+        """Check if an edge exists."""
+        return self._backend.has_edge(src, tgt)
+
+    def add_edge_raw(self, src: str, tgt: str, **attrs) -> None:
+        """Add an edge with raw attributes (low-level)."""
+        self._backend.add_edge(src, tgt, **attrs)
+
+    def remove_graph_node(self, node_id: str) -> None:
+        """Remove a node from the backend graph."""
+        self._backend.remove_node(node_id)
+
+    def update_graph_node_attrs(self, node_id: str, **attrs) -> None:
+        """Update attributes on a backend graph node."""
+        self._backend.update_node_attrs(node_id, **attrs)
+
+    def update_edge_attrs(self, src: str, tgt: str, **attrs) -> None:
+        """Update attributes on a backend graph edge."""
+        self._backend.update_edge_attrs(src, tgt, **attrs)
+
+    def iter_edges(self, data: bool = False):
+        """Iterate over backend edges."""
+        return self._backend.iter_edges(data=data)
+
+    def number_of_edges(self) -> int:
+        """Return total number of edges in the backend."""
+        return self._backend.number_of_edges()
+
+    # ── CRUD ─────────────────────────────────────────────────────────────
 
     def add_entity(self, entity: Entity) -> str:
         """
@@ -167,8 +236,8 @@ class KnowledgeGraph:
         self.nodes[node.id] = node
         self._name_to_id[normalized_name] = node.id
 
-        # Add to NetworkX graph
-        self.graph.add_node(
+        # Add to backend graph
+        self._backend.add_node(
             node.id,
             name=node.name,
             type=node.type,
@@ -195,15 +264,17 @@ class KnowledgeGraph:
             return False
 
         # Check for existing edge
-        if self.graph.has_edge(source_id, target_id):
+        if self._backend.has_edge(source_id, target_id):
             # Update existing edge
-            edge_data = self.graph.edges[source_id, target_id]
-            edge_data["weight"] = edge_data.get("weight", 1.0) + 1
+            edge_data = self._backend.get_edge_data(source_id, target_id)
+            new_weight = edge_data.get("weight", 1.0) + 1
+            update_attrs = {"weight": new_weight}
             if relationship.source_chunk:
                 sources = edge_data.get("source_chunks", [])
                 if relationship.source_chunk not in sources:
                     sources.append(relationship.source_chunk)
-                    edge_data["source_chunks"] = sources
+                    update_attrs["source_chunks"] = sources
+            self._backend.update_edge_attrs(source_id, target_id, **update_attrs)
             return True
 
         # Create new edge
@@ -216,8 +287,8 @@ class KnowledgeGraph:
         )
         self.edges.append(edge)
 
-        # Add to NetworkX graph
-        self.graph.add_edge(
+        # Add to backend graph
+        self._backend.add_edge(
             source_id,
             target_id,
             relationship_type=edge.relationship_type,
@@ -276,11 +347,11 @@ class KnowledgeGraph:
 
         Returns number of communities found.
         """
-        if len(self.graph) == 0:
+        if self._backend.number_of_nodes() == 0:
             return 0
 
         # Convert to undirected for community detection
-        undirected = self.graph.to_undirected()
+        undirected = self._backend.to_undirected_networkx()
 
         try:
             # Use Louvain algorithm
@@ -399,7 +470,7 @@ class KnowledgeGraph:
             # Get relationships within community
             relationships_info = []
             community_set = set(community.node_ids)
-            for src, tgt, data in self.graph.edges(data=True):
+            for src, tgt, data in self._backend.iter_edges(data=True):
                 if src in community_set and tgt in community_set:
                     src_node = self.nodes.get(src)
                     tgt_node = self.nodes.get(tgt)
@@ -769,7 +840,7 @@ SUMMARY:"""
         Returns:
             List of (node, relationship_type, distance) tuples
         """
-        if node_id not in self.graph:
+        if not self._backend.has_node(node_id):
             return []
 
         visited = set()
@@ -789,13 +860,13 @@ SUMMARY:"""
             # Get neighbors based on direction
             neighbors = []
             if direction in ("out", "both"):
-                for successor in self.graph.successors(current_id):
-                    edge_data = self.graph.edges[current_id, successor]
+                for successor in self._backend.successors(current_id):
+                    edge_data = self._backend.get_edge_data(current_id, successor) or {}
                     neighbors.append((successor, edge_data.get("relationship_type", ""), "out"))
 
             if direction in ("in", "both"):
-                for predecessor in self.graph.predecessors(current_id):
-                    edge_data = self.graph.edges[predecessor, current_id]
+                for predecessor in self._backend.predecessors(current_id):
+                    edge_data = self._backend.get_edge_data(predecessor, current_id) or {}
                     neighbors.append((predecessor, edge_data.get("relationship_type", ""), "in"))
 
             for neighbor_id, rel_type, _ in neighbors:
@@ -829,15 +900,8 @@ SUMMARY:"""
             return []
 
         try:
-            # Find all simple paths
-            paths = list(
-                nx.all_simple_paths(
-                    self.graph,
-                    source_id,
-                    target_id,
-                    cutoff=max_depth,
-                )
-            )
+            # Find all simple paths via backend
+            paths = self._backend.find_all_simple_paths(source_id, target_id, cutoff=max_depth)
 
             result = []
             for path in paths[:10]:  # Limit to 10 paths
@@ -845,7 +909,7 @@ SUMMARY:"""
                 for i in range(len(path) - 1):
                     src_node = self.nodes.get(path[i])
                     tgt_node = self.nodes.get(path[i + 1])
-                    edge_data = self.graph.edges.get((path[i], path[i + 1]), {})
+                    edge_data = self._backend.get_edge_data(path[i], path[i + 1]) or {}
                     rel_type = edge_data.get("relationship_type", "RELATED_TO")
 
                     if src_node and tgt_node:
@@ -856,7 +920,7 @@ SUMMARY:"""
 
             return result
 
-        except nx.NetworkXNoPath:
+        except Exception:
             return []
 
     def get_community_nodes(self, community_id: int) -> List[GraphNode]:
@@ -869,17 +933,15 @@ SUMMARY:"""
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get graph statistics."""
+        degrees = self._backend.degree()
+        n_nodes = self._backend.number_of_nodes()
         return {
             "total_nodes": len(self.nodes),
-            "total_edges": self.graph.number_of_edges(),
+            "total_edges": self._backend.number_of_edges(),
             "total_communities": len(self.communities),
             "node_types": dict(self._count_node_types()),
             "relationship_types": dict(self._count_relationship_types()),
-            "avg_degree": (
-                sum(dict(self.graph.degree()).values()) / len(self.graph)
-                if len(self.graph) > 0
-                else 0
-            ),
+            "avg_degree": (sum(degrees.values()) / n_nodes if n_nodes > 0 else 0),
         }
 
     def _count_node_types(self) -> Dict[str, int]:
@@ -892,7 +954,7 @@ SUMMARY:"""
     def _count_relationship_types(self) -> Dict[str, int]:
         """Count edges by relationship type."""
         counts = defaultdict(int)
-        for _, _, data in self.graph.edges(data=True):
+        for _, _, data in self._backend.iter_edges(data=True):
             counts[data.get("relationship_type", "UNKNOWN")] += 1
         return dict(counts)
 
@@ -904,8 +966,8 @@ SUMMARY:"""
         save_path = Path(path)
         save_path.mkdir(parents=True, exist_ok=True)
 
-        # Save NetworkX graph as JSON (node_link format, safe serialization)
-        graph_data = nx.node_link_data(self.graph)
+        # Save backend graph as JSON (node_link format, safe serialization)
+        graph_data = self._backend.to_node_link_data()
         with open(save_path / "graph.json", "w", encoding="utf-8") as f:
             json.dump(graph_data, f, ensure_ascii=False, indent=2)
 
@@ -963,19 +1025,21 @@ SUMMARY:"""
 
         kg = cls(config)
 
-        # Load NetworkX graph from JSON (node_link format)
+        # Load backend graph from JSON (node_link format)
         graph_json = load_path / "graph.json"
         graph_pickle = load_path / "graph.gpickle"  # Legacy fallback
         if graph_json.exists():
             with open(graph_json, "r", encoding="utf-8") as f:
                 graph_data = json.load(f)
-            kg.graph = nx.node_link_graph(graph_data)
+            kg._backend.from_node_link_data(graph_data)
         elif graph_pickle.exists():
             # Legacy pickle format — load but will be saved as JSON next time
             import pickle
 
             with open(graph_pickle, "rb") as f:
-                kg.graph = pickle.load(f)
+                legacy_graph = pickle.load(f)
+            legacy_data = nx.node_link_data(legacy_graph)
+            kg._backend.from_node_link_data(legacy_data)
             logger.info("Loaded legacy pickle graph — will be saved as JSON on next save")
 
         # Load nodes
@@ -1021,7 +1085,7 @@ SUMMARY:"""
 
         logger.info(
             f"Loaded knowledge graph: {len(kg.nodes)} nodes, "
-            f"{kg.graph.number_of_edges()} edges, "
+            f"{kg._backend.number_of_edges()} edges, "
             f"{len(kg.communities)} communities"
         )
 

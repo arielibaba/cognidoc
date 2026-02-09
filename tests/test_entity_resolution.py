@@ -44,6 +44,7 @@ from cognidoc.graph_config import EntityResolutionConfig
 # Test Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def sample_entities():
     """Create sample entities for testing."""
@@ -81,16 +82,16 @@ def mock_graph(sample_entities):
     graph = KnowledgeGraph()
     for entity in sample_entities:
         graph.nodes[entity.id] = entity
-        graph.graph.add_node(
+        graph._backend.add_node(
             entity.id,
             name=entity.name,
             type=entity.type,
             description=entity.description,
         )
     # Add some relationships
-    graph.graph.add_edge("1", "3", relationship_type="USES")
-    graph.graph.add_edge("2", "3", relationship_type="IMPLEMENTED_IN")
-    graph.graph.add_edge("4", "1", relationship_type="PART_OF")
+    graph.add_edge_raw("1", "3", relationship_type="USES")
+    graph.add_edge_raw("2", "3", relationship_type="IMPLEMENTED_IN")
+    graph.add_edge_raw("4", "1", relationship_type="PART_OF")
     return graph
 
 
@@ -111,18 +112,21 @@ def resolution_config():
 # Phase 1: Blocking Tests
 # =============================================================================
 
+
 class TestBlocking:
     """Tests for Phase 1: Blocking (embedding similarity)."""
 
     def test_find_candidate_pairs_basic(self, sample_entities):
         """Should find similar entity pairs based on embeddings."""
         # Mock embeddings where entities 1 and 2 are similar
-        embeddings = np.array([
-            [1.0, 0.0, 0.0],  # Machine Learning
-            [0.95, 0.1, 0.0],  # ML (similar to Machine Learning)
-            [0.0, 0.0, 1.0],  # Python (different)
-            [0.8, 0.2, 0.0],  # Deep Learning (somewhat similar)
-        ])
+        embeddings = np.array(
+            [
+                [1.0, 0.0, 0.0],  # Machine Learning
+                [0.95, 0.1, 0.0],  # ML (similar to Machine Learning)
+                [0.0, 0.0, 1.0],  # Python (different)
+                [0.8, 0.2, 0.0],  # Deep Learning (somewhat similar)
+            ]
+        )
 
         candidates = find_candidate_pairs(
             sample_entities,
@@ -152,12 +156,14 @@ class TestBlocking:
     def test_find_candidate_pairs_threshold(self, sample_entities):
         """Should respect similarity threshold."""
         # Use orthogonal embeddings that have known similarities
-        embeddings = np.array([
-            [1.0, 0.0, 0.0, 0.0],  # Entity 1
-            [0.6, 0.8, 0.0, 0.0],  # Entity 2 - cos sim with 1 is 0.6
-            [0.0, 0.0, 1.0, 0.0],  # Entity 3 - orthogonal
-            [0.0, 0.0, 0.0, 1.0],  # Entity 4 - orthogonal
-        ])
+        embeddings = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],  # Entity 1
+                [0.6, 0.8, 0.0, 0.0],  # Entity 2 - cos sim with 1 is 0.6
+                [0.0, 0.0, 1.0, 0.0],  # Entity 3 - orthogonal
+                [0.0, 0.0, 0.0, 1.0],  # Entity 4 - orthogonal
+            ]
+        )
 
         # High threshold (0.95): no matches
         high_threshold = find_candidate_pairs(
@@ -177,12 +183,14 @@ class TestBlocking:
 
     def test_find_candidate_pairs_sorted_by_similarity(self, sample_entities):
         """Candidates should be sorted by similarity (highest first)."""
-        embeddings = np.array([
-            [1.0, 0.0, 0.0],
-            [0.9, 0.1, 0.0],  # High similarity with 1
-            [0.7, 0.3, 0.0],  # Medium similarity with 1
-            [0.5, 0.5, 0.0],  # Lower similarity with 1
-        ])
+        embeddings = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.9, 0.1, 0.0],  # High similarity with 1
+                [0.7, 0.3, 0.0],  # Medium similarity with 1
+                [0.5, 0.5, 0.0],  # Lower similarity with 1
+            ]
+        )
 
         candidates = find_candidate_pairs(
             sample_entities,
@@ -198,6 +206,7 @@ class TestBlocking:
 # =============================================================================
 # Phase 2: Matching Tests
 # =============================================================================
+
 
 class TestMatching:
     """Tests for Phase 2: Matching (LLM verification)."""
@@ -215,7 +224,7 @@ class TestMatching:
         graph = KnowledgeGraph()
         entity = GraphNode(id="1", name="Test", type="TEST", description="")
         graph.nodes["1"] = entity
-        graph.graph.add_node("1", name="Test")
+        graph._backend.add_node("1", name="Test")
 
         summary = get_entity_relations_summary(entity, graph)
         assert summary == "(no relationships)"
@@ -231,10 +240,10 @@ class TestMatching:
 
     def test_parse_resolution_response_markdown_json(self):
         """Should parse JSON in markdown code block."""
-        response = '''Here is my analysis:
+        response = """Here is my analysis:
 ```json
 {"same_entity": true, "confidence": 0.85, "canonical_name": "ML", "reasoning": "Abbreviation"}
-```'''
+```"""
         result = _parse_resolution_response(response, "Machine Learning")
 
         assert result["same_entity"] is True
@@ -252,6 +261,7 @@ class TestMatching:
 # =============================================================================
 # Phase 3: Clustering Tests
 # =============================================================================
+
 
 class TestClustering:
     """Tests for Phase 3: Clustering (Union-Find)."""
@@ -329,6 +339,7 @@ class TestClustering:
 # =============================================================================
 # Phase 4: Merging Tests
 # =============================================================================
+
 
 class TestMerging:
     """Tests for Phase 4: Merging (enrichment)."""
@@ -443,6 +454,7 @@ class TestMerging:
 # Integration Tests
 # =============================================================================
 
+
 class TestIntegration:
     """Integration tests for full resolution pipeline."""
 
@@ -460,9 +472,7 @@ class TestIntegration:
     @pytest.mark.asyncio
     async def test_resolve_entities_no_candidates(self, mock_graph, resolution_config):
         """Graph with no similar entities returns unchanged."""
-        with patch(
-            "cognidoc.entity_resolution.compute_resolution_embeddings"
-        ) as mock_embed:
+        with patch("cognidoc.entity_resolution.compute_resolution_embeddings") as mock_embed:
             # Orthogonal embeddings = no similarity
             mock_embed.return_value = np.eye(len(mock_graph.nodes))
 
@@ -502,24 +512,25 @@ class TestIntegration:
 
         for e in [e1, e2, e3]:
             graph.nodes[e.id] = e
-            graph.graph.add_node(e.id, name=e.name, type=e.type)
+            graph._backend.add_node(e.id, name=e.name, type=e.type)
             graph._name_to_id[graph._normalize_name(e.name)] = e.id
 
         # Add relationships
-        graph.graph.add_edge("1", "3", relationship_type="USES")
-        graph.graph.add_edge("2", "3", relationship_type="IMPLEMENTED_IN")
+        graph.add_edge_raw("1", "3", relationship_type="USES")
+        graph.add_edge_raw("2", "3", relationship_type="IMPLEMENTED_IN")
 
-        with patch(
-            "cognidoc.entity_resolution.compute_resolution_embeddings"
-        ) as mock_embed, patch(
-            "cognidoc.entity_resolution.verify_candidates_batch"
-        ) as mock_verify:
+        with (
+            patch("cognidoc.entity_resolution.compute_resolution_embeddings") as mock_embed,
+            patch("cognidoc.entity_resolution.verify_candidates_batch") as mock_verify,
+        ):
             # Make entities 1 and 2 similar
-            mock_embed.return_value = np.array([
-                [1.0, 0.0],  # Machine Learning
-                [0.95, 0.1],  # ML (similar)
-                [0.0, 1.0],  # Python (different)
-            ])
+            mock_embed.return_value = np.array(
+                [
+                    [1.0, 0.0],  # Machine Learning
+                    [0.95, 0.1],  # ML (similar)
+                    [0.0, 1.0],  # Python (different)
+                ]
+            )
 
             # Mock LLM verification to confirm merge
             mock_verify.return_value = (
@@ -543,6 +554,7 @@ class TestIntegration:
 # =============================================================================
 # Edge Cases
 # =============================================================================
+
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

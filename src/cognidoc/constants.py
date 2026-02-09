@@ -71,6 +71,10 @@ DOCLING_MODEL = os.getenv("DOCLING_MODEL", "ibm/granite-docling:258m-bf16")
 # LLM Provider Configuration
 # =============================================================================
 
+# Graph Backend Configuration
+GRAPH_BACKEND = os.getenv("GRAPH_BACKEND", "networkx").lower()
+KUZU_DB_DIR = Path(os.getenv("KUZU_DB_DIR", str(INDEX_DIR / "kuzu_db")))
+
 # Default providers (from env or defaults)
 DEFAULT_LLM_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", "gemini").lower()
 DEFAULT_VISION_PROVIDER = os.getenv("DEFAULT_VISION_PROVIDER", "gemini").lower()
@@ -609,6 +613,7 @@ METRICS_DB = str(METRICS_DB.resolve())
 CHECKPOINT_FILE = str(CHECKPOINT_FILE.resolve())
 ENTITY_RESOLUTION_PROMPT = str(ENTITY_RESOLUTION_PROMPT.resolve())
 DESCRIPTION_MERGE_PROMPT = str(DESCRIPTION_MERGE_PROMPT.resolve())
+KUZU_DB_DIR = str(KUZU_DB_DIR.resolve())
 
 # Ensure directories exist
 Path(SOURCES_DIR).mkdir(parents=True, exist_ok=True)

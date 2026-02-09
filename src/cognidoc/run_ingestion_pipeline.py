@@ -931,7 +931,7 @@ async def _run_graph_building(
             stats["graph_extraction"] = {
                 "status": "resumed_from_existing",
                 "nodes": len(kg.nodes),
-                "edges": kg.graph.number_of_edges(),
+                "edges": kg.number_of_edges(),
             }
         else:
             # Normal path: extract entities then build graph

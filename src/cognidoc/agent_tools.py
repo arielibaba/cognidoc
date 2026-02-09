@@ -929,6 +929,16 @@ class AggregateGraphTool(BaseTool):
             op = operation.strip().upper()
             et = entity_type.strip()
 
+            # Kùzu-native Cypher path for COUNT/LIST (optional optimization)
+            from .graph_backend_kuzu import KuzuBackend, KUZU_AVAILABLE
+
+            if KUZU_AVAILABLE and isinstance(kg._backend, KuzuBackend):
+                cypher_result = self._execute_cypher(
+                    kg._backend, op, et, attribute, attribute_value
+                )
+                if cypher_result is not None:
+                    return cypher_result
+
             # Filter nodes by entity type (case-insensitive)
             if et:
                 nodes = [n for n in kg.nodes.values() if n.type.lower() == et.lower()]
@@ -1061,6 +1071,53 @@ class AggregateGraphTool(BaseTool):
                 success=False,
                 error=str(e),
             )
+
+    def _execute_cypher(self, backend, op, et, attribute, attribute_value):
+        """Execute aggregation via Cypher on KuzuBackend. Returns ToolResult or None to fallback."""
+        try:
+            conn = backend._conn
+
+            if op == "COUNT":
+                if et:
+                    result = conn.execute(
+                        "MATCH (n:Entity) WHERE lower(n.type) = lower($t) RETURN count(n)",
+                        parameters={"t": et},
+                    )
+                else:
+                    result = conn.execute("MATCH (n:Entity) RETURN count(n)")
+                while result.has_next():
+                    cnt = result.get_next()[0]
+                    return ToolResult(
+                        tool=self.name,
+                        success=True,
+                        data={"operation": "COUNT", "count": cnt, "entity_type": et or "all"},
+                    )
+
+            elif op == "LIST":
+                if et:
+                    result = conn.execute(
+                        "MATCH (n:Entity) WHERE lower(n.type) = lower($t) RETURN n.name",
+                        parameters={"t": et},
+                    )
+                else:
+                    result = conn.execute("MATCH (n:Entity) RETURN n.name")
+                names = []
+                while result.has_next():
+                    names.append(result.get_next()[0])
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={
+                        "operation": "LIST",
+                        "count": len(names),
+                        "entity_type": et or "all",
+                        "entities": names,
+                    },
+                )
+        except Exception as e:
+            logger.debug(f"Cypher aggregation failed, falling back to Python: {e}")
+
+        return None
 
 
 # =============================================================================

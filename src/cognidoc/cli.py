@@ -366,6 +366,58 @@ def cmd_schema_generate(args) -> None:
     print(f"  Relationship types: {len(schema.get('relationships', []))}")
 
 
+def cmd_migrate_graph(args) -> None:
+    """Handle the migrate-graph command — convert NetworkX graph to Kùzu."""
+    from .knowledge_graph import KnowledgeGraph, GRAPH_DIR, has_valid_knowledge_graph
+    from .constants import KUZU_DB_DIR
+
+    graph_path = args.graph_path or str(GRAPH_DIR)
+
+    if not has_valid_knowledge_graph(graph_path):
+        print(f"No valid knowledge graph found at: {graph_path}")
+        print("Run 'cognidoc ingest' first to create a graph.")
+        sys.exit(1)
+
+    try:
+        from cognidoc.graph_backend_kuzu import KUZU_AVAILABLE
+
+        if not KUZU_AVAILABLE:
+            print("Error: kuzu is not installed.")
+            print("  Install it with: pip install 'cognidoc[kuzu]'")
+            sys.exit(1)
+    except ImportError:
+        print("Error: kuzu is not installed.")
+        print("  Install it with: pip install 'cognidoc[kuzu]'")
+        sys.exit(1)
+
+    print(f"Loading NetworkX graph from: {graph_path}")
+    kg = KnowledgeGraph.load(graph_path)
+    print(f"  Nodes: {len(kg.nodes)}")
+    print(f"  Edges: {kg.number_of_edges()}")
+    print(f"  Communities: {len(kg.communities)}")
+
+    # Create Kùzu backend and import
+    from .graph_backend_kuzu import KuzuBackend
+
+    db_path = args.kuzu_path or KUZU_DB_DIR
+    print(f"\nMigrating to Kùzu database at: {db_path}")
+
+    kuzu_backend = KuzuBackend(db_path=str(db_path))
+
+    # Export current graph as node_link and import into Kùzu
+    graph_data = kg._backend.to_node_link_data()
+    kuzu_backend.from_node_link_data(graph_data)
+
+    print(f"  Migrated nodes: {kuzu_backend.number_of_nodes()}")
+    print(f"  Migrated edges: {kuzu_backend.number_of_edges()}")
+
+    print(f"\nMigration complete!")
+    print(f"To use Kùzu as your graph backend, set:")
+    print(f"  GRAPH_BACKEND=kuzu")
+    if db_path != KUZU_DB_DIR:
+        print(f"  KUZU_DB_DIR={db_path}")
+
+
 def cmd_stats(args) -> None:
     """Handle the stats command - show ingestion history."""
     import json
@@ -672,6 +724,22 @@ For more information: https://github.com/arielibaba/cognidoc
         help="Show path to raw JSON file",
     )
 
+    # --- migrate-graph command ---
+    migrate_parser = subparsers.add_parser(
+        "migrate-graph",
+        help="Migrate knowledge graph from NetworkX to Kùzu",
+    )
+    migrate_parser.add_argument(
+        "--graph-path",
+        default=None,
+        help="Path to existing knowledge graph directory (default: auto-detect)",
+    )
+    migrate_parser.add_argument(
+        "--kuzu-path",
+        default=None,
+        help="Path for Kùzu database (default: data/indexes/kuzu_db)",
+    )
+
     # --- info command ---
     info_parser = subparsers.add_parser(
         "info",
@@ -694,6 +762,7 @@ For more information: https://github.com/arielibaba/cognidoc
         "info": cmd_info,
         "stats": cmd_stats,
         "schema-generate": cmd_schema_generate,
+        "migrate-graph": cmd_migrate_graph,
     }
 
     try:
