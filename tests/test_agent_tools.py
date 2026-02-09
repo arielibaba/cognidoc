@@ -20,6 +20,7 @@ from cognidoc.agent_tools import (
     LookupEntityTool,
     CompareEntitiesTool,
     ExhaustiveSearchTool,
+    AggregateGraphTool,
     create_tool_registry,
 )
 
@@ -40,6 +41,7 @@ class TestToolName:
             "final_answer",
             "database_stats",
             "exhaustive_search",
+            "aggregate_graph",
         ]
         actual = [t.value for t in ToolName]
         assert set(expected) == set(actual)
@@ -657,6 +659,201 @@ class TestExhaustiveSearchTool:
         obs = result.observation
         assert "COVERAGE NOTE" in obs
         assert "1 of 50" in obs
+
+
+# ===========================================================================
+# AggregateGraphTool
+# ===========================================================================
+
+
+class TestAggregateGraphTool:
+    """Tests for AggregateGraphTool with mocked knowledge graph."""
+
+    def _make_graph_retriever(self, nodes=None):
+        """Build a mock GraphRetriever with a fake KnowledgeGraph."""
+        gr = MagicMock()
+        gr.is_loaded.return_value = True
+
+        kg = MagicMock()
+        if nodes is None:
+            nodes = {}
+        kg.nodes = nodes
+        gr.kg = kg
+        return gr
+
+    def _make_node(self, id, name, type, attributes=None):
+        node = MagicMock()
+        node.id = id
+        node.name = name
+        node.type = type
+        node.attributes = attributes or {}
+        return node
+
+    def test_count_all_nodes(self):
+        """COUNT with no type returns total node count."""
+        nodes = {
+            "n1": self._make_node("n1", "Alice", "Person"),
+            "n2": self._make_node("n2", "Bob", "Person"),
+            "n3": self._make_node("n3", "ACME", "Organization"),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="COUNT")
+        assert result.success is True
+        assert result.data["count"] == 3
+
+    def test_count_by_type(self):
+        """COUNT with entity_type filters by type."""
+        nodes = {
+            "n1": self._make_node("n1", "Alice", "Person"),
+            "n2": self._make_node("n2", "Bob", "Person"),
+            "n3": self._make_node("n3", "ACME", "Organization"),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="COUNT", entity_type="Person")
+        assert result.success is True
+        assert result.data["count"] == 2
+
+    def test_count_by_attribute(self):
+        """COUNT_BY filters by attribute value."""
+        nodes = {
+            "n1": self._make_node("n1", "Doc A", "Document", {"status": "approved"}),
+            "n2": self._make_node("n2", "Doc B", "Document", {"status": "draft"}),
+            "n3": self._make_node("n3", "Doc C", "Document", {"status": "approved"}),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(
+            operation="COUNT_BY",
+            entity_type="Document",
+            attribute="status",
+            attribute_value="approved",
+        )
+        assert result.success is True
+        assert result.data["count"] == 2
+
+    def test_count_by_missing_attribute_param(self):
+        """COUNT_BY without attribute returns error."""
+        gr = self._make_graph_retriever({})
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="COUNT_BY", entity_type="Document")
+        assert result.success is False
+        assert "attribute" in result.error.lower()
+
+    def test_list_entities(self):
+        """LIST returns entity names."""
+        nodes = {
+            "n1": self._make_node("n1", "Alice", "Person"),
+            "n2": self._make_node("n2", "Bob", "Person"),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="LIST", entity_type="Person")
+        assert result.success is True
+        assert set(result.data["entities"]) == {"Alice", "Bob"}
+        assert result.data["count"] == 2
+
+    def test_group_by_attribute(self):
+        """GROUP_BY groups entities by attribute value."""
+        nodes = {
+            "n1": self._make_node("n1", "Doc A", "Document", {"topic": "AI"}),
+            "n2": self._make_node("n2", "Doc B", "Document", {"topic": "ML"}),
+            "n3": self._make_node("n3", "Doc C", "Document", {"topic": "AI"}),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="GROUP_BY", entity_type="Document", attribute="topic")
+        assert result.success is True
+        assert result.data["groups"]["AI"] == 2
+        assert result.data["groups"]["ML"] == 1
+
+    def test_group_by_missing_attribute_param(self):
+        """GROUP_BY without attribute returns error."""
+        gr = self._make_graph_retriever({})
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="GROUP_BY", entity_type="Document")
+        assert result.success is False
+
+    def test_stats_numeric_attribute(self):
+        """STATS computes min/max/avg for numeric attributes."""
+        nodes = {
+            "n1": self._make_node("n1", "City A", "City", {"population": 100000}),
+            "n2": self._make_node("n2", "City B", "City", {"population": 200000}),
+            "n3": self._make_node("n3", "City C", "City", {"population": 300000}),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="STATS", entity_type="City", attribute="population")
+        assert result.success is True
+        stats = result.data["stats"]
+        assert stats["min"] == 100000
+        assert stats["max"] == 300000
+        assert stats["avg"] == 200000
+        assert stats["count"] == 3
+
+    def test_stats_no_numeric_values(self):
+        """STATS with non-numeric values returns error message."""
+        nodes = {
+            "n1": self._make_node("n1", "Doc A", "Document", {"status": "approved"}),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="STATS", entity_type="Document", attribute="status")
+        assert result.success is True
+        assert "error" in result.data["stats"]
+
+    def test_stats_missing_attribute_param(self):
+        """STATS without attribute returns error."""
+        gr = self._make_graph_retriever({})
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="STATS", entity_type="City")
+        assert result.success is False
+
+    def test_unknown_operation(self):
+        """Unknown operation returns error."""
+        gr = self._make_graph_retriever({})
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="INVALID")
+        assert result.success is False
+        assert "Unknown operation" in result.error
+
+    def test_no_graph_available(self):
+        """Returns error when knowledge graph is not available."""
+        gr = MagicMock()
+        gr.is_loaded.return_value = True
+        gr.kg = None
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="COUNT")
+        assert result.success is False
+        assert "not available" in result.error.lower()
+
+    def test_case_insensitive_entity_type(self):
+        """Entity type matching is case-insensitive."""
+        nodes = {
+            "n1": self._make_node("n1", "Alice", "Person"),
+        }
+        gr = self._make_graph_retriever(nodes)
+        tool = AggregateGraphTool(gr)
+        result = tool.execute(operation="COUNT", entity_type="person")
+        assert result.data["count"] == 1
+
+    def test_observation_format(self):
+        """Observation formats correctly for agent context."""
+        result = ToolResult(
+            tool=ToolName.AGGREGATE_GRAPH,
+            success=True,
+            data={
+                "operation": "COUNT",
+                "count": 42,
+                "entity_type": "Person",
+                "entities": ["Alice", "Bob"],
+            },
+        )
+        obs = result.observation
+        assert "COUNT" in obs
+        assert "42" in obs
+        assert "Alice" in obs
 
 
 if __name__ == "__main__":

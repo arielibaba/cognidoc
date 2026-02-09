@@ -225,6 +225,34 @@ DATABASE_META_PATTERNS = [
     r"\b(?:count|nombre|n[uú]mero|anzahl)\b.*\b(?:database|base|datenbank|basis)\b",
 ]
 
+# Aggregation patterns that trigger agent path (require aggregate_graph tool)
+AGGREGATION_PATTERNS = [
+    # French
+    r"\bcombien\s+(?:de|d')",
+    r"\bnombre\s+(?:de|d'|total)",
+    r"\btotal\s+(?:de|d')",
+    r"\bmoyenne\b",
+    r"\bliste[rz]?\s+(?:tous|toutes|les)",
+    r"\brépartition\b",
+    r"\bstatistiques?\b",
+    # English
+    r"\bhow\s+many\b",
+    r"\bcount\s+(?:of|the|all)\b",
+    r"\baverage\b",
+    r"\btotal\s+(?:of|number)\b",
+    r"\blist\s+all\b",
+    r"\bdistribution\b",
+    r"\bbreakdown\b",
+    # Spanish
+    r"\bcu[aá]ntos?\b",
+    r"\bpromedio\b",
+    r"\blistar\s+todos?\b",
+    # German
+    r"\bwie\s+viele?\b",
+    r"\bdurchschnitt\b",
+    r"\balle\s+auflisten\b",
+]
+
 # Weights for complexity factors
 COMPLEXITY_WEIGHTS = {
     "query_type": 0.25,
@@ -354,6 +382,14 @@ def is_database_meta_question(query: str) -> bool:
     return False
 
 
+def is_aggregation_question(query: str) -> bool:
+    """Check if query requires aggregation on the knowledge graph."""
+    for pattern in AGGREGATION_PATTERNS:
+        if re.search(pattern, query, re.IGNORECASE):
+            return True
+    return False
+
+
 def evaluate_complexity(
     query: str,
     routing: Optional[RoutingDecision] = None,
@@ -424,6 +460,11 @@ def evaluate_complexity(
         level = ComplexityLevel.COMPLEX
         reasoning_parts.append("Database meta-question requires database_stats tool")
         total_score = max(total_score, AGENT_THRESHOLD + 0.2)
+    # Check for aggregation questions (force agent path)
+    elif is_aggregation_question(query):
+        level = ComplexityLevel.COMPLEX
+        reasoning_parts.append("Aggregation question requires aggregate_graph tool")
+        total_score = max(total_score, AGENT_THRESHOLD + 0.1)
     # Check for ambiguity (overrides other factors)
     elif is_ambiguous(query):
         level = ComplexityLevel.AMBIGUOUS
@@ -508,5 +549,7 @@ __all__ = [
     "count_subquestions",
     "is_ambiguous",
     "is_database_meta_question",
+    "is_aggregation_question",
+    "AGGREGATION_PATTERNS",
     "AGENT_THRESHOLD",
 ]

@@ -21,163 +21,72 @@ Fichier centralisé de suivi des plans d'implémentation.
 
 ## Phase 1 : Enrichissement extraction + Outil d'agrégation (NetworkX)
 
-**Objectif :** Permettre les requêtes de comptage et d'agrégation sur le graphe NetworkX existant.
+**Statut :** Fait
+
+**Objectif :** Permettre les requêtes de comptage et d'agrégation sur le graphe NetworkX existant. Extraire des attributs structurés (dates, lieux, quantités, statuts) en plus du nom et de la description.
 
 **Motivation :** CogniDoc ne peut pas répondre aux requêtes comme "combien de documents traitent de X ?" ou "quelle est la moyenne de Y ?". L'extraction d'entités capture noms et descriptions mais ignore les attributs numériques (dates, quantités, scores), et NetworkX n'a pas de langage de requête.
 
-### 1.1 Enrichir le prompt d'extraction d'entités
+### 1.1 Enrichir le prompt d'extraction d'entités — **Fait**
 
 **Fichier :** `src/cognidoc/extract_entities.py`
 
-Le prompt actuel demande `name`, `type`, `description`, `confidence`. Il ne demande PAS d'attributs structurés, bien que le champ `Entity.attributes: Dict[str, Any]` existe déjà mais soit inutilisé.
+**Changements effectués :**
+- `build_entity_extraction_prompt()` : ajout d'instructions pour extraire dates, lieux, quantités, statuts dans le champ `attributes`
+- Le prompt inclut les attributs typés définis dans le schéma (si `EntityType.attributes` est non vide)
+- Parsing dans `extract_entities_from_text()` et `extract_entities_from_text_async()` : ajout de `attributes=e.get("attributes", {})` avec validation (dict uniquement)
+- `extract_json_from_response()` : normalisation `attributs` → `attributes` (FR→EN)
 
-**Changements :**
-
-Ajouter une section `attributes` au format de sortie du prompt :
-
-```json
-{
-  "entities": [
-    {
-      "name": "Entity Name",
-      "type": "EntityType",
-      "description": "Brief description",
-      "confidence": 0.95,
-      "attributes": {
-        "date": "1962",
-        "quantity": 42,
-        "status": "approved"
-      }
-    }
-  ]
-}
-```
-
-Mettre à jour les instructions de `build_entity_extraction_prompt()` :
-
-```
-5. Extract key attributes as structured key-value pairs in the "attributes" field:
-   - Dates (birth_date, publication_date, etc.)
-   - Quantities (count, amount, population, etc.)
-   - Status or categorical values (status, type, category)
-   - Only include attributes explicitly stated in the text
-```
-
-**Impact :** Minimal — `Entity.attributes` et `GraphNode.attributes` existent déjà. Le parsing à la ligne 1216 gère déjà `attributes=e.get("attributes", {})`. Aucun changement de schéma nécessaire.
-
-### 1.2 Enrichir le schéma graphe avec des définitions d'attributs typés
+### 1.2 Enrichir le schéma graphe avec des définitions d'attributs typés — **Fait**
 
 **Fichier :** `src/cognidoc/graph_config.py`
 
-`EntityType` a déjà `attributes: List[str]` (inutilisé). L'étendre pour supporter des attributs typés :
+**Changements effectués :**
+- Nouvelle dataclass `EntityAttribute(name, type, description)` — types: string, number, date, boolean
+- `EntityType.attributes` changé de `List[str]` à `List[EntityAttribute]`
+- Parser YAML rétrocompatible : gère `["field"]` (ancien format string) et `[{name, type, description}]` (nouveau format typé)
+- Les attributs typés sont affichés dans le prompt d'extraction (`Expected attributes: publication_date (date), ...`)
 
-```python
-@dataclass
-class EntityAttribute:
-    """Definition of an entity attribute."""
-    name: str
-    type: str = "string"  # string, number, date, boolean
-    description: str = ""
-
-@dataclass
-class EntityType:
-    name: str
-    description: str
-    examples: List[str] = field(default_factory=list)
-    attributes: List[EntityAttribute] = field(default_factory=list)
-```
-
-Format `graph_schema.yaml` :
-
-```yaml
-entities:
-- name: Document
-  description: A source document in the corpus
-  examples: [...]
-  attributes:
-    - name: publication_date
-      type: date
-      description: Date of publication
-    - name: page_count
-      type: number
-      description: Number of pages
-```
-
-Passer les définitions d'attributs dans le prompt d'extraction pour que le LLM sache quoi chercher.
-
-### 1.3 Ajouter l'outil agent `aggregate_graph`
+### 1.3 Ajouter l'outil agent `aggregate_graph` — **Fait**
 
 **Fichier :** `src/cognidoc/agent_tools.py`
 
-Nouvel outil qui traduit les requêtes d'agrégation en opérations NetworkX :
+**Changements effectués :**
+- `AGGREGATE_GRAPH = "aggregate_graph"` ajouté à `ToolName`
+- `AggregateGraphTool(BaseTool)` : opérations COUNT, COUNT_BY, LIST, GROUP_BY, STATS sur `kg.nodes`
+- Filtrage case-insensitive par entity_type
+- Observation formatée dans `ToolResult.observation`
+- Enregistré dans `create_tool_registry()` (conditionné à `graph_retriever` disponible)
 
-```python
-class AggregateGraphTool(BaseTool):
-    """
-    Performs counting and aggregation queries on the knowledge graph.
-
-    Supports:
-    - COUNT: How many entities of type X?
-    - COUNT_BY: How many entities of type X with attribute Y = Z?
-    - LIST: List all entities of type X
-    - GROUP_BY: Group entities of type X by attribute Y
-    - STATS: Min/max/avg of numeric attribute Y on type X
-    """
-    name = ToolName.AGGREGATE_GRAPH
-```
-
-**Approche :**
-
-1. Le LLM parse la requête utilisateur en opération structurée :
-   ```json
-   {"operation": "COUNT", "entity_type": "Document", "filter": {"topic": "theology"}}
-   ```
-2. Exécution sur NetworkX :
-   ```python
-   nodes = [n for n in kg.nodes.values()
-            if n.type == entity_type
-            and all(n.attributes.get(k) == v for k, v in filters.items())]
-   return {"count": len(nodes), "entities": [n.name for n in nodes[:10]]}
-   ```
-3. Cache via `ToolCache` (TTL: 600s)
-
-**Registration :** Ajouter `AGGREGATE_GRAPH = "aggregate_graph"` à `ToolName`, enregistrer dans `ToolRegistry`.
-
-### 1.4 Mettre à jour l'évaluation de complexité
+### 1.4 Mettre à jour l'évaluation de complexité — **Fait**
 
 **Fichier :** `src/cognidoc/complexity.py`
 
-Ajouter des patterns d'agrégation (pour déclencher le mode agent, score >= 0.55) :
+**Changements effectués :**
+- `AGGREGATION_PATTERNS` : 23 patterns FR/EN/ES/DE (combien, how many, count, nombre, moyenne, average, etc.)
+- `is_aggregation_question()` : détecte les requêtes d'agrégation
+- Intégré dans `evaluate_complexity()` : force le chemin agent (score >= AGENT_THRESHOLD + 0.1)
 
-```python
-AGGREGATION_PATTERNS = [
-    r"combien\s+(de|d')",
-    r"how\s+many",
-    r"count\s+(of|the|all)",
-    r"nombre\s+(de|d'|total)",
-    r"average|moyenne",
-    r"total\s+(de|d'|of)",
-    r"list\s+all",
-    r"liste[rz]?\s+(tous|toutes|les)",
-]
-```
+### 1.5 Tests — **Fait**
 
-### 1.5 Tests
+- `test_extract_entities.py` : 7 tests (attributs parsés, dict/non-dict, normalisation FR, prompt schema, round-trip save/load)
+- `test_agent_tools.py` : 15 tests AggregateGraphTool (COUNT, COUNT_BY, LIST, GROUP_BY, STATS, erreurs, observation)
+- `test_complexity.py` : 22 tests (17 patterns détectés, 4 non-détectés, intégration agent path)
+- `test_graph_config.py` : 5 tests EntityAttribute (defaults, backward compat strings, typed dicts, mixed formats)
 
-- `test_extract_entities.py` : Vérifier que les attributs sont extraits et parsés
-- `test_agent_tools.py` : Tester `AggregateGraphTool` avec des données de graphe mockées
-- `test_complexity.py` : Tester les nouveaux patterns d'agrégation
+### 1.6 Ré-ingérer un corpus pour vérifier l'extraction d'attributs — **À faire**
 
-### Scope Phase 1
+Après ré-ingestion, vérifier que les attributs sont bien peuplés sur les entités du graphe.
+
+### Scope Phase 1 — **Fait**
 
 | Fichier | Changements |
 |---------|-------------|
-| `extract_entities.py` | Mise à jour de 2 fonctions de prompt (~30 lignes) |
-| `graph_config.py` | Ajout `EntityAttribute`, mise à jour parser (~20 lignes) |
-| `agent_tools.py` | Nouvelle classe `AggregateGraphTool` (~120 lignes) |
-| `complexity.py` | Ajout `AGGREGATION_PATTERNS` (~15 lignes) |
-| `agent.py` | Enregistrement du nouvel outil (1 ligne) |
-| Tests | ~60 lignes sur 3 fichiers de test |
+| `extract_entities.py` | Prompt enrichi + parsing attributes (sync + async) |
+| `graph_config.py` | `EntityAttribute` dataclass + parser YAML rétrocompat |
+| `agent_tools.py` | `AggregateGraphTool` (COUNT/COUNT_BY/LIST/GROUP_BY/STATS) |
+| `complexity.py` | `AGGREGATION_PATTERNS` + `is_aggregation_question()` |
+| Tests | 49 nouveaux tests sur 4 fichiers |
 
 ---
 
@@ -369,13 +278,13 @@ Hors scope pour l'instant. Quand nécessaire :
 ## Ordre d'implémentation
 
 ```
-Phase 1 (enrichissement NetworkX) :
-  1.1  Enrichir le prompt d'extraction (attributs)      <- commencer ici
-  1.2  Mettre à jour graph_config.py (EntityAttribute)
-  1.3  Ajouter AggregateGraphTool
-  1.4  Mettre à jour les patterns de complexité
-  1.5  Tests
-  1.6  Ré-ingérer un corpus de test pour vérifier l'extraction d'attributs
+Phase 1 (enrichissement NetworkX) :          ✅ FAIT
+  1.1  Enrichir le prompt d'extraction (attributs + dates/lieux)  ✅
+  1.2  Mettre à jour graph_config.py (EntityAttribute typé)       ✅
+  1.3  Ajouter AggregateGraphTool                                 ✅
+  1.4  Mettre à jour les patterns de complexité                   ✅
+  1.5  Tests                                                      ✅
+  1.6  Ré-ingérer un corpus de test                               ⬜ À faire
 
 Phase 2 (migration Kùzu) :
   2.1  Ajouter la dépendance kuzu

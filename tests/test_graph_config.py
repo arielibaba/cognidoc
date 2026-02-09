@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from cognidoc.graph_config import (
+    EntityAttribute,
     EntityType,
     RelationshipType,
     DomainConfig,
@@ -27,6 +28,20 @@ from cognidoc.graph_config import (
 # ---------------------------------------------------------------------------
 # Dataclass defaults
 # ---------------------------------------------------------------------------
+
+
+class TestEntityAttribute:
+
+    def test_defaults(self):
+        attr = EntityAttribute(name="date")
+        assert attr.type == "string"
+        assert attr.description == ""
+
+    def test_full_init(self):
+        attr = EntityAttribute(name="population", type="number", description="City population")
+        assert attr.name == "population"
+        assert attr.type == "number"
+        assert attr.description == "City population"
 
 
 class TestDataclassDefaults:
@@ -193,6 +208,9 @@ class TestLoadGraphConfig:
         assert len(cfg.entities) == 1
         assert cfg.entities[0].name == "Concept"
         assert cfg.entities[0].examples == ["AI", "ML"]
+        assert len(cfg.entities[0].attributes) == 1
+        assert cfg.entities[0].attributes[0].name == "field"
+        assert isinstance(cfg.entities[0].attributes[0], EntityAttribute)
         assert len(cfg.relationships) == 1
         assert cfg.relationships[0].source_types == ["Concept"]
         assert cfg.extraction.max_entities_per_chunk == 20
@@ -237,6 +255,84 @@ class TestLoadGraphConfig:
             cfg = load_graph_config(None)
             # The file won't exist, so we get defaults
             assert isinstance(cfg, GraphConfig)
+
+    def test_attributes_as_strings_backward_compat(self, tmp_path):
+        """Old-style string attributes are parsed into EntityAttribute."""
+        schema = {
+            "entities": [
+                {
+                    "name": "Concept",
+                    "description": "An idea",
+                    "attributes": ["field", "topic"],
+                }
+            ]
+        }
+        f = tmp_path / "schema.yaml"
+        f.write_text(yaml.dump(schema), encoding="utf-8")
+        cfg = load_graph_config(str(f))
+        assert len(cfg.entities[0].attributes) == 2
+        attr0 = cfg.entities[0].attributes[0]
+        assert isinstance(attr0, EntityAttribute)
+        assert attr0.name == "field"
+        assert attr0.type == "string"
+        assert attr0.description == ""
+
+    def test_attributes_as_typed_dicts(self, tmp_path):
+        """New-style typed attributes are parsed correctly."""
+        schema = {
+            "entities": [
+                {
+                    "name": "Document",
+                    "description": "A source document",
+                    "attributes": [
+                        {
+                            "name": "publication_date",
+                            "type": "date",
+                            "description": "Date of publication",
+                        },
+                        {
+                            "name": "page_count",
+                            "type": "number",
+                            "description": "Number of pages",
+                        },
+                    ],
+                }
+            ]
+        }
+        f = tmp_path / "schema.yaml"
+        f.write_text(yaml.dump(schema), encoding="utf-8")
+        cfg = load_graph_config(str(f))
+        attrs = cfg.entities[0].attributes
+        assert len(attrs) == 2
+        assert attrs[0].name == "publication_date"
+        assert attrs[0].type == "date"
+        assert attrs[0].description == "Date of publication"
+        assert attrs[1].name == "page_count"
+        assert attrs[1].type == "number"
+
+    def test_mixed_attribute_formats(self, tmp_path):
+        """Mix of string and dict attributes is handled."""
+        schema = {
+            "entities": [
+                {
+                    "name": "Thing",
+                    "description": "A thing",
+                    "attributes": [
+                        "simple_attr",
+                        {"name": "typed_attr", "type": "number"},
+                    ],
+                }
+            ]
+        }
+        f = tmp_path / "schema.yaml"
+        f.write_text(yaml.dump(schema), encoding="utf-8")
+        cfg = load_graph_config(str(f))
+        attrs = cfg.entities[0].attributes
+        assert len(attrs) == 2
+        assert attrs[0].name == "simple_attr"
+        assert attrs[0].type == "string"
+        assert attrs[1].name == "typed_attr"
+        assert attrs[1].type == "number"
 
 
 # ---------------------------------------------------------------------------

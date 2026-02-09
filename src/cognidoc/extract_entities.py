@@ -115,11 +115,15 @@ def build_entity_extraction_prompt(
     config: GraphConfig,
 ) -> str:
     """Build the prompt for entity extraction."""
-    # Build entity types description
+    # Build entity types description (with typed attributes if defined)
     entity_types_desc = []
     for et in config.entities:
         examples_str = ", ".join(et.examples[:3]) if et.examples else "N/A"
-        entity_types_desc.append(f"- {et.name}: {et.description} (examples: {examples_str})")
+        line = f"- {et.name}: {et.description} (examples: {examples_str})"
+        if et.attributes:
+            attrs_str = ", ".join(f"{a.name} ({a.type})" for a in et.attributes)
+            line += f"\n  Expected attributes: {attrs_str}"
+        entity_types_desc.append(line)
     entity_types_str = "\n".join(entity_types_desc)
 
     # Use custom prompt if provided
@@ -153,6 +157,12 @@ INSTRUCTIONS:
    - confidence: Your confidence in this extraction (0.0-1.0)
 3. Be precise and only extract entities that are clearly mentioned
 4. Normalize entity names (e.g., "ML" and "Machine Learning" should be "Machine Learning")
+5. Extract key attributes as structured key-value pairs in the "attributes" field:
+   - Dates (birth_date, publication_date, creation_date, etc.)
+   - Places (location, country, city, headquarters, etc.)
+   - Quantities (count, amount, population, size, etc.)
+   - Status or categorical values (status, category, role, etc.)
+   - Only include attributes explicitly stated in the text
 
 OUTPUT FORMAT (JSON):
 {{
@@ -161,7 +171,12 @@ OUTPUT FORMAT (JSON):
       "name": "Entity Name",
       "type": "EntityType",
       "description": "Brief description from context",
-      "confidence": 0.95
+      "confidence": 0.95,
+      "attributes": {{
+        "date": "1962",
+        "location": "Paris",
+        "status": "approved"
+      }}
     }}
   ]
 }}
@@ -322,6 +337,8 @@ def extract_json_from_response(response: str, key: str = "entities") -> Dict[str
                         norm_item["target"] = v
                     elif k_lower in ("relation", "type", "relationship_type", "type_relation"):
                         norm_item["type"] = v
+                    elif k_lower in ("attributes", "attributs"):
+                        norm_item["attributes"] = v
                     else:
                         norm_item[k] = v
                 normalized.append(norm_item)
@@ -374,10 +391,15 @@ def extract_entities_from_text(
             if confidence < config.extraction.min_confidence:
                 continue
 
+            # Parse attributes (dict of key-value pairs)
+            raw_attrs = e.get("attributes", {})
+            attributes = raw_attrs if isinstance(raw_attrs, dict) else {}
+
             entity = Entity(
                 name=(e.get("name") or "").strip(),
                 type=(e.get("type") or "").strip(),
                 description=(e.get("description") or "").strip(),
+                attributes=attributes,
                 confidence=confidence,
                 source_chunk=chunk_id,
             )
@@ -637,10 +659,15 @@ async def extract_entities_from_text_async(
             if confidence < config.extraction.min_confidence:
                 continue
 
+            # Parse attributes (dict of key-value pairs)
+            raw_attrs = e.get("attributes", {})
+            attributes = raw_attrs if isinstance(raw_attrs, dict) else {}
+
             entity = Entity(
                 name=(e.get("name") or "").strip(),
                 type=(e.get("type") or "").strip(),
                 description=(e.get("description") or "").strip(),
+                attributes=attributes,
                 confidence=confidence,
                 source_chunk=chunk_id,
             )

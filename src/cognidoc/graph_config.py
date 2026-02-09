@@ -22,13 +22,22 @@ DEFAULT_CONFIG_PATH = PROJECT_DIR / "config/graph_schema.yaml"
 
 
 @dataclass
+class EntityAttribute:
+    """Definition of a typed entity attribute."""
+
+    name: str
+    type: str = "string"  # string, number, date, boolean
+    description: str = ""
+
+
+@dataclass
 class EntityType:
     """Definition of an entity type."""
 
     name: str
     description: str
     examples: List[str] = field(default_factory=list)
-    attributes: List[str] = field(default_factory=list)
+    attributes: List[EntityAttribute] = field(default_factory=list)
 
 
 @dataclass
@@ -234,12 +243,26 @@ def load_graph_config(config_path: Optional[str] = None) -> GraphConfig:
     # Parse entities
     entities = []
     for e in data.get("entities", []):
+        raw_attrs = e.get("attributes", [])
+        parsed_attrs = []
+        for attr in raw_attrs:
+            if isinstance(attr, str):
+                # Backward-compatible: plain string → EntityAttribute with default type
+                parsed_attrs.append(EntityAttribute(name=attr))
+            elif isinstance(attr, dict):
+                parsed_attrs.append(
+                    EntityAttribute(
+                        name=attr.get("name", ""),
+                        type=attr.get("type", "string"),
+                        description=attr.get("description", ""),
+                    )
+                )
         entities.append(
             EntityType(
                 name=e.get("name", ""),
                 description=e.get("description", ""),
                 examples=e.get("examples", []),
-                attributes=e.get("attributes", []),
+                attributes=parsed_attrs,
             )
         )
 

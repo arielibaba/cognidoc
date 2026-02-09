@@ -125,7 +125,7 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `query_orchestrator.py` | LLM-based query classification and routing |
 | `complexity.py` | Query complexity evaluation for agentic routing |
 | `agent.py` | ReAct agent with parallel reflection for complex queries |
-| `agent_tools.py` | Tool implementations for agent (9 tools) |
+| `agent_tools.py` | Tool implementations for agent (11 tools) |
 | `helpers.py` | Query rewriting, parsing, conversation context |
 | `schema_wizard.py` | Schema generation: interactive, template-based, or corpus-based (two-stage LLM) |
 | `constants.py` | Central config (paths, thresholds, model names) |
@@ -280,10 +280,14 @@ Complex queries (score >= 0.55) trigger the ReAct agent: `THINK → ACT → OBSE
 
 Agent tools (`agent_tools.py`):
 - `retrieve_vector`, `retrieve_graph`, `lookup_entity`, `compare_entities`
+- `aggregate_graph(operation, entity_type, attribute, attribute_value)` - COUNT/COUNT_BY/LIST/GROUP_BY/STATS on NetworkX
 - `database_stats(list_documents=True/False)` - returns unique source documents count
+- `exhaustive_search` - corpus-wide BM25 keyword search
 - `synthesize`, `verify_claim`, `ask_clarification`, `final_answer`
 
 **Document listing patterns** (`complexity.py`): Queries like "liste les documents", "quels documents", "list all docs" trigger agent path via `DATABASE_META_PATTERNS`.
+
+**Aggregation patterns** (`complexity.py`): Queries like "combien de", "how many", "average", "list all" trigger agent path via `AGGREGATION_PATTERNS`.
 
 ## Configuration
 
@@ -465,19 +469,19 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 |--------|-------|-------------|
 | `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 60 | Agent ReAct loop |
-| `test_agent_tools.py` | 43 | Tool implementations |
+| `test_agent_tools.py` | 57 | Tool implementations |
 | `test_api.py` | 12 | CogniDoc public API, config validation, deprecation |
 | `test_benchmark.py` | 12 | Precision/recall benchmark with reranking comparison |
 | `test_build_indexes.py` | 10 | Vector/keyword index building |
 | `test_checkpoint.py` | 32 | Checkpoint/resume system |
 | `test_chunking.py` | 29 | Text/table chunking (parent/child, file filter, hard_split, table overlap) |
 | `test_cli.py` | 35 | CLI commands and argument parsing |
-| `test_complexity.py` | 38 | Query complexity evaluation |
+| `test_complexity.py` | 60 | Query complexity evaluation |
 | `test_conversion.py` | 29 | Document format conversion |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
 | `test_entity_resolution.py` | 26 | Entity resolution (blocking, matching, clustering, merging) |
-| `test_extract_entities.py` | 21 | Entity/relationship extraction, JSON parsing, prompts |
-| `test_graph_config.py` | 25 | GraphRAG schema loading and validation |
+| `test_extract_entities.py` | 28 | Entity/relationship extraction, JSON parsing, prompts, attributes |
+| `test_graph_config.py` | 30 | GraphRAG schema loading and validation |
 | `test_graph_retrieval.py` | 16 | Graph retrieval cache, retriever, result dataclass |
 | `test_helpers.py` | 34 | Token counting, chat history, query parsing |
 | `test_hybrid_retriever.py` | 17 | Hybrid retrieval, cache serialization, context manager |

@@ -15,8 +15,10 @@ from cognidoc.complexity import (
     _cosine_similarity,
     count_subquestions,
     is_ambiguous,
+    is_aggregation_question,
     AGENT_THRESHOLD,
     COMPLEXITY_CATEGORIES,
+    AGGREGATION_PATTERNS,
 )
 from cognidoc.query_orchestrator import (
     RoutingDecision,
@@ -461,6 +463,56 @@ class TestContinuousScoring:
             "What is the relation between Alpha, Beta and Gamma", routing=routing_3
         )
         assert result_3.score > result_2.score
+
+
+class TestAggregationPatterns:
+    """Tests for aggregation pattern detection."""
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "Combien de documents traitent de l'IA ?",
+            "Combien d'entités de type Personne ?",
+            "how many entities are there?",
+            "count of all documents",
+            "Nombre de personnes dans le graphe",
+            "nombre total de noeuds",
+            "average population of cities",
+            "quelle est la moyenne des scores ?",
+            "list all persons in the graph",
+            "lister tous les documents",
+            "total de documents",
+            "total number of entities",
+            "distribution des entités par type",
+            "breakdown by category",
+            "cuántos documentos hay?",
+            "wie viele Personen gibt es?",
+            "Durchschnitt der Bewertungen",
+        ],
+    )
+    def test_aggregation_detected(self, query):
+        """Aggregation patterns are detected."""
+        assert is_aggregation_question(query), f"Not detected: {query!r}"
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "What is machine learning?",
+            "Explain the concept of gravity",
+            "Who is Albert Einstein?",
+            "Qu'est-ce que le RAG ?",
+        ],
+    )
+    def test_non_aggregation_not_detected(self, query):
+        """Non-aggregation queries are not flagged."""
+        assert not is_aggregation_question(query), f"Falsely detected: {query!r}"
+
+    def test_aggregation_triggers_agent_path(self):
+        """Aggregation questions force agent path (score >= AGENT_THRESHOLD)."""
+        result = evaluate_complexity("Combien de personnes dans le graphe ?")
+        assert result.level == ComplexityLevel.COMPLEX
+        assert result.score >= AGENT_THRESHOLD
+        assert "aggregation" in result.reasoning.lower()
 
 
 class TestComplexityLevelEnum:

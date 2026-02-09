@@ -1,5 +1,6 @@
 """Tests for extract_entities.py — dataclasses, JSON parsing, prompt building."""
 
+import json
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -235,3 +236,152 @@ class TestUtilities:
     def test_load_nonexistent_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_extraction_results(str(tmp_path / "nonexistent.json"))
+
+
+# ===========================================================================
+# Attribute extraction
+# ===========================================================================
+
+
+class TestAttributeExtraction:
+    """Tests for entity attribute extraction and parsing."""
+
+    @patch("cognidoc.extract_entities.llm_chat")
+    def test_attributes_parsed_from_llm_response(self, mock_llm):
+        """Attributes dict is populated from LLM response."""
+        mock_llm.return_value = json.dumps(
+            {
+                "entities": [
+                    {
+                        "name": "Treaty of Rome",
+                        "type": "EVENT",
+                        "description": "Founding treaty",
+                        "confidence": 0.95,
+                        "attributes": {
+                            "date": "1957",
+                            "location": "Rome",
+                            "status": "ratified",
+                        },
+                    }
+                ]
+            }
+        )
+        entities = extract_entities_from_text("The Treaty of Rome was signed in 1957.", "c1")
+        assert len(entities) == 1
+        assert entities[0].attributes["date"] == "1957"
+        assert entities[0].attributes["location"] == "Rome"
+        assert entities[0].attributes["status"] == "ratified"
+
+    @patch("cognidoc.extract_entities.llm_chat")
+    def test_missing_attributes_defaults_to_empty_dict(self, mock_llm):
+        """When LLM omits attributes, they default to empty dict."""
+        mock_llm.return_value = json.dumps(
+            {
+                "entities": [
+                    {
+                        "name": "Python",
+                        "type": "LANGUAGE",
+                        "description": "A programming language",
+                        "confidence": 0.9,
+                    }
+                ]
+            }
+        )
+        entities = extract_entities_from_text("Python is a language.", "c1")
+        assert len(entities) == 1
+        assert entities[0].attributes == {}
+
+    @patch("cognidoc.extract_entities.llm_chat")
+    def test_non_dict_attributes_ignored(self, mock_llm):
+        """When LLM returns non-dict attributes, they are treated as empty dict."""
+        mock_llm.return_value = json.dumps(
+            {
+                "entities": [
+                    {
+                        "name": "X",
+                        "type": "T",
+                        "description": "desc",
+                        "confidence": 0.9,
+                        "attributes": "not_a_dict",
+                    }
+                ]
+            }
+        )
+        entities = extract_entities_from_text("text", "c1")
+        assert len(entities) == 1
+        assert entities[0].attributes == {}
+
+    def test_prompt_contains_attributes_instructions(self):
+        """Prompt includes instructions for attribute extraction."""
+        from cognidoc.graph_config import GraphConfig
+
+        config = GraphConfig()
+        prompt = build_entity_extraction_prompt("Sample text", config)
+        assert "attributes" in prompt.lower()
+        assert "date" in prompt.lower() or "Date" in prompt
+
+    def test_prompt_includes_schema_attributes(self):
+        """When entity types have typed attributes, they appear in the prompt."""
+        from cognidoc.graph_config import GraphConfig, EntityType, EntityAttribute
+
+        config = GraphConfig(
+            entities=[
+                EntityType(
+                    name="Document",
+                    description="A document",
+                    attributes=[
+                        EntityAttribute(
+                            name="publication_date", type="date", description="Date of publication"
+                        ),
+                        EntityAttribute(
+                            name="page_count", type="number", description="Number of pages"
+                        ),
+                    ],
+                )
+            ]
+        )
+        prompt = build_entity_extraction_prompt("Sample text", config)
+        assert "publication_date (date)" in prompt
+        assert "page_count (number)" in prompt
+
+    def test_json_parser_normalizes_french_attributes(self):
+        """extract_json_from_response normalizes 'attributs' to 'attributes'."""
+        response = json.dumps(
+            {
+                "entities": [
+                    {
+                        "nom": "Paris",
+                        "type": "LIEU",
+                        "description": "Capitale",
+                        "confiance": 0.9,
+                        "attributs": {"population": 2161000},
+                    }
+                ]
+            }
+        )
+        result = extract_json_from_response(response, "entities")
+        entity = result["entities"][0]
+        assert "attributes" in entity
+        assert entity["attributes"]["population"] == 2161000
+
+    def test_save_load_preserves_attributes(self, tmp_path):
+        """Attributes survive save/load round-trip."""
+        results = [
+            ExtractionResult(
+                chunk_id="c1",
+                chunk_text="text",
+                entities=[
+                    Entity(
+                        id="e1",
+                        name="X",
+                        type="T",
+                        attributes={"date": "2024", "count": 42},
+                    )
+                ],
+                relationships=[],
+            )
+        ]
+        path = str(tmp_path / "results.json")
+        save_extraction_results(results, path)
+        loaded = load_extraction_results(path)
+        assert loaded[0].entities[0].attributes == {"date": "2024", "count": 42}

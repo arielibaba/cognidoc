@@ -51,6 +51,7 @@ class ToolName(str, Enum):
     FINAL_ANSWER = "final_answer"
     DATABASE_STATS = "database_stats"
     EXHAUSTIVE_SEARCH = "exhaustive_search"
+    AGGREGATE_GRAPH = "aggregate_graph"
 
 
 @dataclass
@@ -145,6 +146,25 @@ class ToolResult:
                     f"The response may not cover all occurrences. "
                     f"Mention this limitation in your answer."
                 )
+            return "\n".join(parts)
+
+        elif self.tool == ToolName.AGGREGATE_GRAPH:
+            data = self.data or {}
+            op = data.get("operation", "")
+            parts = [f"AGGREGATION ({op}):"]
+            if "count" in data:
+                parts.append(f"Count: {data['count']}")
+            if "groups" in data:
+                for group_key, group_val in data["groups"].items():
+                    parts.append(f"  {group_key}: {group_val}")
+            if "stats" in data:
+                for stat_key, stat_val in data["stats"].items():
+                    parts.append(f"  {stat_key}: {stat_val}")
+            if "entities" in data and data["entities"]:
+                names = data["entities"]
+                parts.append(f"Entities: {', '.join(str(n) for n in names[:20])}")
+                if len(names) > 20:
+                    parts.append(f"  ... and {len(names) - 20} more")
             return "\n".join(parts)
 
         return str(self.data)
@@ -855,6 +875,195 @@ class ExhaustiveSearchTool(BaseTool):
 
 
 # =============================================================================
+# Aggregate Graph Tool
+# =============================================================================
+
+
+class AggregateGraphTool(BaseTool):
+    """Performs counting and aggregation queries on the knowledge graph.
+
+    Supports:
+    - COUNT: How many entities of a given type?
+    - COUNT_BY: Count entities filtered by attribute value
+    - LIST: List all entities of a given type
+    - GROUP_BY: Group entities by an attribute
+    - STATS: Min/max/avg of a numeric attribute
+    """
+
+    name = ToolName.AGGREGATE_GRAPH
+    description = (
+        "Perform counting and aggregation on the knowledge graph. "
+        "Use for: 'how many entities of type X?', 'list all persons', "
+        "'group documents by topic', 'average population of cities'."
+    )
+    parameters = {
+        "operation": "One of: COUNT, COUNT_BY, LIST, GROUP_BY, STATS",
+        "entity_type": "The entity type to aggregate (e.g., 'Person', 'Document')",
+        "attribute": "Attribute name for COUNT_BY/GROUP_BY/STATS (e.g., 'date', 'status')",
+        "attribute_value": "Attribute value for COUNT_BY filtering (e.g., '2024', 'approved')",
+    }
+
+    def __init__(self, graph_retriever: "GraphRetriever"):
+        self.graph_retriever = graph_retriever
+
+    def execute(
+        self,
+        operation: str = "COUNT",
+        entity_type: str = "",
+        attribute: str = "",
+        attribute_value: str = "",
+        **kwargs,
+    ) -> ToolResult:
+        try:
+            if not self.graph_retriever.is_loaded():
+                self.graph_retriever.load()
+
+            kg = self.graph_retriever.kg
+            if not kg:
+                return ToolResult(
+                    tool=self.name,
+                    success=False,
+                    error="Knowledge graph not available",
+                )
+
+            op = operation.strip().upper()
+            et = entity_type.strip()
+
+            # Filter nodes by entity type (case-insensitive)
+            if et:
+                nodes = [n for n in kg.nodes.values() if n.type.lower() == et.lower()]
+            else:
+                nodes = list(kg.nodes.values())
+
+            if op == "COUNT":
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={
+                        "operation": "COUNT",
+                        "count": len(nodes),
+                        "entity_type": et or "all",
+                    },
+                )
+
+            elif op == "COUNT_BY":
+                if not attribute:
+                    return ToolResult(
+                        tool=self.name,
+                        success=False,
+                        error="COUNT_BY requires 'attribute' parameter",
+                    )
+                filtered = [
+                    n
+                    for n in nodes
+                    if str(n.attributes.get(attribute, "")).lower() == attribute_value.lower()
+                ]
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={
+                        "operation": "COUNT_BY",
+                        "count": len(filtered),
+                        "entity_type": et or "all",
+                        "filter": {attribute: attribute_value},
+                        "entities": [n.name for n in filtered[:20]],
+                    },
+                )
+
+            elif op == "LIST":
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={
+                        "operation": "LIST",
+                        "count": len(nodes),
+                        "entity_type": et or "all",
+                        "entities": [n.name for n in nodes],
+                    },
+                )
+
+            elif op == "GROUP_BY":
+                if not attribute:
+                    return ToolResult(
+                        tool=self.name,
+                        success=False,
+                        error="GROUP_BY requires 'attribute' parameter",
+                    )
+                groups: Dict[str, int] = {}
+                for n in nodes:
+                    val = str(n.attributes.get(attribute, "unknown"))
+                    groups[val] = groups.get(val, 0) + 1
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={
+                        "operation": "GROUP_BY",
+                        "entity_type": et or "all",
+                        "attribute": attribute,
+                        "groups": dict(sorted(groups.items(), key=lambda x: x[1], reverse=True)),
+                    },
+                )
+
+            elif op == "STATS":
+                if not attribute:
+                    return ToolResult(
+                        tool=self.name,
+                        success=False,
+                        error="STATS requires 'attribute' parameter",
+                    )
+                values = []
+                for n in nodes:
+                    raw = n.attributes.get(attribute)
+                    if raw is not None:
+                        try:
+                            values.append(float(raw))
+                        except (ValueError, TypeError):
+                            pass
+                if not values:
+                    return ToolResult(
+                        tool=self.name,
+                        success=True,
+                        data={
+                            "operation": "STATS",
+                            "entity_type": et or "all",
+                            "attribute": attribute,
+                            "stats": {"error": "No numeric values found"},
+                        },
+                    )
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    data={
+                        "operation": "STATS",
+                        "entity_type": et or "all",
+                        "attribute": attribute,
+                        "stats": {
+                            "count": len(values),
+                            "min": min(values),
+                            "max": max(values),
+                            "avg": round(sum(values) / len(values), 2),
+                            "sum": sum(values),
+                        },
+                    },
+                )
+
+            else:
+                return ToolResult(
+                    tool=self.name,
+                    success=False,
+                    error=f"Unknown operation '{op}'. Use COUNT, COUNT_BY, LIST, GROUP_BY, or STATS.",
+                )
+
+        except Exception as e:
+            logger.error(f"AggregateGraphTool error: {e}")
+            return ToolResult(
+                tool=self.name,
+                success=False,
+                error=str(e),
+            )
+
+
+# =============================================================================
 # Tool Registry
 # =============================================================================
 
@@ -928,6 +1137,7 @@ def create_tool_registry(
         registry.register(RetrieveGraphTool(graph_retriever))
         registry.register(LookupEntityTool(graph_retriever))
         registry.register(CompareEntitiesTool(graph_retriever))
+        registry.register(AggregateGraphTool(graph_retriever))
 
     # LLM-based tools (always available)
     registry.register(SynthesizeTool())
@@ -962,6 +1172,7 @@ __all__ = [
     "FinalAnswerTool",
     "DatabaseStatsTool",
     "ExhaustiveSearchTool",
+    "AggregateGraphTool",
     "ToolRegistry",
     "create_tool_registry",
 ]
