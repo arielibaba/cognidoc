@@ -22,6 +22,7 @@ CogniDoc is a Hybrid RAG (Vector + GraphRAG) document assistant that converts mu
 make install          # Create venv and install dependencies
 make sync             # Sync environment with lock file
 make lock             # Lock dependencies
+make refactor         # Format + lint (root-level *.py only)
 make help             # Display all available Makefile targets
 uv sync --group dev   # Install dev dependencies (pytest, black, pylint, mypy)
 
@@ -362,6 +363,8 @@ The ingestion pipeline can also use a separate LLM model via `INGESTION_LLM_MODE
 | Cross-encoder reranking | `dengcao/Qwen3-Reranker-0.6B:F16` | Ollama |
 | Contextual compression | `gemini-3-flash-preview` | Gemini |
 
+See `.env.example` for the complete list of all configurable environment variables with inline documentation.
+
 ### Key Constants (overridable via `.env`)
 
 - `YOLO_CONFIDENCE_THRESHOLD`: 0.2
@@ -422,7 +425,7 @@ ollama pull qwen3-vl:8b-instruct            # Vision (optional)
 
 ### YOLO Model (optional)
 
-YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored). Without it, falls back to simple page-level extraction.
+YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored). Without it, falls back to simple page-level extraction. Note: torch and torchvision versions must be compatible when installing the `yolo` extra.
 
 ## Project Directories
 
