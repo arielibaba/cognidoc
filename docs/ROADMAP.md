@@ -44,6 +44,13 @@ Fichier centralisé de suivi des plans d'implémentation.
   - Dark mode synchronisé via `localStorage('cognidoc-dark-mode')`
   - Drag, zoom, pan, tooltips sur edges
 
+### Bugfixes : sources chat + graph viewer vide
+- **Statut:** Fait
+- **Commit:** `d85faa0`
+- **Description:** Deux bugs corrigés dans `cognidoc_app.py` :
+  - **Sources manquantes dans le chat :** `hybrid_result` n'était pas initialisé dans le chemin vector-only fallback, causant un `NameError` lors de l'accès à `hybrid_result.metadata` pour la confidence. Fix : `hybrid_result = None` + guard conditionnel.
+  - **Graph viewer vide :** L'endpoint `/api/graph/data` accédait directement à `hybrid_retriever._graph_retriever` qui est `None` en lazy loading. Fix : appel à `_ensure_graph_loaded()` avant l'accès pour déclencher le chargement du graphe.
+
 ---
 
 ## Phase 1 : Enrichissement extraction + Outil d'agrégation (NetworkX)
