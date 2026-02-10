@@ -412,21 +412,27 @@ def format_sources_html(sources: list[dict]) -> str:
 CUSTOM_CSS = """
 /* Global styles */
 .gradio-container {
-    max-width: 1400px !important;
-    margin: auto !important;
+    max-width: 100% !important;
+    padding: 0 2rem !important;
+    min-height: 100vh !important;
 }
 
-/* Header styling */
+/* Header styling — always dark gradient, text always white */
 .header-container {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%) !important;
     padding: 1.5rem 2rem;
     border-radius: 12px;
     margin-bottom: 1.5rem;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
+.header-container,
+.header-container * {
+    color: #ffffff !important;
+}
+
 .header-title {
-    color: #ffffff;
+    color: #ffffff !important;
     font-size: 2.2rem;
     font-weight: 700;
     margin: 0;
@@ -435,16 +441,20 @@ CUSTOM_CSS = """
     gap: 12px;
 }
 
+.header-title svg {
+    stroke: #ffffff !important;
+}
+
 .header-subtitle {
-    color: #a0aec0;
+    color: #a0aec0 !important;
     font-size: 1rem;
     margin-top: 0.5rem;
     font-weight: 400;
 }
 
 .header-badge {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 0.75rem;
@@ -581,6 +591,9 @@ CUSTOM_CSS = """
 /* Chatbot styling */
 .chatbot {
     border-radius: 12px !important;
+    height: calc(100vh - 320px) !important;
+    min-height: 400px !important;
+    max-height: none !important;
 }
 
 /* Enhanced message styling */
@@ -807,19 +820,53 @@ html.dark-mode {
     --text-primary: #f1f5f9;
     --text-secondary: #94a3b8;
     --border-color: #334155;
+    --accent: #818cf8;
+}
+
+/* ---- Global background ---- */
+html.dark-mode,
+html.dark-mode body {
+    background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
 }
 
 html.dark-mode .gradio-container {
     background: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
 }
 
+/* ---- Catch-all for Gradio panels, blocks, columns ---- */
 html.dark-mode .gr-panel,
 html.dark-mode .gr-box,
-html.dark-mode .gr-form {
-    background: var(--bg-secondary) !important;
+html.dark-mode .gr-form,
+html.dark-mode .gr-block,
+html.dark-mode .gr-group,
+html.dark-mode .gr-padded,
+html.dark-mode .contain,
+html.dark-mode [class*="block"] {
+    background: transparent !important;
     border-color: var(--border-color) !important;
 }
 
+/* ---- All text everywhere ---- */
+html.dark-mode p,
+html.dark-mode span,
+html.dark-mode div,
+html.dark-mode h1, html.dark-mode h2, html.dark-mode h3, html.dark-mode h4,
+html.dark-mode label,
+html.dark-mode .gr-check-radio label,
+html.dark-mode strong,
+html.dark-mode b {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .gr-check-radio,
+html.dark-mode .info span,
+html.dark-mode [data-testid="info"] {
+    color: var(--text-secondary) !important;
+}
+
+/* ---- Settings panel ---- */
 html.dark-mode .settings-title {
     color: var(--text-primary) !important;
 }
@@ -830,12 +877,12 @@ html.dark-mode .toggle-card {
 }
 
 html.dark-mode .toggle-card:hover {
-    border-color: #667eea !important;
+    border-color: var(--accent) !important;
 }
 
 html.dark-mode .info-card {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
-    border-color: #334155 !important;
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-color) !important;
 }
 
 html.dark-mode .info-card-title {
@@ -846,6 +893,26 @@ html.dark-mode .info-card-text {
     color: var(--text-secondary) !important;
 }
 
+html.dark-mode .info-card-text strong {
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode .settings-divider {
+    border-color: var(--border-color) !important;
+}
+
+/* ---- Status indicators ---- */
+html.dark-mode .status-active {
+    background: rgba(34, 197, 94, 0.15) !important;
+    color: #4ade80 !important;
+}
+
+html.dark-mode .status-inactive {
+    background: rgba(251, 191, 36, 0.15) !important;
+    color: #fbbf24 !important;
+}
+
+/* ---- Buttons ---- */
 html.dark-mode .secondary-btn {
     background: var(--bg-tertiary) !important;
     border-color: var(--border-color) !important;
@@ -856,16 +923,22 @@ html.dark-mode .secondary-btn:hover {
     background: #475569 !important;
 }
 
+/* ---- Chat container & chatbot ---- */
 html.dark-mode .chat-container {
     border-color: var(--border-color) !important;
-}
-
-html.dark-mode .chatbot {
     background: var(--bg-secondary) !important;
 }
 
+html.dark-mode .chatbot,
+html.dark-mode .chatbot > div,
+html.dark-mode [class*="chatbot"],
+html.dark-mode [data-testid="chatbot"] {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
 html.dark-mode .chatbot .message.bot {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+    background: var(--bg-primary) !important;
     border-color: var(--border-color) !important;
     color: var(--text-primary) !important;
 }
@@ -884,13 +957,14 @@ html.dark-mode .chatbot .message code {
 }
 
 html.dark-mode .chatbot .message a {
-    color: #818cf8 !important;
+    color: var(--accent) !important;
 }
 
 html.dark-mode .chatbot .message a:hover {
     color: #a5b4fc !important;
 }
 
+/* ---- Inputs ---- */
 html.dark-mode input,
 html.dark-mode textarea {
     background: var(--bg-secondary) !important;
@@ -903,6 +977,7 @@ html.dark-mode textarea::placeholder {
     color: var(--text-secondary) !important;
 }
 
+/* ---- Metrics dashboard ---- */
 html.dark-mode .metrics-card {
     background: var(--bg-secondary) !important;
     border-color: var(--border-color) !important;
@@ -912,18 +987,11 @@ html.dark-mode .metrics-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
 }
 
-html.dark-mode .metrics-card-icon {
-    opacity: 0.85;
-}
-
 html.dark-mode .metrics-value {
     color: var(--text-primary) !important;
 }
 
-html.dark-mode .metrics-unit {
-    color: var(--text-secondary) !important;
-}
-
+html.dark-mode .metrics-unit,
 html.dark-mode .metrics-label {
     color: var(--text-secondary) !important;
 }
@@ -932,34 +1000,45 @@ html.dark-mode .dashboard-section-title {
     color: var(--text-secondary) !important;
 }
 
+/* ---- Footer ---- */
 html.dark-mode .footer {
     color: var(--text-secondary) !important;
 }
 
-html.dark-mode label,
-html.dark-mode .gr-check-radio label {
-    color: var(--text-primary) !important;
+/* ---- Tabs (Gradio 6.x) ---- */
+html.dark-mode .tabs,
+html.dark-mode [class*="tabs"] {
+    background: transparent !important;
 }
 
-html.dark-mode .gr-check-radio {
+html.dark-mode .tab-nav,
+html.dark-mode [class*="tab-nav"] {
+    background: transparent !important;
+    border-color: var(--border-color) !important;
+}
+
+html.dark-mode .tab-nav button,
+html.dark-mode [class*="tab-nav"] button {
+    color: var(--text-secondary) !important;
+    background: transparent !important;
+}
+
+html.dark-mode .tab-nav button.selected,
+html.dark-mode [class*="tab-nav"] button.selected {
+    color: var(--text-primary) !important;
+    border-color: var(--accent) !important;
+}
+
+/* Ensure ALL tab buttons are visible (Gradio uses various wrappers) */
+html.dark-mode button[role="tab"] {
     color: var(--text-secondary) !important;
 }
 
-/* Tab styling for dark mode */
-html.dark-mode .tabs {
-    background: var(--bg-secondary) !important;
-}
-
-html.dark-mode .tab-nav button {
-    color: var(--text-secondary) !important;
-}
-
-html.dark-mode .tab-nav button.selected {
+html.dark-mode button[role="tab"][aria-selected="true"] {
     color: var(--text-primary) !important;
-    background: var(--bg-tertiary) !important;
 }
 
-/* Dropdown and select styling */
+/* ---- Dropdowns, selects ---- */
 html.dark-mode select,
 html.dark-mode .gr-dropdown {
     background: var(--bg-secondary) !important;
@@ -967,7 +1046,7 @@ html.dark-mode .gr-dropdown {
     color: var(--text-primary) !important;
 }
 
-/* Table styling for dark mode */
+/* ---- Tables & Dataframe ---- */
 html.dark-mode table {
     background: var(--bg-secondary) !important;
     color: var(--text-primary) !important;
@@ -976,10 +1055,125 @@ html.dark-mode table {
 html.dark-mode th {
     background: var(--bg-tertiary) !important;
     color: var(--text-primary) !important;
+    border-color: var(--border-color) !important;
 }
 
 html.dark-mode td {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
     border-color: var(--border-color) !important;
+}
+
+html.dark-mode tr:nth-child(even) td {
+    background: var(--bg-primary) !important;
+}
+
+/* Gradio Dataframe wrapper */
+html.dark-mode [class*="dataframe"],
+html.dark-mode [data-testid="dataframe"] {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+html.dark-mode [class*="dataframe"] .cell-wrap {
+    color: var(--text-primary) !important;
+}
+
+/* ---- Plot containers (Gradio wrappers around Plotly) ---- */
+html.dark-mode [class*="plot"],
+html.dark-mode [data-testid="plot"] {
+    background: transparent !important;
+}
+
+/* ---- Gradio native component wrappers ---- */
+html.dark-mode .wrap,
+html.dark-mode .panel,
+html.dark-mode .form,
+html.dark-mode .block {
+    background: transparent !important;
+    border-color: var(--border-color) !important;
+}
+
+/* Gradio svelte component wrappers - catch deep containers */
+html.dark-mode .gradio-container [class*="svelte-"] {
+    border-color: var(--border-color) !important;
+}
+
+/* Ensure no white backgrounds leak from internal Gradio wrappers */
+html.dark-mode .gradio-container div[class]:not(.header-container):not(.header-badge):not(.primary-btn):not(.status-active):not(.status-inactive):not(.info-card):not(.toggle-card):not(.metrics-card):not(.metrics-card-icon) {
+    background-color: transparent !important;
+}
+
+/* Re-assert backgrounds for elements that need them */
+html.dark-mode .header-container {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%) !important;
+}
+
+html.dark-mode .toggle-card {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .info-card {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .metrics-card {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .status-active {
+    background: rgba(34, 197, 94, 0.15) !important;
+}
+
+html.dark-mode .status-inactive {
+    background: rgba(251, 191, 36, 0.15) !important;
+}
+
+html.dark-mode input,
+html.dark-mode textarea {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .chatbot,
+html.dark-mode .chatbot > div,
+html.dark-mode [class*="chatbot"],
+html.dark-mode [data-testid="chatbot"] {
+    background: var(--bg-secondary) !important;
+}
+
+html.dark-mode .chatbot .message.bot {
+    background: var(--bg-primary) !important;
+}
+
+html.dark-mode .primary-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+}
+
+html.dark-mode .secondary-btn {
+    background: var(--bg-tertiary) !important;
+}
+
+html.dark-mode .refresh-primary-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+}
+
+/* ---- Scrollbar ---- */
+html.dark-mode ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+html.dark-mode ::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+html.dark-mode ::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+html.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
 }
 
 /* Sources section styling - Clean numbered list */
@@ -1930,8 +2124,9 @@ def create_fastapi_app(demo: gr.Blocks) -> "FastAPI":
                 async for chunk in response.body_iterator:
                     body += chunk
                 html = body.decode("utf-8")
-                # Inject script at end of <head> (runs before body renders)
-                html = html.replace("</head>", THEME_SCRIPT + "</head>", 1)
+                # Inject CSS + script at end of <head> (runs before body renders)
+                css_tag = f"<style>{CUSTOM_CSS}</style>"
+                html = html.replace("</head>", css_tag + THEME_SCRIPT + "</head>", 1)
                 return Response(
                     content=html,
                     status_code=response.status_code,
@@ -1976,7 +2171,6 @@ def create_gradio_app(default_reranking: bool = True):
     """
     with gr.Blocks(
         title="CogniDoc - Intelligent Document Assistant",
-        css=CUSTOM_CSS,
         theme=gr.themes.Soft(
             primary_hue="indigo",
             secondary_hue="slate",
@@ -2117,7 +2311,7 @@ def create_gradio_app(default_reranking: bool = True):
 
                         gr.HTML(
                             f"""
-                        <div style="font-size: 0.8rem; color: #64748b;">
+                        <div style="font-size: 0.8rem;">
                             <div style="margin-bottom: 8px; font-weight: 600;">System Status</div>
                             <div style="display: flex; flex-direction: column; gap: 6px;">
                                 <div class="status-indicator status-{vector_status}">
