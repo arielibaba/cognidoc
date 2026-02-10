@@ -17,6 +17,21 @@ Fichier centralisé de suivi des plans d'implémentation.
 - **Commits:** `c5c033c`, `400d48e`
 - **Description:** Refonte du dashboard Metrics avec cartes à bordures colorées + icones SVG, charts Plotly stylés (bar, spline timeline, donut), conversion ms vers secondes, grille CSS responsive, support dark mode.
 
+### Dark/Light mode toggle + UI responsive
+- **Statut:** Fait
+- **Commit:** `7b240ad`
+- **Description:** Fix du toggle dark/light mode (Gradio 6.x ignore `css=` dans `gr.Blocks()`). CSS+JS injectés via `ThemeInjectionMiddleware`. Layout full-width responsive (`max-width: 100%`, chatbot `calc(100vh - 320px)`). Dark mode complet sur Chat + Metrics (sélecteurs agressifs `!important` pour les composants Svelte de Gradio).
+
+### Formatage structuré des réponses LLM
+- **Statut:** Fait
+- **Commit:** `6454aa7`
+- **Description:** Post-traitement des réponses LLM pour un affichage structuré type ChatGPT/Claude :
+  - `_format_markdown()` : insertion de `\n\n` avant les listes/bullets inline (fix Gemini Flash qui compacte tout)
+  - `_indent_sublists()` : détection titre/sous-items avec suppression des lignes vides pour le nesting Markdown
+  - CSS `ol + ul { padding-left: 2rem }` : indentation visuelle des sous-items (contourne le rendering plat de Gradio)
+  - Fix `answer.split(' ')` au lieu de `split()` pour préserver les `\n\n` dans le streaming agent
+  - Prompts mis à jour (system, user, agent) avec instructions de listes imbriquées
+
 ---
 
 ## Phase 1 : Enrichissement extraction + Outil d'agrégation (NetworkX)

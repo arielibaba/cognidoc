@@ -119,7 +119,7 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 |--------|---------|
 | `api.py` | Main CogniDoc class (public API) |
 | `run_ingestion_pipeline.py` | Async pipeline orchestrator |
-| `cognidoc_app.py` | Gradio chat with FastAPI static file serving |
+| `cognidoc_app.py` | Gradio chat UI, FastAPI middleware (CSS/JS injection), response formatting |
 | `hybrid_retriever.py` | Vector + Graph fusion with query orchestration and caching |
 | `knowledge_graph.py` | Graph facade with pluggable backend (NetworkX/Kùzu) + Louvain communities |
 | `graph_backend.py` | Abstract GraphBackend ABC (Strategy pattern) |
