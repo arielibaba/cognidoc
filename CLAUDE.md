@@ -34,7 +34,8 @@ UV_LINK_MODE=copy uv pip install -e ".[all,dev]"
 
 # Code quality (black: line-length=100, target py310-py312)
 # pylint disables: C0114, C0115, C0116 (missing docstrings), R0903 (too-few-public-methods)
-# NOTE: make format targets root-level *.py; make lint targets *.py and code/*.py (NOT src/cognidoc/)
+# NOTE: Makefile targets are outdated — make format targets root-level *.py;
+# make lint targets *.py and code/*.py (code/ doesn't exist). Neither covers src/cognidoc/.
 # Use direct commands below for the main source code:
 uv run black src/cognidoc/       # Format source code
 uv run pylint src/cognidoc/      # Lint source code
@@ -323,6 +324,8 @@ When switching providers at runtime (e.g., `DEFAULT_LLM_PROVIDER=ollama`), the c
 **Priority order:** Provider-specific env var → Built-in default for that provider
 
 This ensures `DEFAULT_LLM_PROVIDER=ollama` uses `granite3.3:8b` even if `.env` has `DEFAULT_LLM_MODEL=gemini-3-flash-preview`.
+
+**Note:** `constants.py` defines `GEMINI_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", ...)` — so the Python variable reads from `DEFAULT_LLM_MODEL`, while `llm_providers.py`'s runtime provider selection checks env var `GEMINI_LLM_MODEL`. Setting either will affect Gemini model selection, but through different code paths.
 
 ### Vision Model Configuration
 
