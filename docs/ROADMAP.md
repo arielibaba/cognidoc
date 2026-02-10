@@ -32,6 +32,18 @@ Fichier centralisé de suivi des plans d'implémentation.
   - Fix `answer.split(' ')` au lieu de `split()` pour préserver les `\n\n` dans le streaming agent
   - Prompts mis à jour (system, user, agent) avec instructions de listes imbriquées
 
+### Visualisation interactive du Knowledge Graph
+- **Statut:** Fait
+- **Description:** Onglet "🕸 Graph" dans l'UI Gradio avec visualisation D3.js force-directed du knowledge graph.
+  - Page HTML standalone (`src/cognidoc/static/graph-viewer.html`) servie via FastAPI à `/graph-viewer`, intégrée en iframe
+  - Endpoint API `GET /api/graph/data` : sérialisation JSON du graphe (nodes, edges, communities, stats)
+  - Stats cards (nodes, edges, communities, entity types), filtre par type, recherche, toggle communautés/labels
+  - Nodes colorés par type (`d3.schemeTableau10`), taille proportionnelle au degree
+  - Panneau détails au clic : name, type, description, attributes, aliases, community, connections
+  - Community hulls (enveloppes convexes) avec toggle
+  - Dark mode synchronisé via `localStorage('cognidoc-dark-mode')`
+  - Drag, zoom, pan, tooltips sur edges
+
 ---
 
 ## Phase 1 : Enrichissement extraction + Outil d'agrégation (NetworkX)

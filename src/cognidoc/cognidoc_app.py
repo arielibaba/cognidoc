@@ -2239,6 +2239,81 @@ def create_fastapi_app(demo: gr.Blocks) -> "FastAPI":
                 return FileResponse(full_path, media_type="application/pdf")
         raise HTTPException(status_code=404, detail=f"PDF not found: {decoded}")
 
+    # ── Graph viewer endpoints ────────────────────────────────────────
+    from fastapi.responses import JSONResponse
+    from .constants import PACKAGE_DIR
+
+    @app.get("/graph-viewer")
+    async def serve_graph_viewer():
+        html_path = PACKAGE_DIR / "static" / "graph-viewer.html"
+        if not html_path.is_file():
+            raise HTTPException(status_code=404, detail="graph-viewer.html not found")
+        return FileResponse(html_path, media_type="text/html")
+
+    @app.get("/api/graph/data")
+    async def graph_data():
+        """Serialize knowledge graph for D3 visualization."""
+        gr_retriever = hybrid_retriever._graph_retriever
+        if gr_retriever is None or gr_retriever.kg is None:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "Knowledge graph not loaded"},
+            )
+        kg = gr_retriever.kg
+
+        # Degrees
+        degrees = kg._backend.degree()
+
+        # Nodes
+        nodes = []
+        for nid, node in kg.nodes.items():
+            nodes.append(
+                {
+                    "id": nid,
+                    "name": node.name,
+                    "type": node.type,
+                    "description": node.description,
+                    "degree": degrees.get(nid, 0),
+                    "community_id": node.community_id,
+                    "attributes": node.attributes,
+                    "aliases": node.aliases,
+                }
+            )
+
+        # Edges from backend
+        edges = []
+        for src, tgt, data in kg._backend.iter_edges(data=True):
+            edges.append(
+                {
+                    "source": src,
+                    "target": tgt,
+                    "relationship_type": data.get("relationship_type", "RELATED"),
+                    "description": data.get("description", ""),
+                    "weight": data.get("weight", 1.0),
+                }
+            )
+
+        # Communities
+        communities = []
+        for cid, comm in kg.communities.items():
+            communities.append(
+                {
+                    "id": cid,
+                    "node_ids": comm.node_ids,
+                    "summary": comm.summary,
+                }
+            )
+
+        # Stats
+        stats = kg.get_statistics()
+
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "communities": communities,
+            "stats": stats,
+        }
+
     # Mount Gradio AFTER explicit routes
     app = gr.mount_gradio_app(app, demo, path="/")
     return app
@@ -2518,6 +2593,22 @@ def create_gradio_app(default_reranking: bool = True):
                     export_json,
                     inputs=[],
                     outputs=[export_file],
+                )
+
+            # =============================================================
+            # Graph Tab
+            # =============================================================
+            with gr.Tab("🕸 Graph"):
+                gr.HTML(
+                    """
+                    <div style="padding: 8px 4px 4px; font-size: 0.85rem; color: var(--text-muted, #64748b);">
+                        Interactive knowledge graph visualization.
+                        Drag nodes, zoom with scroll, click a node for details.
+                    </div>
+                    <iframe src="/graph-viewer"
+                            style="width:100%; height:800px; border:none; border-radius:8px;"
+                            loading="lazy"></iframe>
+                    """
                 )
 
         # Footer
