@@ -1595,6 +1595,7 @@ def chat_conversation(
     t3 = time.perf_counter()
     graph_context = ""
     graph_time = 0
+    hybrid_result = None
 
     if enable_graph and hybrid_retriever.is_loaded():
         # Use hybrid retrieval (vector + graph)
@@ -1818,7 +1819,9 @@ def chat_conversation(
     final = history[-1]["content"].strip()
     is_no_info = any(final.lower().startswith(prefix) for prefix in NO_INFO_PREFIXES)
     if not is_no_info and sources:
-        confidence = hybrid_result.metadata.get("answer_confidence", 0)
+        confidence = (
+            hybrid_result.metadata.get("answer_confidence", 0) if hybrid_result is not None else 0
+        )
         confidence_html = ""
         if confidence > 0:
             confidence_pct = round(confidence * 100)
@@ -2253,6 +2256,8 @@ def create_fastapi_app(demo: gr.Blocks) -> "FastAPI":
     @app.get("/api/graph/data")
     async def graph_data():
         """Serialize knowledge graph for D3 visualization."""
+        # Trigger lazy loading if graph hasn't been loaded yet
+        hybrid_retriever._ensure_graph_loaded()
         gr_retriever = hybrid_retriever._graph_retriever
         if gr_retriever is None or gr_retriever.kg is None:
             return JSONResponse(
