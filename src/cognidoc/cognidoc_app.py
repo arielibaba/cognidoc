@@ -1318,18 +1318,18 @@ def _format_markdown(text: str) -> str:
     Also indents non-bold sub-items under bold title bullets to create visual hierarchy.
     """
     # 1. Paragraph break before numbered items: ": 1. " or ". 2. "
-    text = re.sub(r'([.!?:;)])\s+(\d+\.\s)', r'\1\n\n\2', text)
+    text = re.sub(r"([.!?:;)])\s+(\d+\.\s)", r"\1\n\n\2", text)
     # 2. Paragraph break before star bullets after punctuation: ". * " or ": * "
-    text = re.sub(r'([.!?:;])\s+(\* )', r'\1\n\n\2', text)
+    text = re.sub(r"([.!?:;])\s+(\* )", r"\1\n\n\2", text)
     # 3. Paragraph break before star bullets after bold-close: "** * "
-    text = re.sub(r'(\*\*)\s+(\* )', r'\1\n\n\2', text)
+    text = re.sub(r"(\*\*)\s+(\* )", r"\1\n\n\2", text)
     # 4. Paragraph break before dash bullets: ". - " or ": - "
-    text = re.sub(r'([.!?:;])\s+(- )', r'\1\n\n\2', text)
+    text = re.sub(r"([.!?:;])\s+(- )", r"\1\n\n\2", text)
     # 5. Paragraph break before concluding phrases
-    text = re.sub(r'([.!?])\s+(En résumé)', r'\1\n\n\2', text)
-    text = re.sub(r'([.!?])\s+(In summary)', r'\1\n\n\2', text, flags=re.IGNORECASE)
+    text = re.sub(r"([.!?])\s+(En résumé)", r"\1\n\n\2", text)
+    text = re.sub(r"([.!?])\s+(In summary)", r"\1\n\n\2", text, flags=re.IGNORECASE)
     # 6. Clean up triple+ newlines
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     # 7. Indent non-bold bullets under bold-title bullets to create hierarchy
     text = _indent_sublists(text)
     return text.strip()
@@ -1347,38 +1347,38 @@ def _indent_sublists(text: str) -> str:
     Also removes blank lines between title and sub-items, because in Markdown
     a blank line between a list item and its nested content breaks the nesting.
     """
-    lines = text.split('\n')
+    lines = text.split("\n")
     result = []
     # "bullet" = title is * or -, "numbered" = title is 1. 2. etc., None = no title context
     title_type = None
     for line in lines:
         stripped = line.lstrip()
         # Case A: numbered title line "1. **Bold text**" or "1. **Bold text:**"
-        if re.match(r'^\d+\.\s+\*\*', stripped):
+        if re.match(r"^\d+\.\s+\*\*", stripped):
             title_type = "numbered"
             result.append(line)
         # Case B: bold bullet title "* **Bold text**" or "- **Bold text**"
-        elif re.match(r'^[*\-] \*\*', stripped):
+        elif re.match(r"^[*\-] \*\*", stripped):
             title_type = "bullet"
             result.append(line)
         # Case C: plain bullet (* or -) — potential sub-item
-        elif re.match(r'^[*\-] ', stripped):
+        elif re.match(r"^[*\-] ", stripped):
             if title_type in ("numbered", "bullet"):
                 # Remove preceding blank lines to maintain Markdown nesting
-                while result and result[-1].strip() == '':
+                while result and result[-1].strip() == "":
                     result.pop()
-                indent = '   ' if title_type == "numbered" else '  '
+                indent = "   " if title_type == "numbered" else "  "
                 result.append(indent + line)
             else:
                 result.append(line)
         # Empty lines: preserve title context
-        elif stripped == '':
+        elif stripped == "":
             result.append(line)
         # Non-bullet, non-empty line: reset title context
         else:
             title_type = None
             result.append(line)
-    return '\n'.join(result)
+    return "\n".join(result)
 
 
 def chat_conversation(
@@ -1526,7 +1526,7 @@ def chat_conversation(
 
                         # Stream answer progressively (word-by-word, split on spaces only
                         # to preserve \n\n paragraph breaks from _format_markdown)
-                        words = answer.split(' ')
+                        words = answer.split(" ")
                         accumulated = ""
                         for i, word in enumerate(words):
                             accumulated += (" " if accumulated else "") + word
