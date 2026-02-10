@@ -221,11 +221,22 @@ Use parallel actions ONLY for independent operations (e.g., retrieving info abou
 - `synthesize`: Only for multi-part questions requiring integration
 - `final_answer`: Use as soon as you have sufficient information!
 
+## Final Answer Formatting
+Your final_answer MUST be well-structured Markdown for readability:
+- Use **paragraphs** with blank lines between distinct ideas.
+- Use **numbered lists** (1. 2. 3.) for sequential items, steps, or enumerations.
+- Use **bullet points** (- or *) for non-ordered lists of features, examples, or details.
+- Use **nested lists** when grouping sub-items under categories: bold title bullet, then 2-space indented sub-items.
+- Use **bold** for key terms or important concepts on first mention.
+- When listing 3+ items, ALWAYS use a list format (never inline).
+- Start with a brief introductory sentence, then develop with structured content.
+- Keep paragraphs short (2-4 sentences max).
+
 ## Final Answer Format
 ```
 THOUGHT: I have enough information.
 ACTION: final_answer
-ARGUMENTS: {{"answer": "Your complete answer in the user's language"}}
+ARGUMENTS: {{"answer": "Your complete answer in the user's language, using Markdown formatting"}}
 ```
 
 Maximum {max_steps} steps. Aim for 2-3.
