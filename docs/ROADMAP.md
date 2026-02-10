@@ -89,9 +89,9 @@ Fichier centralisé de suivi des plans d'implémentation.
 - `test_complexity.py` : 22 tests (17 patterns détectés, 4 non-détectés, intégration agent path)
 - `test_graph_config.py` : 5 tests EntityAttribute (defaults, backward compat strings, typed dicts, mixed formats)
 
-### 1.6 Ré-ingérer un corpus pour vérifier l'extraction d'attributs — **À faire**
+### 1.6 Ré-ingérer un corpus pour vérifier l'extraction d'attributs — **Fait**
 
-Après ré-ingestion, vérifier que les attributs sont bien peuplés sur les entités du graphe.
+Ré-ingestion complète (`--full-reindex`) sur le corpus de test (3 documents). Résultat : 6/20 entités (30%) ont des attributs structurés extraits (application, category, alias). Les 14 entités sans attributs sont des concepts abstraits (formats, techniques génériques) cohérents avec le texte source.
 
 ### Scope Phase 1 — **Fait**
 
@@ -245,7 +245,7 @@ Phase 1 (enrichissement NetworkX) :          ✅ FAIT
   1.3  Ajouter AggregateGraphTool                                 ✅
   1.4  Mettre à jour les patterns de complexité                   ✅
   1.5  Tests                                                      ✅
-  1.6  Ré-ingérer un corpus de test                               ⬜ À faire
+  1.6  Ré-ingérer un corpus de test                               ✅
 
 Phase 2 (migration Kùzu) :                   ✅ FAIT
   2.1   Ajouter la dépendance kuzu                                    ✅
