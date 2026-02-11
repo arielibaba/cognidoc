@@ -889,35 +889,60 @@ html.dark-mode .toggle-card:hover {
 }
 
 html.dark-mode .info-card {
-    background: var(--bg-secondary) !important;
-    border-color: var(--border-color) !important;
+    background: #1e293b !important;
+    border-color: #334155 !important;
 }
 
-html.dark-mode .info-card-title {
+html.dark-mode .info-card-title,
+html.dark-mode .info-card .info-card-title {
     color: #a5b4fc !important;
 }
 
-html.dark-mode .info-card-text {
-    color: var(--text-secondary) !important;
+html.dark-mode .info-card-text,
+html.dark-mode .info-card .info-card-text {
+    color: #94a3b8 !important;
 }
 
-html.dark-mode .info-card-text strong {
-    color: var(--text-primary) !important;
+html.dark-mode .info-card-text strong,
+html.dark-mode .info-card .info-card-text strong {
+    color: #f1f5f9 !important;
 }
 
 html.dark-mode .settings-divider {
-    border-color: var(--border-color) !important;
+    border-color: #334155 !important;
 }
 
 /* ---- Status indicators ---- */
-html.dark-mode .status-active {
+html.dark-mode .status-indicator {
+    color: #f1f5f9 !important;
+}
+
+html.dark-mode .status-active,
+html.dark-mode .status-indicator.status-active {
     background: rgba(34, 197, 94, 0.15) !important;
+    color: #e2e8f0 !important;
+}
+
+html.dark-mode .status-active span,
+html.dark-mode .status-indicator.status-active span {
     color: #4ade80 !important;
 }
 
-html.dark-mode .status-inactive {
+html.dark-mode .status-inactive,
+html.dark-mode .status-indicator.status-inactive {
     background: rgba(251, 191, 36, 0.15) !important;
+    color: #e2e8f0 !important;
+}
+
+html.dark-mode .status-inactive span,
+html.dark-mode .status-indicator.status-inactive span {
     color: #fbbf24 !important;
+}
+
+/* ---- System status label ---- */
+html.dark-mode .system-status-section,
+html.dark-mode .system-status-section > div {
+    color: #f1f5f9 !important;
 }
 
 /* ---- Buttons ---- */
@@ -987,25 +1012,28 @@ html.dark-mode textarea::placeholder {
 
 /* ---- Metrics dashboard ---- */
 html.dark-mode .metrics-card {
-    background: var(--bg-secondary) !important;
-    border-color: var(--border-color) !important;
+    background: #1e293b !important;
+    border-color: #334155 !important;
 }
 
 html.dark-mode .metrics-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
 }
 
-html.dark-mode .metrics-value {
-    color: var(--text-primary) !important;
+html.dark-mode .metrics-value,
+html.dark-mode .metrics-card .metrics-value {
+    color: #f1f5f9 !important;
 }
 
 html.dark-mode .metrics-unit,
-html.dark-mode .metrics-label {
-    color: var(--text-secondary) !important;
+html.dark-mode .metrics-label,
+html.dark-mode .metrics-card .metrics-unit,
+html.dark-mode .metrics-card .metrics-label {
+    color: #94a3b8 !important;
 }
 
 html.dark-mode .dashboard-section-title {
-    color: var(--text-secondary) !important;
+    color: #94a3b8 !important;
 }
 
 /* ---- Footer ---- */
@@ -1108,7 +1136,7 @@ html.dark-mode .gradio-container [class*="svelte-"] {
 }
 
 /* Ensure no white backgrounds leak from internal Gradio wrappers */
-html.dark-mode .gradio-container div[class]:not(.header-container):not(.header-badge):not(.primary-btn):not(.status-active):not(.status-inactive):not(.info-card):not(.toggle-card):not(.metrics-card):not(.metrics-card-icon) {
+html.dark-mode .gradio-container div[class]:not(.header-container):not(.header-badge):not(.primary-btn):not(.status-active):not(.status-inactive):not(.status-indicator):not(.info-card):not(.info-card-title):not(.info-card-text):not(.toggle-card):not(.metrics-card):not(.metrics-card-icon):not(.system-status-section) {
     background-color: transparent !important;
 }
 
@@ -1118,23 +1146,25 @@ html.dark-mode .header-container {
 }
 
 html.dark-mode .toggle-card {
-    background: var(--bg-secondary) !important;
+    background: #1e293b !important;
 }
 
 html.dark-mode .info-card {
-    background: var(--bg-secondary) !important;
+    background: #1e293b !important;
 }
 
 html.dark-mode .metrics-card {
-    background: var(--bg-secondary) !important;
+    background: #1e293b !important;
 }
 
 html.dark-mode .status-active {
     background: rgba(34, 197, 94, 0.15) !important;
+    color: #e2e8f0 !important;
 }
 
 html.dark-mode .status-inactive {
     background: rgba(251, 191, 36, 0.15) !important;
+    color: #e2e8f0 !important;
 }
 
 html.dark-mode input,
@@ -2476,7 +2506,7 @@ def create_gradio_app(default_reranking: bool = True):
 
                         gr.HTML(
                             f"""
-                        <div style="font-size: 0.8rem;">
+                        <div class="system-status-section" style="font-size: 0.8rem;">
                             <div style="margin-bottom: 8px; font-weight: 600;">System Status</div>
                             <div style="display: flex; flex-direction: column; gap: 6px;">
                                 <div class="status-indicator status-{vector_status}">
