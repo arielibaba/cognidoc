@@ -10,7 +10,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
@@ -101,10 +101,10 @@ def make_metadata(
     file_date = None
     if stem_dates and document:
         # Try exact match first, then try encoded stem
-        encoded_stem = document.replace("/", PATH_SEPARATOR) if document else None
+        encoded_stem = document.replace("/", PATH_SEPARATOR)
         file_date = stem_dates.get(document) or stem_dates.get(encoded_stem)
 
-    source = {"document": document, "page": page}
+    source: Dict[str, Any] = {"document": document, "page": page}
     if file_date is not None:
         source["file_date"] = file_date
 
