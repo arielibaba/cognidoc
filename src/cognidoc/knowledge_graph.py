@@ -999,7 +999,8 @@ SUMMARY:"""
 
         # Clean self.edges list
         self.edges = [
-            e for e in self.edges
+            e
+            for e in self.edges
             if not all(_chunk_belongs_to_stems(c, deleted_stems) for c in e.source_chunks)
             or not e.source_chunks
         ]
@@ -1007,8 +1008,7 @@ SUMMARY:"""
         for edge in self.edges:
             if edge.source_chunks:
                 edge.source_chunks = [
-                    c for c in edge.source_chunks
-                    if not _chunk_belongs_to_stems(c, deleted_stems)
+                    c for c in edge.source_chunks if not _chunk_belongs_to_stems(c, deleted_stems)
                 ]
 
         # Phase 2: Process nodes
