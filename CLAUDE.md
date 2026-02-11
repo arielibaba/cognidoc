@@ -30,7 +30,8 @@ uv sync --group dev   # Install dev dependencies (pytest, black, pylint, mypy)
 
 # IMPORTANT: If project path contains spaces
 UV_LINK_MODE=copy uv sync --all-extras
-UV_LINK_MODE=copy uv pip install -e ".[all,dev]"
+UV_LINK_MODE=copy uv pip install ".[all,dev]"   # Non-editable (NOT -e), editable breaks with spaces
+# To launch the app after non-editable install, use .venv/bin/python (not uv run, which re-syncs editable)
 
 # Code quality (black: line-length=100, target py310-py312)
 # pylint disables: C0114, C0115, C0116 (missing docstrings), R0903 (too-few-public-methods)
@@ -146,7 +147,17 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `utils/logger.py` | Structured logging utilities |
 | `utils/tool_cache.py` | SQLite-backed persistent tool result caching with per-tool TTL |
 | `utils/error_classifier.py` | Error classification for retry logic |
+| `utils/advanced_rag.py` | BM25 sparse retrieval, cross-encoder reranking, lost-in-the-middle reordering, contextual compression |
+| `utils/embedding_cache.py` | SQLite-backed embedding cache (SHA-256 content hashing to skip unchanged chunks) |
 | `utils/async_utils.py` | Async concurrency helpers |
+| `graph_retrieval.py` | Graph retrieval: entity/relationship traversal, community queries, path finding |
+| `setup.py` | Interactive setup wizard (provider config, API key validation, document detection) |
+
+Pipeline stage modules (map 1:1 to the ingestion diagram):
+`convert_to_pdf.py`, `convert_pdf_to_image.py`, `extract_objects_from_image.py`,
+`parse_image_with_text.py`, `parse_image_with_table.py`, `create_image_description.py`,
+`chunk_text_data.py`, `chunk_table_data.py`, `create_embeddings.py`,
+`build_indexes.py`, `extract_entities.py`
 
 ### Ingestion Pipeline
 
@@ -472,6 +483,8 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `data/indexes/` | Vector/keyword/graph indexes |
 | `data/vector_store/` | Qdrant database |
 | `data/cache/` | Embedding cache (SQLite) |
+| `src/cognidoc/prompts/` | LLM prompt templates (entity extraction, community summaries, etc.) |
+| `src/cognidoc/static/` | Static web assets (`graph-viewer.html` — D3.js graph visualization) |
 
 ## Tests
 
