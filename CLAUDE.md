@@ -211,7 +211,7 @@ The pipeline is **incremental by default**. An ingestion manifest (`data/indexes
 - Index rebuilding always uses `recreate=True` because `Document.id` uses random UUIDs (upsert would create duplicates) and BM25 has no incremental mode
 - Manifest saved only after successful pipeline completion (crash = re-run processes same files)
 - Modified files: `_cleanup_intermediate_files(stem)` deletes old processed/chunks/embeddings before reprocessing
-- Deleted files: not handled automatically (use `--full-reindex`). Future enhancement: `--prune` flag.
+- Deleted files: `--prune` flag removes orphan intermediates, manifest entries, and knowledge graph entities/edges from deleted source files. Without `--prune`, use `--full-reindex`.
 
 ### Schema Auto-Generation
 
@@ -503,7 +503,8 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 60 | Agent ReAct loop |
 | `test_agent_tools.py` | 57 | Tool implementations |
-| `test_api.py` | 12 | CogniDoc public API, config validation, deprecation |
+| `test_api.py` | 10 | CogniDoc public API, config validation |
+| `test_create_embeddings.py` | 25 | Embedding generation (metadata, caching, file filter, stem dates) |
 | `test_benchmark.py` | 12 | Precision/recall benchmark with reranking comparison |
 | `test_build_indexes.py` | 10 | Vector/keyword index building |
 | `test_checkpoint.py` | 32 | Checkpoint/resume system |
@@ -522,7 +523,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_incremental_ingestion.py` | 28 | Incremental ingestion manifest and pipeline |
 | `test_ingestion_manifest.py` | 22 | Ingestion manifest CRUD and file tracking |
 | `test_knowledge_graph.py` | 37 | Knowledge graph CRUD, traversal, persistence, pruning |
-| `test_optimizations.py` | 112 | Pipeline optimizations, caching, reranking parser |
+| `test_optimizations.py` | 110 | Pipeline optimizations, caching, reranking parser |
 | `test_pipeline_stages.py` | 22 | Individual pipeline stage unit tests |
 | `test_providers.py` | 32 | LLM/Embedding providers |
 | `test_query_orchestrator.py` | 31 | Query classification, routing, weight config |

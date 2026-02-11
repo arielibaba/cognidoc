@@ -593,57 +593,6 @@ class CogniDoc:
             app = create_fastapi_app(demo)
             uvicorn.run(app, host="0.0.0.0", port=port)
 
-    def save(self, path: str) -> None:
-        """
-        Save indexes to disk (deprecated, no-op).
-
-        Indexes are automatically persisted during ``ingest()``. To reload an
-        existing knowledge base, use ``CogniDoc(data_dir=path)`` instead.
-
-        .. deprecated::
-            Will be removed in a future version. No action needed — indexes
-            persist automatically.
-
-        Args:
-            path: Unused — kept for API compatibility.
-        """
-        import warnings
-
-        warnings.warn(
-            "save() is a no-op — indexes are persisted automatically during ingest(). "
-            "Remove this call. To reload, use CogniDoc(data_dir=path).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        logger.info(
-            "Indexes are already persisted at %s. No additional save needed.",
-            self.config.data_dir,
-        )
-
-    @classmethod
-    def load(cls, path: str, **kwargs) -> "CogniDoc":
-        """
-        Load from saved indexes (deprecated).
-
-        .. deprecated::
-            Use ``CogniDoc(data_dir=path)`` instead.
-
-        Args:
-            path: Directory containing a ``data/`` tree with indexes
-            **kwargs: Additional configuration options forwarded to ``__init__``
-
-        Returns:
-            CogniDoc instance configured to use the given data directory.
-        """
-        import warnings
-
-        warnings.warn(
-            "load() is deprecated — replace with: CogniDoc(data_dir=path).",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return cls(data_dir=path, **kwargs)
-
     @classmethod
     def from_config(cls, config_path: str) -> "CogniDoc":
         """

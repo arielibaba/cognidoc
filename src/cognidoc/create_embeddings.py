@@ -59,7 +59,10 @@ def decode_document_path(encoded_name: str) -> str:
     return encoded_name.replace(PATH_SEPARATOR, "/")
 
 
-def make_metadata(chunk_filename: str) -> dict:
+def make_metadata(
+    chunk_filename: str,
+    stem_dates: Optional[Dict[str, float]] = None,
+) -> dict:
     """
     Build the metadata dict based on the chunk filename.
 
@@ -68,6 +71,7 @@ def make_metadata(chunk_filename: str) -> dict:
 
     Args:
         chunk_filename: Name of the chunk file.
+        stem_dates: Optional mapping of document stem -> file modification time (UNIX timestamp).
 
     Returns:
         Metadata dictionary with child, parent, and source information.
@@ -93,10 +97,21 @@ def make_metadata(chunk_filename: str) -> dict:
         except ValueError as e:
             logger.debug(f"Could not parse page info from chunk filename '{chunk_filename}': {e}")
 
+    # Lookup file date from stem_dates mapping
+    file_date = None
+    if stem_dates and document:
+        # Try exact match first, then try encoded stem
+        encoded_stem = document.replace("/", PATH_SEPARATOR) if document else None
+        file_date = stem_dates.get(document) or stem_dates.get(encoded_stem)
+
+    source = {"document": document, "page": page}
+    if file_date is not None:
+        source["file_date"] = file_date
+
     return {
         "child": chunk_filename,
         "parent": parent,
-        "source": {"document": document, "page": page},
+        "source": source,
     }
 
 
@@ -141,6 +156,7 @@ def collect_chunks_to_embed(
     force_reembed: bool,
     cache,
     file_filter: Optional[list] = None,
+    stem_dates: Optional[Dict[str, float]] = None,
 ) -> Tuple[List[ChunkToEmbed], Dict[str, int]]:
     """
     Collect all chunks that need to be embedded.
@@ -202,7 +218,7 @@ def collect_chunks_to_embed(
                 # Write embedding file if it doesn't exist
                 embedding_file = embeddings_path / f"{file_path.stem}_embedding.json"
                 if not embedding_file.exists():
-                    meta = make_metadata(file_path.name)
+                    meta = make_metadata(file_path.name, stem_dates=stem_dates)
                     data = {"embedding": cached_embedding, "metadata": meta}
                     with open(embedding_file, "w", encoding="utf-8") as f:
                         json.dump(data, f)
@@ -210,7 +226,7 @@ def collect_chunks_to_embed(
                 continue
 
         # Add to list of chunks to embed
-        metadata = make_metadata(file_path.name)
+        metadata = make_metadata(file_path.name, stem_dates=stem_dates)
         chunks_to_embed.append(
             ChunkToEmbed(
                 file_path=file_path,
@@ -307,6 +323,7 @@ def create_embeddings(
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_concurrent: int = MAX_CONCURRENT_REQUESTS,
     file_filter: Optional[list] = None,
+    stem_dates: Optional[Dict[str, float]] = None,
 ) -> Dict[str, int]:
     """
     Generate embeddings for all chunk files in chunks_dir.
@@ -358,6 +375,7 @@ def create_embeddings(
         force_reembed,
         cache,
         file_filter=file_filter,
+        stem_dates=stem_dates,
     )
 
     logger.info(f"Found {stats['to_embed']} chunks to embed, {stats['cached']} from cache")

@@ -1131,7 +1131,7 @@ class ToolRegistry:
     def __init__(self):
         self.tools: Dict[ToolName, BaseTool] = {}
 
-    def register(self, tool: BaseTool):
+    def register(self, tool: BaseTool) -> None:
         """Register a tool."""
         self.tools[tool.name] = tool
         logger.debug(f"Registered tool: {tool.name.value}")

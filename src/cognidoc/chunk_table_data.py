@@ -193,7 +193,7 @@ def chunk_table_data(
     if not tables_path.is_dir():
         raise ValueError(f"Folder '{tables_path}' does not exist.")
 
-    print(f"\nProcessing the tables in {tables_path}...\n")
+    logger.info(f"Processing the tables in {tables_path}...")
 
     if not cols:
         for table_path in tables_path.rglob("*_Table_*.md"):
@@ -202,7 +202,7 @@ def chunk_table_data(
                     table_path.name.startswith(stem) for stem in file_filter
                 ):
                     continue
-                print(f"\nReading file: {table_path}")
+                logger.debug(f"Reading file: {table_path}")
                 with open(table_path, "r", encoding="utf-8") as f:
                     md_table = f.read()
                     chunks, _, summary = chunk_markdown_table(
@@ -223,7 +223,7 @@ def chunk_table_data(
                         table_name = tables_chunks_path / f"{table_path.stem}_chunk_{idx}.md"
                         with open(table_name, "w", encoding="utf-8") as file:
                             file.write(chunk_with_summary)
-                        print(f"Saved table chunk to: {table_name}")
+                        logger.debug(f"Saved table chunk to: {table_name}")
 
     elif len(cols) == len(list(tables_path.rglob("*_Table_*.md"))):
         for idx, table_path in enumerate(tables_path.rglob("*.md")):
@@ -232,7 +232,7 @@ def chunk_table_data(
                     table_path.name.startswith(stem) for stem in file_filter
                 ):
                     continue
-                print(f"\nReading file: {table_path}")
+                logger.debug(f"Reading file: {table_path}")
                 with open(table_path, "r", encoding="utf-8") as f:
                     md_table = f.read()
                     chunks, _, summary = chunk_markdown_table(
@@ -253,11 +253,9 @@ def chunk_table_data(
                         table_name = tables_chunks_path / f"{table_path.stem}_chunk_{idxx}.md"
                         with open(table_name, "w", encoding="utf-8") as file:
                             file.write(chunk_with_summary)
-                        print(f"Saved table to: {table_name}")
+                        logger.debug(f"Saved table to: {table_name}")
 
     else:
-        print("Please provide a list of columns for each table.")
+        logger.warning("Please provide a list of columns for each table.")
 
-    print(
-        f"\nAll tables have been processed.\nTables chunks were saved in Markdown to: {tables_dir}."
-    )
+    logger.info(f"All tables have been processed. Chunks saved to: {tables_dir}")

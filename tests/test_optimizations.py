@@ -1968,44 +1968,6 @@ class TestRunCoroutine:
 
 
 # =============================================================================
-# API save/load deprecation Tests
-# =============================================================================
-
-
-class TestApiSaveLoadDeprecation:
-    """Tests for api.py save() and load() deprecation."""
-
-    def test_save_emits_deprecation_warning(self):
-        from cognidoc.api import CogniDoc
-
-        with patch.object(CogniDoc, "__init__", lambda self, **kw: None):
-            doc = CogniDoc.__new__(CogniDoc)
-            doc.config = MagicMock()
-            doc.config.data_dir = "/tmp/test"
-            import warnings
-
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                doc.save("/tmp/test")
-                assert len(w) == 1
-                assert issubclass(w[0].category, DeprecationWarning)
-                assert "no-op" in str(w[0].message).lower()
-
-    def test_load_returns_cognidoc_instance(self):
-        from cognidoc.api import CogniDoc
-
-        with patch.object(CogniDoc, "__init__", lambda self, **kw: None):
-            import warnings
-
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                instance = CogniDoc.load("/tmp/test")
-                assert isinstance(instance, CogniDoc)
-                assert len(w) == 1
-                assert issubclass(w[0].category, DeprecationWarning)
-
-
-# =============================================================================
 # CogniDocConfig Validation Tests
 # =============================================================================
 

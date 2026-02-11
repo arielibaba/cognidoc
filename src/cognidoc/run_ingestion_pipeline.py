@@ -580,7 +580,12 @@ async def _run_chunking(incremental_stems: list = None):
     logger.info("Chunking completed (parallel)")
 
 
-def _run_embeddings(use_cache: bool, force_reembed: bool, incremental_stems: list = None) -> dict:
+def _run_embeddings(
+    use_cache: bool,
+    force_reembed: bool,
+    incremental_stems: list = None,
+    stem_dates: dict = None,
+) -> dict:
     """Stage 8: Generate embeddings."""
     logger.info("Creating embeddings...")
     embed_stats = create_embeddings(
@@ -590,6 +595,7 @@ def _run_embeddings(use_cache: bool, force_reembed: bool, incremental_stems: lis
         use_cache=use_cache,
         force_reembed=force_reembed,
         file_filter=incremental_stems,
+        stem_dates=stem_dates,
     )
     logger.info("Embedding generation completed")
     return embed_stats
@@ -1316,7 +1322,14 @@ async def run_ingestion_pipeline_async(
     # --- Stage 8: Embeddings ---
     if not skip_embeddings:
         pipeline_timer.stage("embedding_generation")
-        stats["embeddings"] = _run_embeddings(use_cache, force_reembed, incremental_stems)
+        # Build stem → mtime mapping for date metadata in Qdrant payloads
+        stem_dates = {}
+        for src in Path(SOURCES_DIR).rglob("*"):
+            if src.is_file():
+                stem_dates[src.stem] = src.stat().st_mtime
+        stats["embeddings"] = _run_embeddings(
+            use_cache, force_reembed, incremental_stems, stem_dates=stem_dates
+        )
     else:
         logger.info("Skipping embeddings")
 
@@ -1366,7 +1379,7 @@ async def run_ingestion_pipeline_async(
 
     # Generate and display ingestion report
     report = format_ingestion_report(stats, pipeline_summary)
-    print(report)
+    logger.info(report)
 
     # Persist stats for historical tracking
     try:
@@ -1398,30 +1411,29 @@ def main():
 
     if args.dry_run:
         results = run_dry_run()
-        print("\n" + "=" * 50)
-        print("  DRY RUN — Pipeline Validation")
-        print("=" * 50)
-        print(f"\nSources: {results['sources_dir']}")
+        logger.info("\n" + "=" * 50)
+        logger.info("  DRY RUN — Pipeline Validation")
+        logger.info("=" * 50)
+        logger.info(f"Sources: {results['sources_dir']}")
         files = results.get("files", {})
-        print(f"Files found: {files.get('total', 0)}")
+        logger.info(f"Files found: {files.get('total', 0)}")
         for ext, count in files.get("by_extension", {}).items():
-            print(f"  {ext}: {count}")
+            logger.info(f"  {ext}: {count}")
         inc = results.get("incremental", {})
         if inc.get("status") == "first_run":
-            print("\nMode: First ingestion (full pipeline)")
+            logger.info("Mode: First ingestion (full pipeline)")
         elif "new_files" in inc:
-            print(
-                f"\nMode: Incremental ({inc['new_files']} new, "
-                f"{inc['modified_files']} modified)"
+            logger.info(
+                f"Mode: Incremental ({inc['new_files']} new, " f"{inc['modified_files']} modified)"
             )
-        print(f"\nYOLO available: {results['yolo_available']}")
-        print(f"Existing indexes: {results['indexes_exist']}")
+        logger.info(f"YOLO available: {results['yolo_available']}")
+        logger.info(f"Existing indexes: {results['indexes_exist']}")
         for w in results.get("warnings", []):
-            print(f"\nWARNING: {w}")
+            logger.warning(w)
         for e in results.get("errors", []):
-            print(f"\nERROR: {e}")
+            logger.error(e)
         status = "READY" if results["valid"] else "NOT READY"
-        print(f"\nStatus: {status}")
+        logger.info(f"Status: {status}")
         return
 
     asyncio.run(

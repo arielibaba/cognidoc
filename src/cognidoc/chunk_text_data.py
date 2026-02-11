@@ -14,6 +14,7 @@ from typing import List, Optional
 import ollama
 
 from .helpers import get_token_count, clean_up_text
+from .utils.logger import logger
 from .constants import (
     PROCESSED_DIR,
     CHUNKS_DIR,
@@ -190,7 +191,7 @@ class SemanticChunker:
         try:
             embeddings = get_embeddings_batch(groups, self.embed_model)
         except Exception as e:
-            print(f"Embedding failed: {e}, returning original text")
+            logger.warning(f"Embedding failed: {e}, returning original text")
             return [text]
 
         # Calculate similarities between adjacent groups
@@ -365,7 +366,7 @@ def semantic_chunk_text_file(
         input_text = f.read()
 
     if verbose:
-        print(f"\nReading file: {file_path}")
+        logger.debug(f"Reading file: {file_path}")
 
     semantic_chunks = process_semantic_split([input_text], semantic_splitter, max_chunk_size)
 
@@ -411,7 +412,7 @@ def chunk_text_data(
         child_chunk_size = parent_chunk_size // 8
 
     if verbose:
-        print(f"\nProcessing the files in {documents_path}...\n")
+        logger.debug(f"Processing the files in {documents_path}...")
 
     # Process original text files
     for file_path in documents_path.rglob("*_Text.md"):
@@ -433,7 +434,7 @@ def chunk_text_data(
                 with open(chunk_file_name, "w", encoding="utf-8") as file:
                     file.write(chunk)
                 if verbose:
-                    print(f"Saved chunk to: {chunk_file_name}")
+                    logger.debug(f"Saved chunk to: {chunk_file_name}")
 
                 # Create child chunks
                 child_chunks = hard_split(chunk, child_chunk_size)
@@ -445,7 +446,7 @@ def chunk_text_data(
                     with open(child_chunk_file_name, "w", encoding="utf-8") as file:
                         file.write(child_chunk)
                     if verbose:
-                        print(f"Saved child chunk to: {child_chunk_file_name}")
+                        logger.debug(f"Saved child chunk to: {child_chunk_file_name}")
 
     # Process image description files
     for file_path in documents_path.rglob("*_description.txt"):
@@ -463,10 +464,7 @@ def chunk_text_data(
                 with open(chunk_file_name, "w", encoding="utf-8") as file:
                     file.write(chunk)
                 if verbose:
-                    print(f"Saved child chunk to: {chunk_file_name}")
+                    logger.debug(f"Saved description chunk to: {chunk_file_name}")
 
     if verbose:
-        print(
-            f"\nAll files have been processed.\n"
-            f"Data chunks were saved in TXT to: {documents_chunks_dir}.\n"
-        )
+        logger.debug(f"All files have been processed. Data chunks saved to: {documents_chunks_dir}")

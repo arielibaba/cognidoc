@@ -32,11 +32,11 @@ sync: ## Synchronize environment with lock file
 
 .PHONY: format
 format: ## Format code
-	uv run black *.py
+	uv run black src/cognidoc/
 
 .PHONY: lint
 lint: ## Run linters
-	uv run pylint --disable=R,C --ignore-patterns=test_.*?py *.py code/*.py
+	uv run pylint src/cognidoc/
 
 .PHONY: container-lint
 container-lint: ## Lint Dockerfile

@@ -140,8 +140,7 @@ def build_indexes(recreate: bool = False) -> None:
     parent_index_path = Path(INDEX_DIR) / PARENT_DOCUMENTS_INDEX
     parent_index.save(str(parent_index_path))
 
-    logger.info(f"Indexes saved to {INDEX_DIR}")
-    print(f"\nIndexes built successfully and saved to {INDEX_DIR}")
+    logger.info(f"Indexes built successfully and saved to {INDEX_DIR}")
 
 
 if __name__ == "__main__":

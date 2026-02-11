@@ -68,6 +68,30 @@ from .utils.metrics import QueryMetrics, get_performance_metrics
 warnings.filterwarnings("ignore")
 
 
+def _validate_api_keys():
+    """Check that the required API key is set for the configured LLM provider."""
+    import os
+    from .constants import DEFAULT_LLM_PROVIDER
+
+    provider_key_map = {
+        "gemini": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+        "openai": ("OPENAI_API_KEY",),
+        "anthropic": ("ANTHROPIC_API_KEY",),
+    }
+
+    required_keys = provider_key_map.get(DEFAULT_LLM_PROVIDER)
+    if required_keys is None:
+        return  # ollama — no API key needed
+
+    if not any(os.getenv(k) for k in required_keys):
+        key_names = " or ".join(required_keys)
+        logger.warning(
+            f"⚠️  No API key found for provider '{DEFAULT_LLM_PROVIDER}'. "
+            f"Set {key_names} in your .env file or environment. "
+            f"Queries will fail until a valid key is provided."
+        )
+
+
 def warmup_models_and_indexes():
     """
     Pre-load models and indexes at startup for faster first query.
@@ -80,6 +104,7 @@ def warmup_models_and_indexes():
     import time
 
     t_start = time.perf_counter()
+    _validate_api_keys()
     logger.info("Starting warm-up...")
 
     # 1. Initialize LLM client (triggers model loading)

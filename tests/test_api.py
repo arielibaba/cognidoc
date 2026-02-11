@@ -96,33 +96,6 @@ class TestIngestionResult:
 # ===========================================================================
 
 
-class TestCogniDocDeprecation:
-    """Tests for deprecated save() and load() methods."""
-
-    def test_save_emits_deprecation_warning(self):
-        with patch("cognidoc.api.CogniDoc._setup_providers"):
-            cd = CogniDoc.__new__(CogniDoc)
-            cd.config = CogniDocConfig()
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                cd.save("/tmp/test")
-                assert len(w) == 1
-                assert issubclass(w[0].category, DeprecationWarning)
-                assert (
-                    "no-op" in str(w[0].message).lower()
-                    or "deprecated" in str(w[0].message).lower()
-                )
-
-    def test_load_emits_deprecation_warning(self):
-        with patch("cognidoc.api.CogniDoc.__init__", return_value=None):
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                CogniDoc.load("/tmp/test")
-                assert len(w) == 1
-                assert issubclass(w[0].category, DeprecationWarning)
-                assert "deprecated" in str(w[0].message).lower()
-
-
 # ===========================================================================
 # CogniDoc.get_info
 # ===========================================================================

@@ -671,11 +671,12 @@ pytest tests/test_00_e2e_pipeline.py -v --run-slow
 | `test_incremental_ingestion.py` | 28 | Incremental ingestion pipeline |
 | `test_ingestion_manifest.py` | 22 | Ingestion manifest file tracking |
 | `test_knowledge_graph.py` | 27 | Knowledge graph CRUD, traversal, persistence |
-| `test_optimizations.py` | 112 | Pipeline optimizations, caching, reranking |
+| `test_optimizations.py` | 110 | Pipeline optimizations, caching, reranking |
 | `test_pipeline_stages.py` | 22 | Individual pipeline stage unit tests |
 | `test_providers.py` | 32 | LLM/Embedding providers |
 | `test_query_orchestrator.py` | 31 | Query classification, routing, weight config |
-| `test_api.py` | 12 | CogniDoc public API, config validation, deprecation |
+| `test_api.py` | 10 | CogniDoc public API, config validation |
+| `test_create_embeddings.py` | 25 | Embedding generation |
 | `test_extract_entities.py` | 21 | Entity/relationship extraction, JSON parsing |
 | `test_graph_retrieval.py` | 16 | Graph retrieval cache, retriever, result dataclass |
 | `test_schema_generation.py` | 75 | Corpus-based schema generation |
@@ -724,16 +725,20 @@ COGNIDOC_DATA_DIR="/path/to/external/data" \
 
 ## Roadmap
 
-<!--
-Add planned features here / Ajoutez les fonctionnalités prévues ici
+- [x] **Hybrid RAG** — Vector (Qdrant) + GraphRAG (NetworkX/Kùzu) with 3-level fusion retrieval
+- [x] **Agentic RAG** — ReAct agent with 11 specialized tools for complex queries
+- [x] **Incremental Ingestion** — SHA-256 manifest tracking, `--prune` for deleted files
+- [x] **Auto Schema Generation** — Two-stage LLM pipeline with adaptive sampling (distributed pages, char budget)
+- [x] **Entity Resolution** — 4-phase semantic deduplication (blocking, matching, clustering, merging)
+- [x] **Kùzu Graph Backend** — Pluggable `GraphBackend` ABC (NetworkX default, Kùzu optional via `GRAPH_BACKEND=kuzu`)
+- [x] **Metrics Dashboard** — SaaS-style cards, Plotly charts (bar, timeline, donut), CSV/JSON export
+- [x] **Dark/Light Mode** — Full theme toggle with CSS/JS middleware injection
+- [x] **Knowledge Graph Viewer** — D3.js force-directed visualization with community hulls and entity details
+- [ ] **Neo4j Backend** — Cloud-ready graph backend for production multi-tenant deployments
+- [ ] **Feedback Loop** — User feedback collection for retrieval quality improvement
+- [ ] **Graph Viewer Search** — Attribute-level search and filtering in the graph visualization
 
-Example format:
-- [ ] Feature 1 - Description
-- [ ] Feature 2 - Description
-- [x] Completed feature - Description
--->
-
-*Coming soon / À venir*
+> See [`docs/ROADMAP.md`](docs/ROADMAP.md) for detailed implementation notes.
 
 ---
 

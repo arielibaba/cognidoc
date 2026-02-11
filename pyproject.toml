@@ -51,7 +51,7 @@ dependencies = [
 [project.optional-dependencies]
 # Gradio UI
 ui = [
-    "gradio>=4.0,<6.3",
+    "gradio>=6.0,<6.3",
     "plotly>=5.0",
     "pandas>=2.0",
 ]
@@ -119,7 +119,7 @@ wizard = [
 # Full installation (everything) - expanded to avoid self-reference issues with pip
 all = [
     # UI
-    "gradio>=4.0,<6.3",
+    "gradio>=6.0,<6.3",
     "plotly>=5.0",
     "pandas>=2.0",
     # YOLO

@@ -577,19 +577,3 @@ def process_source_documents(
     )
 
     return stats
-
-
-# Alias for backward compatibility
-def convert_non_pdfs_to_pdf(
-    input_dir: str,
-    pdf_output_dir: str,
-    non_pdf_archive_dir: str = None,  # Deprecated, ignored
-) -> Dict[str, any]:
-    """
-    Deprecated: Use process_source_documents instead.
-
-    This function now just calls process_source_documents for backward compatibility.
-    The non_pdf_archive_dir parameter is ignored.
-    """
-    logger.warning("convert_non_pdfs_to_pdf is deprecated. Use process_source_documents instead.")
-    return process_source_documents(input_dir, pdf_output_dir)

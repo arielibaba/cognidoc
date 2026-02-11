@@ -6,6 +6,7 @@ Kùzu persists automatically to disk — like SQLite for graphs.
 """
 
 import json
+import time
 from typing import Any, Dict, Iterator, List, Optional
 
 import networkx as nx
@@ -20,6 +21,10 @@ try:
     KUZU_AVAILABLE = True
 except ImportError:
     KUZU_AVAILABLE = False
+
+# Retry config for transient Kùzu errors
+_MAX_RETRIES = 3
+_RETRY_DELAY = 0.1  # seconds (exponential backoff: 0.1, 0.2, 0.4)
 
 
 def _serialize(value: Any) -> str:
@@ -55,6 +60,28 @@ class KuzuBackend(GraphBackend):
         self._db = kuzu.Database(self._db_path)
         self._conn = kuzu.Connection(self._db)
         self._ensure_schema()
+
+    def _execute(self, query: str, parameters: dict = None):
+        """Execute a Cypher query with retry on transient failures."""
+        last_error = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                if parameters:
+                    return self._conn.execute(query, parameters=parameters)
+                return self._conn.execute(query)
+            except RuntimeError as e:
+                last_error = e
+                err_msg = str(e).lower()
+                # Only retry on transient errors (buffer/lock/IO), not on syntax/schema errors
+                if any(kw in err_msg for kw in ("buffer", "timeout", "i/o", "busy")):
+                    delay = _RETRY_DELAY * (2**attempt)
+                    logger.warning(
+                        f"Kùzu transient error (attempt {attempt + 1}/{_MAX_RETRIES}): {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+                raise  # Non-transient error, raise immediately
+        raise last_error  # All retries exhausted
 
     def _ensure_schema(self) -> None:
         """Create node/rel tables if they don't exist."""
@@ -95,7 +122,7 @@ class KuzuBackend(GraphBackend):
     # ── Nodes ────────────────────────────────────────────────────────────
 
     def add_node(self, node_id: str, **attrs) -> None:
-        self._conn.execute(
+        self._execute(
             "CREATE (n:Entity {id: $id, name: $name, type: $type, "
             "description: $descr, attrs: $attrs})",
             parameters={
@@ -110,7 +137,7 @@ class KuzuBackend(GraphBackend):
         )
 
     def has_node(self, node_id: str) -> bool:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (n:Entity) WHERE n.id = $id RETURN count(n) AS cnt",
             parameters={"id": node_id},
         )
@@ -121,7 +148,7 @@ class KuzuBackend(GraphBackend):
 
     def remove_node(self, node_id: str) -> None:
         # Kùzu automatically removes incident edges when a node is deleted
-        self._conn.execute(
+        self._execute(
             "MATCH (n:Entity) WHERE n.id = $id DETACH DELETE n",
             parameters={"id": node_id},
         )
@@ -129,7 +156,7 @@ class KuzuBackend(GraphBackend):
     def update_node_attrs(self, node_id: str, **attrs) -> None:
         for key, value in attrs.items():
             if key in ("name", "type", "description"):
-                self._conn.execute(
+                self._execute(
                     f"MATCH (n:Entity) WHERE n.id = $id SET n.{key} = $val",
                     parameters={"id": node_id, "val": value},
                 )
@@ -137,13 +164,13 @@ class KuzuBackend(GraphBackend):
                 # Store in the JSON attrs field — merge with existing
                 current = self._get_extra_attrs(node_id)
                 current[key] = value
-                self._conn.execute(
+                self._execute(
                     "MATCH (n:Entity) WHERE n.id = $id SET n.attrs = $val",
                     parameters={"id": node_id, "val": _serialize(current)},
                 )
 
     def get_node_attrs(self, node_id: str) -> Dict[str, Any]:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (n:Entity) WHERE n.id = $id " "RETURN n.name, n.type, n.description, n.attrs",
             parameters={"id": node_id},
         )
@@ -157,7 +184,7 @@ class KuzuBackend(GraphBackend):
         return {}
 
     def _get_extra_attrs(self, node_id: str) -> Dict[str, Any]:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (n:Entity) WHERE n.id = $id RETURN n.attrs",
             parameters={"id": node_id},
         )
@@ -168,7 +195,7 @@ class KuzuBackend(GraphBackend):
         return {}
 
     def number_of_nodes(self) -> int:
-        result = self._conn.execute("MATCH (n:Entity) RETURN count(n) AS cnt")
+        result = self._execute("MATCH (n:Entity) RETURN count(n) AS cnt")
         while result.has_next():
             return result.get_next()[0]
         return 0
@@ -176,7 +203,7 @@ class KuzuBackend(GraphBackend):
     # ── Edges ────────────────────────────────────────────────────────────
 
     def add_edge(self, src: str, tgt: str, **attrs) -> None:
-        self._conn.execute(
+        self._execute(
             "MATCH (a:Entity), (b:Entity) "
             "WHERE a.id = $src AND b.id = $tgt "
             "CREATE (a)-[:Relates {"
@@ -194,7 +221,7 @@ class KuzuBackend(GraphBackend):
         )
 
     def has_edge(self, src: str, tgt: str) -> bool:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
             "WHERE a.id = $src AND b.id = $tgt "
             "RETURN count(r) AS cnt",
@@ -205,7 +232,7 @@ class KuzuBackend(GraphBackend):
         return False
 
     def get_edge_data(self, src: str, tgt: str) -> Optional[Dict[str, Any]]:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
             "WHERE a.id = $src AND b.id = $tgt "
             "RETURN r.relationship_type, r.description, r.weight, r.source_chunks",
@@ -226,7 +253,7 @@ class KuzuBackend(GraphBackend):
             if key == "source_chunks":
                 value = _serialize(value)
             if key in ("relationship_type", "description", "weight", "source_chunks"):
-                self._conn.execute(
+                self._execute(
                     f"MATCH (a:Entity)-[r:Relates]->(b:Entity) "
                     f"WHERE a.id = $src AND b.id = $tgt "
                     f"SET r.{key} = $val",
@@ -234,14 +261,14 @@ class KuzuBackend(GraphBackend):
                 )
 
     def remove_edge(self, src: str, tgt: str) -> None:
-        self._conn.execute(
+        self._execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
             "WHERE a.id = $src AND b.id = $tgt DELETE r",
             parameters={"src": src, "tgt": tgt},
         )
 
     def iter_edges(self, data: bool = False) -> Iterator:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
             "RETURN a.id, b.id, r.relationship_type, r.description, r.weight, r.source_chunks"
         )
@@ -266,7 +293,7 @@ class KuzuBackend(GraphBackend):
         return iter(rows)
 
     def number_of_edges(self) -> int:
-        result = self._conn.execute("MATCH ()-[r:Relates]->() RETURN count(r) AS cnt")
+        result = self._execute("MATCH ()-[r:Relates]->() RETURN count(r) AS cnt")
         while result.has_next():
             return result.get_next()[0]
         return 0
@@ -274,7 +301,7 @@ class KuzuBackend(GraphBackend):
     # ── Traversal ────────────────────────────────────────────────────────
 
     def successors(self, node_id: str) -> List[str]:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[:Relates]->(b:Entity) " "WHERE a.id = $id RETURN b.id",
             parameters={"id": node_id},
         )
@@ -284,7 +311,7 @@ class KuzuBackend(GraphBackend):
         return ids
 
     def predecessors(self, node_id: str) -> List[str]:
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[:Relates]->(b:Entity) " "WHERE b.id = $id RETURN a.id",
             parameters={"id": node_id},
         )
@@ -296,7 +323,7 @@ class KuzuBackend(GraphBackend):
     def find_all_simple_paths(self, src: str, tgt: str, cutoff: int = 5) -> List[List[str]]:
         """Find all simple paths using Kùzu recursive Cypher."""
         # Kùzu supports variable-length paths
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH path = (a:Entity)-[:Relates*1.." + str(cutoff) + "]->(b:Entity) "
             "WHERE a.id = $src AND b.id = $tgt "
             "RETURN nodes(path)",
@@ -321,7 +348,7 @@ class KuzuBackend(GraphBackend):
 
     def degree(self) -> Dict[str, int]:
         # Count outgoing + incoming for each node
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (n:Entity) "
             "OPTIONAL MATCH (n)-[r1:Relates]->() "
             "OPTIONAL MATCH ()-[r2:Relates]->(n) "
@@ -340,13 +367,13 @@ class KuzuBackend(GraphBackend):
         G = nx.Graph()
 
         # Add nodes
-        result = self._conn.execute("MATCH (n:Entity) RETURN n.id, n.name, n.type, n.description")
+        result = self._execute("MATCH (n:Entity) RETURN n.id, n.name, n.type, n.description")
         while result.has_next():
             row = result.get_next()
             G.add_node(row[0], name=row[1], type=row[2], description=row[3])
 
         # Add edges (undirected)
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
             "RETURN a.id, b.id, r.relationship_type, r.weight"
         )
@@ -360,7 +387,7 @@ class KuzuBackend(GraphBackend):
         """Serialize to NetworkX node-link JSON format (for save compatibility)."""
         G = nx.DiGraph()
 
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (n:Entity) RETURN n.id, n.name, n.type, n.description, n.attrs"
         )
         while result.has_next():
@@ -371,7 +398,7 @@ class KuzuBackend(GraphBackend):
                 attrs.update(extra)
             G.add_node(row[0], **attrs)
 
-        result = self._conn.execute(
+        result = self._execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
             "RETURN a.id, b.id, r.relationship_type, r.description, r.weight, r.source_chunks"
         )
@@ -394,7 +421,7 @@ class KuzuBackend(GraphBackend):
 
         # Clear existing data
         try:
-            self._conn.execute("MATCH (n:Entity) DETACH DELETE n")
+            self._execute("MATCH (n:Entity) DETACH DELETE n")
         except Exception:
             pass
 
