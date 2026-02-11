@@ -57,13 +57,31 @@ mon-projet/
 cp .env.example .env
 ```
 
-Éditez `.env` et ajoutez votre clé API :
+Éditez `.env` et ajoutez votre clé API et vos modèles :
 
 ```bash
+# Clé API (obligatoire pour Gemini)
 GOOGLE_API_KEY=votre-clé-ici
+
+# Provider + modèle LLM (la CLI --llm choisit le provider, le .env choisit le modèle)
+DEFAULT_LLM_PROVIDER=gemini
+GEMINI_LLM_MODEL=gemini-3-flash-preview
+
+# Provider + modèle Embedding
+COGNIDOC_EMBEDDING_PROVIDER=ollama
+OLLAMA_EMBED_MODEL=qwen3-embedding:4b-q8_0
 ```
 
-> **Autres providers :** remplacez `DEFAULT_LLM_PROVIDER` par `openai`, `anthropic` ou `ollama` et ajoutez la clé correspondante (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`).
+> **Autres providers :** les modèles se configurent par provider dans `.env` :
+>
+> | Provider | Var LLM | Var Embedding | Clé API |
+> |----------|---------|---------------|---------|
+> | gemini | `GEMINI_LLM_MODEL` | — | `GOOGLE_API_KEY` |
+> | ollama | `OLLAMA_LLM_MODEL` | `OLLAMA_EMBED_MODEL` | aucune (local) |
+> | openai | `OPENAI_LLM_MODEL` | — | `OPENAI_API_KEY` |
+> | anthropic | `ANTHROPIC_LLM_MODEL` | — | `ANTHROPIC_API_KEY` |
+>
+> La CLI (`--llm gemini --embedding ollama`) choisit le **provider**, le `.env` choisit le **modèle** chez ce provider.
 
 ---
 
@@ -86,6 +104,8 @@ cognidoc schema-generate ./data/sources --language fr
 ```
 
 Le LLM analyse un échantillon de vos documents (jusqu'à 100, 3 premières pages chacun) et génère `config/graph_schema.yaml` avec les types d'entités et de relations adaptés à votre corpus.
+
+> **Corpus multilingue :** `--language` contrôle uniquement la langue de sortie du schéma (noms d'entités, descriptions, exemples), pas la langue d'analyse. Le LLM lit et comprend vos documents quelle que soit leur langue. Choisissez simplement la langue dans laquelle vous voulez que le schéma soit rédigé.
 
 **Vérifier et ajuster le schéma :**
 
