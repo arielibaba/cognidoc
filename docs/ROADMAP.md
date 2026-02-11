@@ -68,6 +68,17 @@ Fichier centralisé de suivi des plans d'implémentation.
   - `Plotly.relayout(plot, {})` appelé dans le handler JS du toggle pour forcer le re-rendu après changement de thème
   - Règle safety en light mode pour éviter les fuites de fond blanc
 
+### Échantillonnage adaptatif pour la génération de schéma
+- **Statut:** Fait
+- **Commit:** `2db8f19`
+- **Description:** Remplacement du `max_pages=3` fixe par un budget caractères adaptatif et un échantillonnage distribué des pages PDF pour la génération automatique de `graph_schema.yaml`.
+  - **Budget adaptatif :** `chars_per_doc = clamp(300K / num_docs, 3K, 30K)` — peu de documents → lecture plus profonde de chacun ; beaucoup de documents → comportement identique à l'ancien (3K chars ≈ 3 pages)
+  - **Échantillonnage distribué :** pages sélectionnées depuis 3 zones du document (début 40%, milieu 30%, fin 30%) au lieu des N premières pages séquentielles — meilleure couverture des documents longs
+  - **Filtrage pages vides :** pages avec < 100 chars de texte (pages de garde, illustrations pleine page) automatiquement sautées
+  - **Batch size auto :** `batch_size = clamp(40K / avg_chars_per_doc, 3, 12)` — garde ~40K chars par appel LLM au Stage A
+  - Suppression du paramètre CLI `--max-pages` (désormais calculé automatiquement)
+  - 9 nouveaux tests : 7 pour `_select_distributed_pages`, 2 pour le batch_size auto
+
 ---
 
 ## Phase 1 : Enrichissement extraction + Outil d'agrégation (NetworkX)
@@ -300,6 +311,7 @@ Phase 2 (migration Kùzu) :                   ✅ FAIT
 Fonctionnalités post-Phase 2 :               ✅ FAIT
   - Pruning du Knowledge Graph (--prune)                              ✅
   - Charts Plotly dark mode                                           ✅
+  - Échantillonnage adaptatif schéma (pages distribuées + budget)     ✅
 ```
 
 ---

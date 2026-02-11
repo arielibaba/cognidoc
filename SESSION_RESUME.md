@@ -1856,7 +1856,7 @@ Pipeline complet ajouté (~780 lignes) :
 
 Hyperparamètres documentés dans CLAUDE.md :
 - `max_docs=100` : compromis couverture/coût LLM
-- `max_pages=3` : premières pages les plus informatives, `min(max_pages, actual_pages)` si doc plus court
+- Budget chars adaptatif : `chars_per_doc = clamp(300K / num_docs, 3K, 30K)` — pages distribuées (début/milieu/fin), pages vides skippées
 
 ### 2. Fix lock Qdrant
 

@@ -120,7 +120,6 @@ nano config/graph_schema.yaml
 cognidoc schema-generate ./data/sources \
     --language fr \
     --max-docs 50 \
-    --max-pages 5 \
     --regenerate
 ```
 
