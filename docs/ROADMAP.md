@@ -51,6 +51,23 @@ Fichier centralisé de suivi des plans d'implémentation.
   - **Sources manquantes dans le chat :** `hybrid_result` n'était pas initialisé dans le chemin vector-only fallback, causant un `NameError` lors de l'accès à `hybrid_result.metadata` pour la confidence. Fix : `hybrid_result = None` + guard conditionnel.
   - **Graph viewer vide :** L'endpoint `/api/graph/data` accédait directement à `hybrid_retriever._graph_retriever` qui est `None` en lazy loading. Fix : appel à `_ensure_graph_loaded()` avant l'accès pour déclencher le chargement du graphe.
 
+### Pruning du Knowledge Graph (--prune)
+- **Statut:** Fait
+- **Commits:** `612ff2a`, `3a76864`
+- **Description:** Quand `--prune` est utilisé lors de l'ingestion incrémentale, le knowledge graph est maintenant nettoyé en plus des fichiers intermédiaires :
+  - `GraphBackend.remove_edge(src, tgt)` ajouté à l'ABC et implémenté dans NetworkX et Kùzu
+  - `KnowledgeGraph.prune_by_source_stems(deleted_stems)` : supprime les entités/arêtes mono-source, nettoie les `source_chunks` des entités multi-sources, met à jour `_name_to_id` et `self.edges`
+  - Intégré dans `run_ingestion_pipeline.py` : après prune des fichiers, charge le KG, appelle `prune_by_source_stems()`, re-détecte les communautés si modifications, sauvegarde
+  - 14 nouveaux tests : 4 dans `test_graph_backend.py` (remove_edge parametrized), 10 dans `test_knowledge_graph.py` (suppression, nettoyage partiel, persistence round-trip)
+
+### Charts Plotly dark mode
+- **Statut:** Fait
+- **Commits:** `612ff2a`, `3a76864`
+- **Description:** Les charts Plotly (bar, timeline, donut) de l'onglet Metrics n'avaient pas de fond transparent en dark mode (SVG `rect.bg` blanc injecté par le renderer Plotly).
+  - CSS ciblant les internes SVG de Plotly : `rect.bg`, `.main-svg`, modebar, legend, gridlines, axis labels/ticks
+  - `Plotly.relayout(plot, {})` appelé dans le handler JS du toggle pour forcer le re-rendu après changement de thème
+  - Règle safety en light mode pour éviter les fuites de fond blanc
+
 ---
 
 ## Phase 1 : Enrichissement extraction + Outil d'agrégation (NetworkX)
@@ -279,6 +296,10 @@ Phase 2 (migration Kùzu) :                   ✅ FAIT
   2.10  Commande CLI migrate-graph                                    ✅
   2.11  Tests                                                         ✅
   2.12  Documentation                                                 ✅
+
+Fonctionnalités post-Phase 2 :               ✅ FAIT
+  - Pruning du Knowledge Graph (--prune)                              ✅
+  - Charts Plotly dark mode                                           ✅
 ```
 
 ---
