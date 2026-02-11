@@ -500,7 +500,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 
 | Module | Tests | Description |
 |--------|-------|-------------|
-| `test_00_e2e_pipeline.py` | 10 | E2E pipeline (runs first to avoid Qdrant lock) |
+| `test_00_e2e_pipeline.py` | 9 | E2E pipeline (runs first to avoid Qdrant lock) |
 | `test_agent.py` | 60 | Agent ReAct loop |
 | `test_agent_tools.py` | 57 | Tool implementations |
 | `test_api.py` | 10 | CogniDoc public API, config validation |
@@ -513,7 +513,7 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_complexity.py` | 60 | Query complexity evaluation |
 | `test_conversion.py` | 29 | Document format conversion |
 | `test_e2e_language_and_count.py` | 24 | Language detection (FR/EN/ES/DE) |
-| `test_entity_resolution.py` | 26 | Entity resolution (blocking, matching, clustering, merging) |
+| `test_entity_resolution.py` | 34 | Entity resolution (blocking, matching, clustering, merging) |
 | `test_extract_entities.py` | 28 | Entity/relationship extraction, JSON parsing, prompts, attributes |
 | `test_graph_backend.py` | 51 | Graph backend ABC (NetworkX + Kùzu parametrized, CRUD, traversal, export) |
 | `test_graph_config.py` | 30 | GraphRAG schema loading and validation |
