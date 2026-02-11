@@ -97,12 +97,12 @@ class KuzuBackend(GraphBackend):
     def add_node(self, node_id: str, **attrs) -> None:
         self._conn.execute(
             "CREATE (n:Entity {id: $id, name: $name, type: $type, "
-            "description: $desc, attrs: $attrs})",
+            "description: $descr, attrs: $attrs})",
             parameters={
                 "id": node_id,
                 "name": attrs.get("name", ""),
                 "type": attrs.get("type", ""),
-                "desc": attrs.get("description", ""),
+                "descr": attrs.get("description", ""),
                 "attrs": _serialize(
                     {k: v for k, v in attrs.items() if k not in ("name", "type", "description")}
                 ),
@@ -122,7 +122,7 @@ class KuzuBackend(GraphBackend):
     def remove_node(self, node_id: str) -> None:
         # Kùzu automatically removes incident edges when a node is deleted
         self._conn.execute(
-            "MATCH (n:Entity) WHERE n.id = $id DELETE n",
+            "MATCH (n:Entity) WHERE n.id = $id DETACH DELETE n",
             parameters={"id": node_id},
         )
 
@@ -180,14 +180,14 @@ class KuzuBackend(GraphBackend):
             "MATCH (a:Entity), (b:Entity) "
             "WHERE a.id = $src AND b.id = $tgt "
             "CREATE (a)-[:Relates {"
-            "  relationship_type: $rtype, description: $desc, "
+            "  relationship_type: $rtype, description: $descr, "
             "  weight: $w, source_chunks: $sc"
             "}]->(b)",
             parameters={
                 "src": src,
                 "tgt": tgt,
                 "rtype": attrs.get("relationship_type", ""),
-                "desc": attrs.get("description", ""),
+                "descr": attrs.get("description", ""),
                 "w": float(attrs.get("weight", 1.0)),
                 "sc": _serialize(attrs.get("source_chunks", [])),
             },
@@ -387,7 +387,7 @@ class KuzuBackend(GraphBackend):
 
         # Clear existing data
         try:
-            self._conn.execute("MATCH (n:Entity) DELETE n")
+            self._conn.execute("MATCH (n:Entity) DETACH DELETE n")
         except Exception:
             pass
 
