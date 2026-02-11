@@ -146,6 +146,23 @@ class TestEdgeCRUD:
         data = backend.get_edge_data("a", "b")
         assert data["source_chunks"] == chunks
 
+    def test_remove_edge(self, backend):
+        backend.add_node("a", name="A")
+        backend.add_node("b", name="B")
+        backend.add_edge("a", "b", relationship_type="R")
+        assert backend.has_edge("a", "b")
+        backend.remove_edge("a", "b")
+        assert not backend.has_edge("a", "b")
+        # Nodes should still exist
+        assert backend.has_node("a")
+        assert backend.has_node("b")
+
+    def test_remove_edge_nonexistent(self, backend):
+        """Removing a non-existent edge should not raise."""
+        backend.add_node("a", name="A")
+        backend.add_node("b", name="B")
+        backend.remove_edge("a", "b")  # no-op
+
 
 # ===========================================================================
 # Traversal

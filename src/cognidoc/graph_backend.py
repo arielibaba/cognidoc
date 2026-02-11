@@ -59,6 +59,10 @@ class GraphBackend(ABC):
         """Update attributes on an existing edge."""
 
     @abstractmethod
+    def remove_edge(self, src: str, tgt: str) -> None:
+        """Remove an edge between two nodes (no-op if edge doesn't exist)."""
+
+    @abstractmethod
     def iter_edges(self, data: bool = False) -> Iterator:
         """Iterate over edges. If data=True, yields (src, tgt, attrs) tuples."""
 

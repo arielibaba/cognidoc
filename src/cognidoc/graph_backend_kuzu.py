@@ -233,6 +233,13 @@ class KuzuBackend(GraphBackend):
                     parameters={"src": src, "tgt": tgt, "val": value},
                 )
 
+    def remove_edge(self, src: str, tgt: str) -> None:
+        self._conn.execute(
+            "MATCH (a:Entity)-[r:Relates]->(b:Entity) "
+            "WHERE a.id = $src AND b.id = $tgt DELETE r",
+            parameters={"src": src, "tgt": tgt},
+        )
+
     def iter_edges(self, data: bool = False) -> Iterator:
         result = self._conn.execute(
             "MATCH (a:Entity)-[r:Relates]->(b:Entity) "

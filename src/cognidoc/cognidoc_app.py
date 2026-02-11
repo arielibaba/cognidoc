@@ -1121,6 +1121,29 @@ html.dark-mode [data-testid="plot"] {
     background: transparent !important;
 }
 
+/* Plotly SVG backgrounds */
+html.dark-mode .js-plotly-plot .plotly .main-svg rect.bg { fill: transparent !important; }
+html.dark-mode .js-plotly-plot .plotly .main-svg { background: transparent !important; }
+
+/* Plotly modebar buttons */
+html.dark-mode .js-plotly-plot .plotly .modebar { background: transparent !important; }
+html.dark-mode .js-plotly-plot .plotly .modebar-btn path { fill: #94a3b8 !important; }
+
+/* Plotly legend */
+html.dark-mode .js-plotly-plot .plotly .legend rect { fill: transparent !important; }
+
+/* Plotly gridlines */
+html.dark-mode .js-plotly-plot .plotly .gridlayer line { stroke: rgba(148,163,184,0.15) !important; }
+
+/* Plotly axis labels and tick text */
+html.dark-mode .js-plotly-plot .plotly .xtick text,
+html.dark-mode .js-plotly-plot .plotly .ytick text,
+html.dark-mode .js-plotly-plot .plotly .g-xtitle text,
+html.dark-mode .js-plotly-plot .plotly .g-ytitle text { fill: #cbd5e1 !important; }
+
+/* Light mode: also force transparent bg to prevent white leak */
+html:not(.dark-mode) .js-plotly-plot .plotly .main-svg rect.bg { fill: transparent !important; }
+
 /* ---- Gradio native component wrappers ---- */
 html.dark-mode .wrap,
 html.dark-mode .panel,
@@ -2199,6 +2222,10 @@ THEME_SCRIPT = """<script>
         var isDark=document.documentElement.classList.toggle('dark-mode');
         btn.textContent=isDark?'\\u2600\\uFE0F Light':'\\uD83C\\uDF19 Dark';
         localStorage.setItem('cognidoc-dark-mode',isDark?'true':'false');
+        // Force Plotly charts to re-render with new CSS
+        document.querySelectorAll('.js-plotly-plot').forEach(function(plot){
+            if(window.Plotly && plot.data) Plotly.relayout(plot,{});
+        });
     });
 
     // Sync button text once Gradio renders it

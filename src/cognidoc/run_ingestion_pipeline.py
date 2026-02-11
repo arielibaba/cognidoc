@@ -1225,9 +1225,23 @@ async def run_ingestion_pipeline_async(
             if deleted_records:
                 if prune:
                     logger.info(f"Pruning {len(deleted_records)} deleted files")
+                    deleted_stems = set()
                     for record in deleted_records:
                         _cleanup_intermediate_files(record.stem)
+                        deleted_stems.add(record.stem)
                         del manifest.files[record.path]
+
+                    # Prune knowledge graph
+                    from .knowledge_graph import has_valid_knowledge_graph, KnowledgeGraph
+
+                    if has_valid_knowledge_graph():
+                        logger.info("Pruning knowledge graph...")
+                        kg = KnowledgeGraph.load()
+                        prune_stats = kg.prune_by_source_stems(deleted_stems)
+                        if prune_stats["nodes_removed"] or prune_stats["edges_removed"]:
+                            kg.detect_communities()
+                            kg.save()
+                        logger.info(f"Knowledge graph pruned: {prune_stats}")
                 else:
                     logger.warning(
                         f"{len(deleted_records)} files deleted from sources/ but still indexed. "

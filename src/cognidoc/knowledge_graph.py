@@ -185,6 +185,10 @@ class KnowledgeGraph:
         """Remove a node from the backend graph."""
         self._backend.remove_node(node_id)
 
+    def remove_graph_edge(self, src: str, tgt: str) -> None:
+        """Remove an edge from the backend graph."""
+        self._backend.remove_edge(src, tgt)
+
     def update_graph_node_attrs(self, node_id: str, **attrs) -> None:
         """Update attributes on a backend graph node."""
         self._backend.update_node_attrs(node_id, **attrs)
@@ -943,6 +947,108 @@ SUMMARY:"""
             "relationship_types": dict(self._count_relationship_types()),
             "avg_degree": (sum(degrees.values()) / n_nodes if n_nodes > 0 else 0),
         }
+
+    def prune_by_source_stems(self, deleted_stems: Set[str]) -> Dict[str, int]:
+        """
+        Remove entities and edges whose source_chunks all belong to deleted file stems.
+
+        For nodes/edges with mixed sources, only the deleted chunks are removed.
+
+        Args:
+            deleted_stems: Set of file stems (e.g. {"report_2023", "memo_draft"})
+
+        Returns:
+            Stats dict with nodes_removed, nodes_updated, edges_removed, edges_updated
+        """
+        if not deleted_stems:
+            return {"nodes_removed": 0, "nodes_updated": 0, "edges_removed": 0, "edges_updated": 0}
+
+        stats = {"nodes_removed": 0, "nodes_updated": 0, "edges_removed": 0, "edges_updated": 0}
+
+        def _chunk_belongs_to_stems(chunk_id: str, stems: Set[str]) -> bool:
+            """Check if a chunk ID belongs to any of the given stems.
+
+            Chunk IDs follow the pattern: {stem}_chunk_{N} (e.g. "report_2023_chunk_5").
+            We match by checking if the chunk starts with "{stem}_chunk_".
+            """
+            for stem in stems:
+                if chunk_id.startswith(f"{stem}_chunk_"):
+                    return True
+            return False
+
+        # Phase 1: Process edges (snapshot to avoid mutation during iteration)
+        edge_snapshot = list(self._backend.iter_edges(data=True))
+        for src, tgt, data in edge_snapshot:
+            source_chunks = data.get("source_chunks", [])
+            if not source_chunks:
+                continue
+
+            matching = [c for c in source_chunks if _chunk_belongs_to_stems(c, deleted_stems)]
+            if not matching:
+                continue
+
+            remaining = [c for c in source_chunks if c not in matching]
+            if not remaining:
+                # All chunks belong to deleted stems — remove edge
+                self._backend.remove_edge(src, tgt)
+                stats["edges_removed"] += 1
+            else:
+                # Partial — update source_chunks
+                self._backend.update_edge_attrs(src, tgt, source_chunks=remaining)
+                stats["edges_updated"] += 1
+
+        # Clean self.edges list
+        self.edges = [
+            e for e in self.edges
+            if not all(_chunk_belongs_to_stems(c, deleted_stems) for c in e.source_chunks)
+            or not e.source_chunks
+        ]
+        # Update source_chunks on remaining edges
+        for edge in self.edges:
+            if edge.source_chunks:
+                edge.source_chunks = [
+                    c for c in edge.source_chunks
+                    if not _chunk_belongs_to_stems(c, deleted_stems)
+                ]
+
+        # Phase 2: Process nodes
+        nodes_to_remove = []
+        for node_id, node in self.nodes.items():
+            if not node.source_chunks:
+                continue
+
+            matching = [c for c in node.source_chunks if _chunk_belongs_to_stems(c, deleted_stems)]
+            if not matching:
+                continue
+
+            remaining = [c for c in node.source_chunks if c not in matching]
+            if not remaining:
+                # All chunks belong to deleted stems — mark for removal
+                nodes_to_remove.append(node_id)
+            else:
+                # Partial — update source_chunks
+                node.source_chunks = remaining
+                stats["nodes_updated"] += 1
+
+        # Remove nodes
+        for node_id in nodes_to_remove:
+            node = self.nodes.pop(node_id)
+            # Clean _name_to_id
+            normalized = self._normalize_name(node.name)
+            if self._name_to_id.get(normalized) == node_id:
+                del self._name_to_id[normalized]
+            # Remove from backend (also removes remaining incident edges)
+            if self._backend.has_node(node_id):
+                self._backend.remove_node(node_id)
+            stats["nodes_removed"] += 1
+
+        logger.info(
+            f"Knowledge graph pruned: {stats['nodes_removed']} nodes removed, "
+            f"{stats['nodes_updated']} updated, {stats['edges_removed']} edges removed, "
+            f"{stats['edges_updated']} updated"
+        )
+
+        return stats
 
     def _count_node_types(self) -> Dict[str, int]:
         """Count nodes by type."""

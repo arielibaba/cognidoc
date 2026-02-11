@@ -56,6 +56,10 @@ class NetworkXBackend(GraphBackend):
         for key, value in attrs.items():
             self._graph.edges[src, tgt][key] = value
 
+    def remove_edge(self, src: str, tgt: str) -> None:
+        if self._graph.has_edge(src, tgt):
+            self._graph.remove_edge(src, tgt)
+
     def iter_edges(self, data: bool = False) -> Iterator:
         return iter(self._graph.edges(data=data))
 

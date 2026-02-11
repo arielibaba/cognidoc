@@ -297,3 +297,103 @@ class TestGraphStatistics:
         stats = kg.get_statistics()
         assert stats["total_nodes"] == 0
         assert stats["avg_degree"] == 0
+
+
+# ===========================================================================
+# Pruning by source stems
+# ===========================================================================
+
+
+class TestPruneBySourceStems:
+    """Tests for prune_by_source_stems."""
+
+    def _build_graph(self):
+        """Build a graph with entities from two source files (report, memo)."""
+        kg = KnowledgeGraph()
+        # Entities from report only
+        kg.add_entity(_make_entity("Alpha", chunk="report_chunk_1"))
+        kg.add_entity(_make_entity("Beta", chunk="report_chunk_2"))
+        # Entity from memo only
+        kg.add_entity(_make_entity("Gamma", chunk="memo_chunk_1"))
+        # Entity from both sources
+        kg.add_entity(_make_entity("Delta", chunk="report_chunk_3"))
+        kg.add_entity(_make_entity("Delta", chunk="memo_chunk_2"))  # merges
+        # Relationships
+        kg.add_relationship(_make_relationship("Alpha", "Beta", "R1", chunk="report_chunk_1"))
+        kg.add_relationship(_make_relationship("Alpha", "Delta", "R2", chunk="report_chunk_1"))
+        kg.add_relationship(_make_relationship("Gamma", "Delta", "R3", chunk="memo_chunk_1"))
+        return kg
+
+    def test_remove_single_source_nodes(self):
+        kg = self._build_graph()
+        stats = kg.prune_by_source_stems({"report"})
+        # Alpha and Beta should be removed (report-only)
+        assert kg.get_node_by_name("Alpha") is None
+        assert kg.get_node_by_name("Beta") is None
+        assert stats["nodes_removed"] == 2
+
+    def test_keep_multi_source_nodes(self):
+        kg = self._build_graph()
+        kg.prune_by_source_stems({"report"})
+        # Delta should remain (has memo_chunk_2)
+        delta = kg.get_node_by_name("Delta")
+        assert delta is not None
+        assert "memo_chunk_2" in delta.source_chunks
+        assert not any(c.startswith("report_") for c in delta.source_chunks)
+
+    def test_update_multi_source_nodes(self):
+        kg = self._build_graph()
+        stats = kg.prune_by_source_stems({"report"})
+        assert stats["nodes_updated"] >= 1  # Delta was updated
+
+    def test_remove_edges(self):
+        kg = self._build_graph()
+        stats = kg.prune_by_source_stems({"report"})
+        # Alpha->Beta edge should be removed (report-only)
+        assert stats["edges_removed"] >= 1
+
+    def test_keep_unrelated_nodes(self):
+        kg = self._build_graph()
+        kg.prune_by_source_stems({"report"})
+        # Gamma should be untouched
+        gamma = kg.get_node_by_name("Gamma")
+        assert gamma is not None
+        assert gamma.source_chunks == ["memo_chunk_1"]
+
+    def test_name_to_id_cleaned(self):
+        kg = self._build_graph()
+        kg.prune_by_source_stems({"report"})
+        assert "alpha" not in kg._name_to_id
+        assert "beta" not in kg._name_to_id
+        assert "gamma" in kg._name_to_id
+
+    def test_edges_list_cleaned(self):
+        kg = self._build_graph()
+        initial_edges = len(kg.edges)
+        kg.prune_by_source_stems({"report"})
+        # At least the report-only edge should be removed
+        assert len(kg.edges) < initial_edges
+
+    def test_empty_stems_no_change(self):
+        kg = self._build_graph()
+        initial_nodes = len(kg.nodes)
+        stats = kg.prune_by_source_stems(set())
+        assert len(kg.nodes) == initial_nodes
+        assert stats["nodes_removed"] == 0
+
+    def test_unknown_stems_no_change(self):
+        kg = self._build_graph()
+        initial_nodes = len(kg.nodes)
+        stats = kg.prune_by_source_stems({"nonexistent_file"})
+        assert len(kg.nodes) == initial_nodes
+        assert stats["nodes_removed"] == 0
+
+    def test_persistence_roundtrip(self, tmp_path):
+        kg = self._build_graph()
+        kg.prune_by_source_stems({"report"})
+        save_path = str(tmp_path / "pruned_kg")
+        kg.save(save_path)
+        loaded = KnowledgeGraph.load(save_path)
+        assert loaded.get_node_by_name("Alpha") is None
+        assert loaded.get_node_by_name("Gamma") is not None
+        assert loaded.get_node_by_name("Delta") is not None
