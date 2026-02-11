@@ -22,6 +22,7 @@ from cognidoc.schema_wizard import (
     _ensure_schema_defaults,
     _parse_json_response,
     _parse_yaml_response,
+    _select_distributed_pages,
     analyze_document_batch,
     extract_pdf_text,
     generate_schema_from_corpus,
@@ -38,14 +39,23 @@ from cognidoc.schema_wizard import (
 # Helpers
 # =============================================================================
 
-def _make_pdf(path: Path, pages: List[str]) -> None:
-    """Create a real PDF at *path* with the given page texts using PyMuPDF."""
+
+def _make_pdf(path: Path, pages: List[str], pad: bool = True) -> None:
+    """Create a real PDF at *path* with the given page texts using PyMuPDF.
+
+    When *pad* is True (default), short texts are padded to exceed the
+    _MIN_PAGE_CHARS threshold (100 chars) so pages are not skipped by
+    the empty-page filter in extract_pdf_text().
+    """
     import fitz  # PyMuPDF
 
     doc = fitz.open()
     for text in pages:
         page = doc.new_page()
-        page.insert_text((72, 72), text)
+        content = text
+        if pad and len(content) < 150:
+            content = content + " " + ("lorem ipsum dolor sit amet " * 6)
+        page.insert_text((72, 72), content)
     doc.save(str(path))
     doc.close()
 
@@ -59,11 +69,13 @@ def _valid_batch_result(
     """Return a plausible Stage-A batch result dict."""
     return {
         "themes": themes or ["AI", "machine learning"],
-        "entity_types": entity_types or [
+        "entity_types": entity_types
+        or [
             {"name": "Algorithm", "description": "An ML algorithm", "examples": ["SVM", "RF"]},
             {"name": "Dataset", "description": "A data set", "examples": ["MNIST", "CIFAR"]},
         ],
-        "relationship_types": relationship_types or [
+        "relationship_types": relationship_types
+        or [
             {
                 "name": "TRAINED_ON",
                 "description": "Algorithm trained on a dataset",
@@ -77,7 +89,8 @@ def _valid_batch_result(
 
 def _valid_yaml_schema() -> str:
     """Return a valid YAML schema string as an LLM would produce."""
-    return textwrap.dedent("""\
+    return textwrap.dedent(
+        """\
         domain:
           name: "Machine Learning"
           description: "Schema for ML research documents"
@@ -102,7 +115,8 @@ def _valid_yaml_schema() -> str:
               - "Algorithm"
             valid_target:
               - "Dataset"
-    """)
+    """
+    )
 
 
 # =============================================================================
@@ -115,38 +129,44 @@ class TestIsGenericName:
 
     # -- Generic names --------------------------------------------------------
 
-    @pytest.mark.parametrize("name", [
-        "doc_1.pdf",
-        "document.pdf",
-        "scan.pdf",
-        "untitled.docx",
-        "123.pdf",
-        "ab.pdf",
-        "IMG_20240115.jpg",
-        "file-003.txt",
-        "copie.pdf",
-        "dossier",
-        "folder",
-        "brouillon.pdf",
-        "new.pdf",
-        "temp.pdf",
-        "sans titre.pdf",
-        "fichier.doc",
-        "page_2.pdf",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "doc_1.pdf",
+            "document.pdf",
+            "scan.pdf",
+            "untitled.docx",
+            "123.pdf",
+            "ab.pdf",
+            "IMG_20240115.jpg",
+            "file-003.txt",
+            "copie.pdf",
+            "dossier",
+            "folder",
+            "brouillon.pdf",
+            "new.pdf",
+            "temp.pdf",
+            "sans titre.pdf",
+            "fichier.doc",
+            "page_2.pdf",
+        ],
+    )
     def test_generic_names(self, name: str):
         assert is_generic_name(name), f"Expected '{name}' to be generic"
 
     # -- Non-generic names ----------------------------------------------------
 
-    @pytest.mark.parametrize("name", [
-        "rapport_annuel_2024.pdf",
-        "bioethics_review.pdf",
-        "architecture_guide.docx",
-        "invoice_company.pdf",
-        "meeting_notes_jan.pdf",
-        "thesis.pdf",
-    ])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "rapport_annuel_2024.pdf",
+            "bioethics_review.pdf",
+            "architecture_guide.docx",
+            "invoice_company.pdf",
+            "meeting_notes_jan.pdf",
+            "thesis.pdf",
+        ],
+    )
     def test_non_generic_names(self, name: str):
         assert not is_generic_name(name), f"Expected '{name}' to be non-generic"
 
@@ -169,30 +189,72 @@ class TestIsGenericName:
 
 
 # =============================================================================
+# TestSelectDistributedPages
+# =============================================================================
+
+
+class TestSelectDistributedPages:
+    """Tests for _select_distributed_pages()."""
+
+    def test_short_document_returns_all(self):
+        """A 5-page document should return all pages regardless of budget."""
+        pages = _select_distributed_pages(5, max_chars=3000)
+        assert pages == [0, 1, 2, 3, 4]
+
+    def test_long_document_covers_three_zones(self):
+        """A 90-page document should sample from beginning, middle, and end."""
+        pages = _select_distributed_pages(90, max_chars=5000)
+        assert pages[0] == 0  # begins at start
+        # Should include pages from middle third (30-59)
+        has_middle = any(30 <= p < 60 for p in pages)
+        assert has_middle
+        # Should include pages from last third (60-89)
+        has_end = any(p >= 60 for p in pages)
+        assert has_end
+
+    def test_all_indices_valid(self):
+        """All returned indices must be within [0, total_pages)."""
+        for total in (1, 3, 10, 50, 200):
+            for budget in (3000, 10_000, 30_000):
+                pages = _select_distributed_pages(total, budget)
+                assert all(
+                    0 <= p < total for p in pages
+                ), f"Invalid index for total={total}, budget={budget}: {pages}"
+
+    def test_no_duplicates(self):
+        """Returned page list should have no duplicates."""
+        pages = _select_distributed_pages(100, max_chars=10_000)
+        assert len(pages) == len(set(pages))
+
+    def test_ordered(self):
+        """Pages within each zone should be in ascending order."""
+        pages = _select_distributed_pages(120, max_chars=8000)
+        # Overall the list is begin + middle + end, each zone is ascending
+        assert pages == sorted(pages)
+
+    def test_single_page(self):
+        pages = _select_distributed_pages(1, max_chars=3000)
+        assert pages == [0]
+
+    def test_large_budget_many_pages(self):
+        """With max_chars=30000, should select ~39 candidates (30000/800+2)."""
+        pages = _select_distributed_pages(200, max_chars=30_000)
+        assert len(pages) >= 20  # at least covers 3 zones well
+
+
+# =============================================================================
 # TestExtractPdfText
 # =============================================================================
 
 
 class TestExtractPdfText:
-    """Tests for extract_pdf_text()."""
+    """Tests for extract_pdf_text() with distributed page sampling."""
 
     def test_basic_extraction(self, tmp_path: Path):
         pdf = tmp_path / "sample.pdf"
         _make_pdf(pdf, ["Hello, world! This is page one."])
         text = extract_pdf_text(pdf)
         assert "Hello" in text
-
-    def test_max_pages_limit(self, tmp_path: Path):
-        pages = [f"Content of page {i}" for i in range(5)]
-        pdf = tmp_path / "multi.pdf"
-        _make_pdf(pdf, pages)
-
-        text = extract_pdf_text(pdf, max_pages=3)
-        assert "page 0" in text
-        assert "page 2" in text
-        # Page 3 and 4 should NOT be present
-        assert "page 3" not in text
-        assert "page 4" not in text
 
     def test_max_chars_truncation(self, tmp_path: Path):
         long_text = "A" * 5000
@@ -202,11 +264,41 @@ class TestExtractPdfText:
         text = extract_pdf_text(pdf, max_chars=100)
         assert len(text) <= 100
 
-    def test_fewer_pages_than_max(self, tmp_path: Path):
+    def test_short_document_reads_all_pages(self, tmp_path: Path):
+        """A short document (fewer pages than estimated needed) reads all pages."""
         pdf = tmp_path / "one_page.pdf"
         _make_pdf(pdf, ["Single page content"])
-        text = extract_pdf_text(pdf, max_pages=3)
+        text = extract_pdf_text(pdf, max_chars=3000)
         assert "Single page" in text
+
+    def test_distributed_sampling_covers_end(self, tmp_path: Path):
+        """With a high enough char budget, pages from the end should be included."""
+        pages = [f"Content of page {i}" for i in range(30)]
+        pdf = tmp_path / "long_doc.pdf"
+        _make_pdf(pdf, pages)
+
+        # Large budget — should sample from beginning, middle, AND end
+        text = extract_pdf_text(pdf, max_chars=30_000)
+        assert "page 0" in text  # beginning
+        assert "page 29" in text  # end
+
+    def test_empty_pages_skipped(self, tmp_path: Path):
+        """Pages with < 100 chars of text should be skipped."""
+        import fitz
+
+        doc = fitz.open()
+        # Page 0: empty (just whitespace)
+        p0 = doc.new_page()
+        p0.insert_text((72, 72), "   ")
+        # Page 1: substantial content
+        p1 = doc.new_page()
+        p1.insert_text((72, 72), "Real content here " * 20)
+        pdf = tmp_path / "mixed.pdf"
+        doc.save(str(pdf))
+        doc.close()
+
+        text = extract_pdf_text(pdf, max_chars=3000)
+        assert "Real content" in text
 
     def test_nonexistent_file(self, tmp_path: Path):
         result = extract_pdf_text(tmp_path / "nonexistent.pdf")
@@ -253,14 +345,19 @@ class TestSamplePdfsForSchema:
         return sources, pdfs
 
     def test_with_subfolders_equal_distribution(self, tmp_path: Path):
-        sources, pdfs = self._setup_sources_and_pdfs(tmp_path, {
-            "folderA": ["report_alpha", "report_beta"],
-            "folderB": ["invoice_one", "invoice_two"],
-            "folderC": ["memo_x", "memo_y"],
-        })
+        sources, pdfs = self._setup_sources_and_pdfs(
+            tmp_path,
+            {
+                "folderA": ["report_alpha", "report_beta"],
+                "folderB": ["invoice_one", "invoice_two"],
+                "folderC": ["memo_x", "memo_y"],
+            },
+        )
 
         samples, folder_names, file_names = sample_pdfs_for_schema(
-            sources, pdfs, max_docs=100, max_pages=1,
+            sources,
+            pdfs,
+            max_docs=100,
         )
 
         assert len(samples) == 6
@@ -269,34 +366,49 @@ class TestSamplePdfsForSchema:
         assert len(subfolders_seen) == 3
 
     def test_flat_structure_random_sampling(self, tmp_path: Path):
-        sources, pdfs = self._setup_sources_and_pdfs(tmp_path, {
-            "": ["alpha", "beta", "gamma", "delta"],
-        })
+        sources, pdfs = self._setup_sources_and_pdfs(
+            tmp_path,
+            {
+                "": ["alpha", "beta", "gamma", "delta"],
+            },
+        )
 
         samples, folder_names, file_names = sample_pdfs_for_schema(
-            sources, pdfs, max_docs=100, max_pages=1,
+            sources,
+            pdfs,
+            max_docs=100,
         )
 
         assert len(samples) == 4
         assert folder_names == []
 
     def test_max_docs_respected(self, tmp_path: Path):
-        sources, pdfs = self._setup_sources_and_pdfs(tmp_path, {
-            "": [f"doc_{i}" for i in range(20)],
-        })
+        sources, pdfs = self._setup_sources_and_pdfs(
+            tmp_path,
+            {
+                "": [f"doc_{i}" for i in range(20)],
+            },
+        )
 
         samples, _, _ = sample_pdfs_for_schema(
-            sources, pdfs, max_docs=5, max_pages=1,
+            sources,
+            pdfs,
+            max_docs=5,
         )
         assert len(samples) <= 5
 
     def test_non_generic_names_collected(self, tmp_path: Path):
-        sources, pdfs = self._setup_sources_and_pdfs(tmp_path, {
-            "": ["rapport_annuel_2024", "architecture_guide"],
-        })
+        sources, pdfs = self._setup_sources_and_pdfs(
+            tmp_path,
+            {
+                "": ["rapport_annuel_2024", "architecture_guide"],
+            },
+        )
 
         _, _, file_names = sample_pdfs_for_schema(
-            sources, pdfs, max_docs=100, max_pages=1,
+            sources,
+            pdfs,
+            max_docs=100,
         )
         assert "rapport_annuel_2024" in file_names
         assert "architecture_guide" in file_names
@@ -313,7 +425,9 @@ class TestSamplePdfsForSchema:
             _make_pdf(pdfs / f"{stem}.pdf", [f"Content of {stem}"])
 
         _, _, file_names = sample_pdfs_for_schema(
-            sources, pdfs, max_docs=100, max_pages=1,
+            sources,
+            pdfs,
+            max_docs=100,
         )
         # Generic names should be excluded from informative file names
         assert len(file_names) == 0
@@ -457,8 +571,7 @@ class TestRunBatchAnalysis:
     @pytest.mark.asyncio
     async def test_exception_batches_filtered(self):
         samples = [
-            {"filename": "doc.pdf", "content": "content", "subfolder": ""}
-            for _ in range(12)
+            {"filename": "doc.pdf", "content": "content", "subfolder": ""} for _ in range(12)
         ]
 
         async def _mock_analyze(batch, batch_index, language="en"):
@@ -468,6 +581,46 @@ class TestRunBatchAnalysis:
             results = await run_batch_analysis(samples, batch_size=12)
 
         assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_batch_size_small_docs(self):
+        """With small docs (~500 chars), auto batch_size should be large (12)."""
+        samples = [
+            {"filename": f"doc_{i}.pdf", "content": "x" * 500, "subfolder": ""} for i in range(24)
+        ]
+
+        batch_sizes_seen = []
+
+        async def _mock_analyze(batch, batch_index, language="en"):
+            batch_sizes_seen.append(len(batch))
+            return _valid_batch_result()
+
+        with patch("cognidoc.schema_wizard.analyze_document_batch", side_effect=_mock_analyze):
+            results = await run_batch_analysis(samples)  # no explicit batch_size
+
+        # 500 chars/doc → batch_size = 40000/500 = 12 (max) → 2 batches of 12
+        assert len(results) == 2
+        assert all(bs <= 12 for bs in batch_sizes_seen)
+
+    @pytest.mark.asyncio
+    async def test_auto_batch_size_large_docs(self):
+        """With large docs (~15000 chars), auto batch_size should be small (3)."""
+        samples = [
+            {"filename": f"doc_{i}.pdf", "content": "x" * 15000, "subfolder": ""} for i in range(9)
+        ]
+
+        batch_sizes_seen = []
+
+        async def _mock_analyze(batch, batch_index, language="en"):
+            batch_sizes_seen.append(len(batch))
+            return _valid_batch_result()
+
+        with patch("cognidoc.schema_wizard.analyze_document_batch", side_effect=_mock_analyze):
+            results = await run_batch_analysis(samples)  # no explicit batch_size
+
+        # 15000 chars/doc → batch_size = 40000/15000 ≈ 3 → 3 batches of 3
+        assert len(results) == 3
+        assert all(bs <= 3 for bs in batch_sizes_seen)
 
 
 # =============================================================================
@@ -597,9 +750,11 @@ class TestGenerateSchemaFromCorpus:
 
         batch_result = _valid_batch_result()
 
-        with patch("cognidoc.schema_wizard.sample_pdfs_for_schema") as mock_sample, \
-             patch("cognidoc.schema_wizard.run_batch_analysis") as mock_batch, \
-             patch("cognidoc.schema_wizard.synthesize_schema") as mock_synth:
+        with (
+            patch("cognidoc.schema_wizard.sample_pdfs_for_schema") as mock_sample,
+            patch("cognidoc.schema_wizard.run_batch_analysis") as mock_batch,
+            patch("cognidoc.schema_wizard.synthesize_schema") as mock_synth,
+        ):
 
             mock_sample.return_value = (
                 [{"filename": "report.txt", "content": "Report content", "subfolder": ""}],
@@ -650,9 +805,11 @@ class TestGenerateSchemaFromCorpus:
 
         sample = {"filename": "doc.txt", "content": "Some content", "subfolder": ""}
 
-        with patch("cognidoc.schema_wizard.sample_pdfs_for_schema") as mock_sample, \
-             patch("cognidoc.schema_wizard.run_batch_analysis") as mock_batch, \
-             patch("cognidoc.schema_wizard.generate_schema_from_documents") as mock_legacy:
+        with (
+            patch("cognidoc.schema_wizard.sample_pdfs_for_schema") as mock_sample,
+            patch("cognidoc.schema_wizard.run_batch_analysis") as mock_batch,
+            patch("cognidoc.schema_wizard.generate_schema_from_documents") as mock_legacy,
+        ):
 
             mock_sample.return_value = ([sample], [], ["doc"])
             # Only 1 valid result (< 2) triggers legacy fallback
@@ -710,7 +867,6 @@ class TestGenerateSchemaFromCorpusSync:
                 pdf_dir=str(tmp_path),
                 language="fr",
                 max_docs=50,
-                max_pages=2,
                 convert_first=False,
             )
 
@@ -732,8 +888,12 @@ class TestRunNonInteractiveWizard:
             "relationships": [],
         }
 
-        with patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync", return_value=expected) as mock_corpus, \
-             patch("cognidoc.schema_wizard.save_schema") as mock_save:
+        with (
+            patch(
+                "cognidoc.schema_wizard.generate_schema_from_corpus_sync", return_value=expected
+            ) as mock_corpus,
+            patch("cognidoc.schema_wizard.save_schema") as mock_save,
+        ):
 
             result = run_non_interactive_wizard(
                 sources_dir=str(tmp_path),
@@ -747,9 +907,14 @@ class TestRunNonInteractiveWizard:
         mock_save.assert_called_once_with(expected)
 
     def test_fallback_on_corpus_failure(self, tmp_path: Path):
-        with patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync", side_effect=RuntimeError("fail")), \
-             patch("cognidoc.schema_wizard.get_document_sample", return_value=([], [])), \
-             patch("cognidoc.schema_wizard.save_schema"):
+        with (
+            patch(
+                "cognidoc.schema_wizard.generate_schema_from_corpus_sync",
+                side_effect=RuntimeError("fail"),
+            ),
+            patch("cognidoc.schema_wizard.get_document_sample", return_value=([], [])),
+            patch("cognidoc.schema_wizard.save_schema"),
+        ):
 
             result = run_non_interactive_wizard(
                 sources_dir=str(tmp_path),
@@ -788,7 +953,6 @@ class TestCLISchemaGenerate:
             source_dir=str(tmp_path),
             language="en",
             max_docs=50,
-            max_pages=2,
             regenerate=False,
         )
 
@@ -798,9 +962,11 @@ class TestCLISchemaGenerate:
             "relationships": [{"name": "RELATES_TO"}],
         }
 
-        with patch("cognidoc.schema_wizard.check_existing_schema", return_value=None), \
-             patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync", return_value=schema), \
-             patch("cognidoc.schema_wizard.save_schema", return_value=str(tmp_path / "schema.yaml")):
+        with (
+            patch("cognidoc.schema_wizard.check_existing_schema", return_value=None),
+            patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync", return_value=schema),
+            patch("cognidoc.schema_wizard.save_schema", return_value=str(tmp_path / "schema.yaml")),
+        ):
             # Should not raise
             cmd_schema_generate(args)
 
@@ -811,12 +977,13 @@ class TestCLISchemaGenerate:
             source_dir=str(tmp_path),
             language="en",
             max_docs=50,
-            max_pages=2,
             regenerate=False,
         )
 
-        with patch("cognidoc.schema_wizard.check_existing_schema", return_value="/fake/schema.yaml"), \
-             patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync") as mock_gen:
+        with (
+            patch("cognidoc.schema_wizard.check_existing_schema", return_value="/fake/schema.yaml"),
+            patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync") as mock_gen,
+        ):
             cmd_schema_generate(args)
 
         mock_gen.assert_not_called()
@@ -831,7 +998,6 @@ class TestCLISchemaGenerate:
             source_dir=str(tmp_path),
             language="fr",
             max_docs=20,
-            max_pages=1,
             regenerate=True,
         )
 
@@ -841,9 +1007,13 @@ class TestCLISchemaGenerate:
             "relationships": [],
         }
 
-        with patch("cognidoc.schema_wizard.check_existing_schema", return_value="/fake/schema.yaml"), \
-             patch("cognidoc.schema_wizard.generate_schema_from_corpus_sync", return_value=schema) as mock_gen, \
-             patch("cognidoc.schema_wizard.save_schema", return_value=str(tmp_path / "schema.yaml")):
+        with (
+            patch("cognidoc.schema_wizard.check_existing_schema", return_value="/fake/schema.yaml"),
+            patch(
+                "cognidoc.schema_wizard.generate_schema_from_corpus_sync", return_value=schema
+            ) as mock_gen,
+            patch("cognidoc.schema_wizard.save_schema", return_value=str(tmp_path / "schema.yaml")),
+        ):
             cmd_schema_generate(args)
 
         mock_gen.assert_called_once()

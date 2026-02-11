@@ -348,14 +348,12 @@ def cmd_schema_generate(args) -> None:
     print(f"Generating schema from corpus in: {sources_dir}")
     print(f"  Language: {args.language}")
     print(f"  Max documents: {args.max_docs}")
-    print(f"  Max pages per document: {args.max_pages}")
 
     schema = generate_schema_from_corpus_sync(
         sources_dir=sources_dir,
         pdf_dir=pdf_dir,
         language=args.language,
         max_docs=args.max_docs,
-        max_pages=args.max_pages,
         convert_first=True,
     )
 
@@ -689,12 +687,8 @@ For more information: https://github.com/arielibaba/cognidoc
         default=100,
         help="Maximum documents to sample (default: 100)",
     )
-    schema_parser.add_argument(
-        "--max-pages",
-        type=int,
-        default=3,
-        help="Maximum pages per document to extract (default: 3)",
-    )
+    # --max-pages removed: character budget per document is now computed
+    # adaptively based on corpus size (fewer docs → more text per doc).
     schema_parser.add_argument(
         "--regenerate",
         action="store_true",

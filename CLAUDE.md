@@ -221,9 +221,10 @@ The graph schema (`config/graph_schema.yaml`) can be auto-generated from corpus 
 ```
 data/sources/ → PDF conversion → Sample ≤100 PDFs (distributed across subfolders)
                                         ↓
-                            Extract text from first 3 pages (PyMuPDF)
+                    Extract text from distributed pages (beginning/middle/end)
+                    Adaptive char budget per doc (fewer docs → more text each)
                                         ↓
-                    Stage A: Batch analysis (10-15 docs/batch, parallel LLM calls)
+                    Stage A: Batch analysis (auto-sized batches, parallel LLM calls)
                               → themes, entity types, relationship types per batch
                                         ↓
                     Stage B: Synthesis (single LLM call)
@@ -237,10 +238,16 @@ data/sources/ → PDF conversion → Sample ≤100 PDFs (distributed across subf
 - If flat structure: random sample up to `max_docs`
 - Non-generic folder/file names are used as metadata signals for the LLM
 
+**Adaptive page/character budget:**
+- Total text budget: 300K chars across all sampled documents
+- `chars_per_doc = clamp(300K / num_docs, min=3000, max=30000)`
+- With 100 docs: 3K chars/doc (~3 pages). With 3 docs: 30K chars/doc (~20 pages)
+- Pages sampled from 3 zones: beginning (40%), middle (30%), end (30%)
+- Near-empty pages (< 100 chars) are skipped automatically
+- `batch_size` auto-computed to keep ~40K chars per LLM call
+
 **Design notes (hyperparameters):**
 - `max_docs=100`: Pragmatic default. Topic modeling research shows 10-20% of a corpus suffices to identify main themes, with diminishing returns beyond that. 100 docs covers most use cases; configurable via `--max-docs`.
-- `max_pages=3`: First 3 pages capture table of contents, abstract, or introduction for most document types (reports, books, articles). Configurable via `--max-pages`. For short documents (<3 pages), all available pages are extracted automatically (`min(max_pages, actual_pages)`).
-- `batch_size=12`: Balances LLM context usage (~36K tokens/batch at ~3K chars/doc) with extraction quality. With 100 docs, this produces ~8 batches = ~8 LLM calls for Stage A.
 - Generic name detection filters out uninformative file/folder names (e.g., `doc_1`, `scan`, `untitled`, purely numeric).
 
 **Fallback chain:**

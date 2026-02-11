@@ -21,6 +21,24 @@ from .utils.logger import logger
 from .utils.llm_client import llm_chat
 from .constants import SOURCES_DIR, PDF_DIR
 
+# ---------------------------------------------------------------------------
+# Adaptive sampling constants
+# ---------------------------------------------------------------------------
+
+# Total text budget across all sampled documents (chars).
+# With 100 docs this yields 3000 chars/doc (current behavior);
+# with fewer docs, each gets proportionally more.
+_TOTAL_TEXT_BUDGET = 300_000
+_MIN_CHARS_PER_DOC = 3_000
+_MAX_CHARS_PER_DOC = 30_000
+
+# Pages with fewer characters than this are considered empty
+# (cover pages, full-page images, etc.) and skipped.
+_MIN_PAGE_CHARS = 100
+
+# Target character count per LLM batch call (Stage A).
+_TARGET_BATCH_CHARS = 40_000
+
 # Check if questionary is available
 _QUESTIONARY_AVAILABLE = False
 try:
@@ -201,19 +219,69 @@ def is_generic_name(name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# PDF text extraction (PyMuPDF)
+# PDF text extraction (PyMuPDF) with distributed page sampling
 # ---------------------------------------------------------------------------
 
 
-def extract_pdf_text(pdf_path: Path, max_pages: int = 3, max_chars: int = 3000) -> str:
+def _select_distributed_pages(total_pages: int, max_chars: int) -> List[int]:
     """
-    Extract text from the first N pages of a PDF using PyMuPDF.
+    Select candidate pages from beginning (40%), middle (30%), end (30%).
 
-    If the PDF has fewer than max_pages, all available pages are extracted.
+    Returns more candidates than strictly needed to account for empty pages
+    that will be skipped during extraction.
+
+    Args:
+        total_pages: Total number of pages in the PDF
+        max_chars: Character budget — used to estimate how many pages to read
+
+    Returns:
+        Ordered list of page indices to try
+    """
+    # Generous estimate: ~800 usable chars per page (accounts for headers, margins)
+    estimated = max(3, max_chars // 800 + 2)
+
+    if total_pages <= estimated:
+        return list(range(total_pages))
+
+    n_begin = max(2, int(estimated * 0.4))
+    n_middle = max(1, int(estimated * 0.3))
+    n_end = max(1, int(estimated * 0.3))
+
+    third = max(1, total_pages // 3)
+
+    # Beginning: sequential from start
+    begin_pages = list(range(min(n_begin, third)))
+
+    # Middle: evenly spaced in middle third
+    mid_start, mid_end = third, 2 * third
+    mid_range = mid_end - mid_start
+    if mid_range <= 0 or n_middle >= mid_range:
+        middle_pages = list(range(mid_start, mid_end))
+    else:
+        step = max(1, mid_range // n_middle)
+        middle_pages = list(range(mid_start, mid_end, step))[:n_middle]
+
+    # End: evenly spaced in last third
+    end_start = 2 * third
+    end_range = total_pages - end_start
+    if end_range <= 0 or n_end >= end_range:
+        end_pages = list(range(end_start, total_pages))
+    else:
+        step = max(1, end_range // n_end)
+        end_pages = list(range(end_start, total_pages, step))[:n_end]
+
+    return begin_pages + middle_pages + end_pages
+
+
+def extract_pdf_text(pdf_path: Path, max_chars: int = 3000) -> str:
+    """
+    Extract text from distributed pages of a PDF using PyMuPDF.
+
+    Samples pages from beginning (40%), middle (30%), and end (30%)
+    of the document. Skips near-empty pages (< 100 chars of text).
 
     Args:
         pdf_path: Path to the PDF file
-        max_pages: Maximum pages to extract (default 3)
         max_chars: Maximum characters to return (default 3000)
 
     Returns:
@@ -227,14 +295,28 @@ def extract_pdf_text(pdf_path: Path, max_pages: int = 3, max_chars: int = 3000) 
 
     try:
         doc = fitz.open(str(pdf_path))
+        total_pages = len(doc)
+        if total_pages == 0:
+            doc.close()
+            return ""
+
+        candidates = _select_distributed_pages(total_pages, max_chars)
         text_parts = []
-        pages_to_read = min(max_pages, len(doc))
-        for page_num in range(pages_to_read):
-            page = doc[page_num]
-            text_parts.append(page.get_text())
+        chars_collected = 0
+
+        for page_num in candidates:
+            if chars_collected >= max_chars:
+                break
+            page_text = doc[page_num].get_text()
+            if len(page_text.strip()) < _MIN_PAGE_CHARS:
+                continue  # skip near-empty pages
+            remaining = max_chars - chars_collected
+            chunk = page_text[:remaining]
+            text_parts.append(chunk)
+            chars_collected += len(chunk)
+
         doc.close()
-        combined = "\n".join(text_parts)
-        return combined[:max_chars]
+        return "\n".join(text_parts)
     except Exception as e:
         logger.warning(f"Could not extract text from {pdf_path.name}: {e}")
         return ""
@@ -249,19 +331,18 @@ def sample_pdfs_for_schema(
     sources_dir: Path,
     pdf_dir: Path,
     max_docs: int = 100,
-    max_pages: int = 3,
 ) -> Tuple[List[Dict[str, str]], List[str], List[str]]:
     """
     Sample PDFs intelligently for schema generation.
 
     Scans sources_dir for structure (subfolders vs flat), then reads text from
-    the first pages of sampled PDFs in pdf_dir.
+    distributed pages of sampled PDFs in pdf_dir. The character budget per
+    document is computed adaptively: fewer documents → more text per document.
 
     Args:
         sources_dir: Path to source documents directory
         pdf_dir: Path to converted PDFs directory
         max_docs: Maximum documents to sample (default 100)
-        max_pages: Maximum pages per document to extract (default 3)
 
     Returns:
         Tuple of:
@@ -334,6 +415,13 @@ def sample_pdfs_for_schema(
             chosen = random.sample(all_files, n)
             sampled_sources = [(f, "") for f in chosen]
 
+    # Compute adaptive character budget per document
+    num_sampled = max(1, len(sampled_sources))
+    chars_per_doc = max(
+        _MIN_CHARS_PER_DOC, min(_MAX_CHARS_PER_DOC, _TOTAL_TEXT_BUDGET // num_sampled)
+    )
+    logger.debug(f"Adaptive sampling: {num_sampled} docs, {chars_per_doc} chars/doc")
+
     # Extract text from corresponding PDFs
     samples = []
     informative_file_names = []
@@ -350,7 +438,7 @@ def sample_pdfs_for_schema(
             if pdf_file is None:
                 continue
 
-        content = extract_pdf_text(pdf_file, max_pages=max_pages)
+        content = extract_pdf_text(pdf_file, max_chars=chars_per_doc)
         if not content.strip():
             continue
 
@@ -511,7 +599,7 @@ Rules:
 async def run_batch_analysis(
     samples: List[Dict[str, str]],
     language: str = "en",
-    batch_size: int = 12,
+    batch_size: int = 0,
     max_concurrent: int = 4,
 ) -> List[Dict[str, Any]]:
     """
@@ -520,12 +608,18 @@ async def run_batch_analysis(
     Args:
         samples: All document samples
         language: Target language
-        batch_size: Documents per batch (default 12)
+        batch_size: Documents per batch (0 = auto-compute from content length)
         max_concurrent: Max parallel LLM calls (default 4)
 
     Returns:
         List of valid batch results
     """
+    # Auto-compute batch_size to keep ~40K chars per LLM call
+    if batch_size <= 0:
+        avg_chars = sum(len(s.get("content", "")) for s in samples) / max(1, len(samples))
+        batch_size = max(3, min(12, int(_TARGET_BATCH_CHARS / max(1, avg_chars))))
+        logger.debug(f"Auto batch_size={batch_size} (avg {avg_chars:.0f} chars/doc)")
+
     # Split into batches
     batches = []
     for i in range(0, len(samples), batch_size):
@@ -728,7 +822,6 @@ async def generate_schema_from_corpus(
     pdf_dir: str = None,
     language: str = "en",
     max_docs: int = 100,
-    max_pages: int = 3,
     convert_first: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -739,12 +832,15 @@ async def generate_schema_from_corpus(
     3. Run two-stage LLM analysis (batch analysis → synthesis)
     4. Return schema dict
 
+    The character budget per document is computed adaptively based on the
+    number of sampled documents (fewer docs → more text per doc). Pages are
+    sampled from beginning, middle, and end of each document.
+
     Args:
         sources_dir: Path to source documents
         pdf_dir: Path to PDF output directory
         language: Language code (default "en")
         max_docs: Maximum documents to sample (default 100)
-        max_pages: Maximum pages per document to extract (default 3)
         convert_first: Whether to run PDF conversion first (default True)
 
     Returns:
@@ -777,7 +873,6 @@ async def generate_schema_from_corpus(
         sources_path,
         pdf_path,
         max_docs=max_docs,
-        max_pages=max_pages,
     )
 
     if not samples:
@@ -814,7 +909,6 @@ def generate_schema_from_corpus_sync(
     pdf_dir: str = None,
     language: str = "en",
     max_docs: int = 100,
-    max_pages: int = 3,
     convert_first: bool = True,
 ) -> Dict[str, Any]:
     """
@@ -825,7 +919,6 @@ def generate_schema_from_corpus_sync(
         pdf_dir: Path to PDF output directory
         language: Language code
         max_docs: Maximum documents to sample
-        max_pages: Maximum pages per document to extract
         convert_first: Whether to run PDF conversion first
 
     Returns:
@@ -839,7 +932,6 @@ def generate_schema_from_corpus_sync(
             pdf_dir=pdf_dir,
             language=language,
             max_docs=max_docs,
-            max_pages=max_pages,
             convert_first=convert_first,
         )
     )
