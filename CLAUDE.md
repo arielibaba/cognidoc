@@ -99,6 +99,7 @@ CI runs on push/PR to `master` with three jobs:
 |------|---------|
 | `CLAUDE.md` | This file — instructions for Claude Code |
 | `README.md` | User-facing setup and usage guide |
+| `docs/QUICKSTART.md` | Step-by-step guide to deploy CogniDoc on a new project |
 | `docs/ROADMAP.md` | Implementation plans (Phases 1-3: graph enrichment → Kùzu → Neo4j) |
 | `docs/architecture/query_pipeline.md` | Deep dive into query internals |
 

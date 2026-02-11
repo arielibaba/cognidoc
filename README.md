@@ -51,26 +51,23 @@ Transform any document collection into a searchable knowledge base with intellig
 
 ```bash
 # 1. Install
-pip install "cognidoc[all] @ git+https://github.com/arielibaba/cognidoc.git"
-
-# 2. Create project & add documents
 mkdir my-project && cd my-project
-mkdir -p data/sources
-cp /path/to/your/documents/* data/sources/
+pip install "cognidoc[all] @ git+https://github.com/arielibaba/cognidoc.git" "gradio==6.2.0"
 
-# 3. Configure API key
+# 2. Initialize project & add documents
+cognidoc init --schema
+cp /path/to/your/documents/* data/sources/
 echo "GOOGLE_API_KEY=your-key" > .env
 
-# 4. Run
-python -c "
-from cognidoc import CogniDoc
-doc = CogniDoc()
-doc.ingest('./data/sources/')
-doc.launch_ui(port=7860)
-"
+# 3. Generate schema, ingest & launch
+cognidoc schema-generate ./data/sources --language fr
+cognidoc ingest ./data/sources --llm gemini --embedding ollama
+cognidoc serve
 ```
 
-Open http://localhost:7860 - The schema wizard will guide you through first-time setup.
+Open http://localhost:7860 — Chat, Metrics, and Knowledge Graph tabs are available.
+
+> **Detailed guide:** See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for the full step-by-step walkthrough with prerequisites, troubleshooting, and all CLI options.
 
 ---
 
