@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from tqdm import tqdm
 
 from .utils.logger import logger, timer, PipelineTimer
@@ -32,6 +33,10 @@ DEFAULT_BATCH_SIZE = 32
 
 # Max concurrent requests for async embedding
 MAX_CONCURRENT_REQUESTS = 4
+
+# Max characters to send to embedding model (~8K tokens for qwen3-embedding)
+# Chunks exceeding this are truncated with a warning
+MAX_EMBED_CHARS = 30000
 
 
 @dataclass
@@ -285,8 +290,16 @@ async def embed_batch_async(
             nonlocal success, errors
             async with semaphore:
                 try:
+                    text = chunk.text
+                    if len(text) > MAX_EMBED_CHARS:
+                        logger.warning(
+                            f"Truncating oversized chunk {chunk.file_path.name} "
+                            f"({len(text)} chars → {MAX_EMBED_CHARS})"
+                        )
+                        text = text[:MAX_EMBED_CHARS]
+
                     response = await client.post(
-                        f"{host}/api/embeddings", json={"model": embed_model, "prompt": chunk.text}
+                        f"{host}/api/embeddings", json={"model": embed_model, "prompt": text}
                     )
                     response.raise_for_status()
                     embedding = response.json()["embedding"]
@@ -304,6 +317,13 @@ async def embed_batch_async(
                     success += 1
                     return True
 
+                except httpx.HTTPStatusError as e:
+                    logger.error(
+                        f"HTTP error embedding {chunk.file_path.name}: "
+                        f"{e.response.status_code} - {e.response.text[:200]}"
+                    )
+                    errors += 1
+                    return False
                 except (ValueError, ConnectionError, TimeoutError, OSError) as e:
                     logger.error(f"Error embedding {chunk.file_path.name}: {e}")
                     errors += 1

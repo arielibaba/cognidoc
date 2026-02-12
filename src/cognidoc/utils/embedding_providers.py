@@ -213,12 +213,15 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
         async def embed_one(idx: int, text: str):
             async with semaphore:
-                response = await client.post(
-                    f"{self._host}/api/embeddings",
-                    json={"model": self.config.model, "prompt": text},
-                )
-                response.raise_for_status()
-                results[idx] = response.json()["embedding"]
+                try:
+                    response = await client.post(
+                        f"{self._host}/api/embeddings",
+                        json={"model": self.config.model, "prompt": text},
+                    )
+                    response.raise_for_status()
+                    results[idx] = response.json()["embedding"]
+                except Exception as e:
+                    logger.error(f"Embedding error for text[{idx}] ({len(text)} chars): {e}")
 
         await asyncio.gather(*[embed_one(i, t) for i, t in enumerate(texts)])
         return [r for r in results if r is not None]  # type: ignore[misc]
