@@ -161,8 +161,16 @@ svg:active { cursor: grabbing; }
 </div>
 
 <div class="controls-bar">
-  <input type="text" id="search" placeholder="Search nodes...">
+  <input type="text" id="search" placeholder="Search nodes (name, description, attributes)...">
   <select id="type-filter" multiple title="Filter by entity type"></select>
+  <select id="community-filter" title="Filter by community">
+    <option value="all" selected>All Communities</option>
+  </select>
+  <label class="degree-label">Degree:
+    <input type="number" id="degree-min" min="0" value="0" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-card);color:var(--text);font-size:0.8rem;">
+    <span style="color:var(--text-muted)">–</span>
+    <input type="number" id="degree-max" min="0" value="999" style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-card);color:var(--text);font-size:0.8rem;">
+  </label>
   <label><input type="checkbox" id="toggle-hulls"> Communities</label>
   <label><input type="checkbox" id="toggle-labels" checked> Labels</label>
   <button class="btn" id="btn-reset">Reset view</button>
@@ -203,6 +211,9 @@ svg:active { cursor: grabbing; }
   const detailContent = document.getElementById('detail-content');
   const searchInput = document.getElementById('search');
   const typeFilter = document.getElementById('type-filter');
+  const communityFilter = document.getElementById('community-filter');
+  const degreeMin = document.getElementById('degree-min');
+  const degreeMax = document.getElementById('degree-max');
   const toggleHulls = document.getElementById('toggle-hulls');
   const toggleLabels = document.getElementById('toggle-labels');
 
@@ -214,7 +225,12 @@ svg:active { cursor: grabbing; }
       if (!data.nodes || data.nodes.length === 0) return showEmpty();
       updateStats(data.stats);
       buildTypeFilter(data.stats.node_types);
+      buildCommunityFilter(data.communities);
       buildLegend(data.stats.node_types);
+      // Set degree slider max
+      const maxDegree = Math.max(1, ...data.nodes.map(n => n.degree));
+      degreeMax.value = maxDegree;
+      degreeMax.max = maxDegree;
       initGraph(data);
     })
     .catch(() => showEmpty('Could not load graph data. Make sure documents have been ingested.'));
@@ -246,6 +262,18 @@ svg:active { cursor: grabbing; }
       opt.value = t; opt.textContent = `${t} (${nodeTypes[t]})`;
       opt.selected = true;
       typeFilter.appendChild(opt);
+    });
+  }
+
+  function buildCommunityFilter(communities) {
+    communityFilter.innerHTML = '<option value="all" selected>All Communities</option>';
+    if (!communities) return;
+    communities.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      const label = c.summary ? c.summary.slice(0, 40) + '...' : `Community ${c.id}`;
+      opt.textContent = `#${c.id} — ${label}`;
+      communityFilter.appendChild(opt);
     });
   }
 
@@ -416,7 +444,7 @@ svg:active { cursor: grabbing; }
       });
     });
 
-    // Search
+    // Search — extended to description and attributes
     searchInput.addEventListener('input', () => {
       const q = searchInput.value.toLowerCase().trim();
       if (!q) {
@@ -426,7 +454,10 @@ svg:active { cursor: grabbing; }
       }
       const matches = data.nodes.filter(n =>
         n.name.toLowerCase().includes(q) ||
-        (n.aliases && n.aliases.some(a => a.toLowerCase().includes(q)))
+        (n.aliases && n.aliases.some(a => a.toLowerCase().includes(q))) ||
+        (n.description && n.description.toLowerCase().includes(q)) ||
+        (n.attributes && Object.values(n.attributes).some(v =>
+          String(v).toLowerCase().includes(q)))
       );
       const matchIds = new Set(matches.map(n => n.id));
       nodes
@@ -443,6 +474,42 @@ svg:active { cursor: grabbing; }
       }
     });
 
+    // Community filter
+    communityFilter.addEventListener('change', () => {
+      const val = communityFilter.value;
+      if (val === 'all') {
+        nodes.attr('opacity', 1);
+        labels.attr('opacity', 1);
+        edgePaths.attr('opacity', 0.5);
+        return;
+      }
+      const cid = parseInt(val, 10);
+      nodes.attr('opacity', d => d.community_id === cid ? 1 : 0.08);
+      labels.attr('opacity', d => d.community_id === cid ? 1 : 0.08);
+      edgePaths.attr('opacity', d => {
+        const s = typeof d.source === 'object' ? d.source : nodeById.get(d.source);
+        const t = typeof d.target === 'object' ? d.target : nodeById.get(d.target);
+        return (s && s.community_id === cid) && (t && t.community_id === cid) ? 0.5 : 0.04;
+      });
+    });
+
+    // Degree filter
+    function applyDegreeFilter() {
+      const minDeg = parseInt(degreeMin.value, 10) || 0;
+      const maxDeg = parseInt(degreeMax.value, 10) || 999;
+      nodes.attr('opacity', d => (d.degree >= minDeg && d.degree <= maxDeg) ? 1 : 0.08);
+      labels.attr('opacity', d => (d.degree >= minDeg && d.degree <= maxDeg) ? 1 : 0.08);
+      edgePaths.attr('opacity', d => {
+        const s = typeof d.source === 'object' ? d.source : nodeById.get(d.source);
+        const t = typeof d.target === 'object' ? d.target : nodeById.get(d.target);
+        const sOk = s && s.degree >= minDeg && s.degree <= maxDeg;
+        const tOk = t && t.degree >= minDeg && t.degree <= maxDeg;
+        return (sOk && tOk) ? 0.5 : 0.04;
+      });
+    }
+    degreeMin.addEventListener('input', applyDegreeFilter);
+    degreeMax.addEventListener('input', applyDegreeFilter);
+
     // Toggle community hulls
     toggleHulls.addEventListener('change', drawHulls);
 
@@ -451,10 +518,14 @@ svg:active { cursor: grabbing; }
       labels.attr('visibility', toggleLabels.checked ? 'visible' : 'hidden');
     });
 
-    // Reset view
+    // Reset view — extended to reset community and degree filters
     document.getElementById('btn-reset').addEventListener('click', () => {
       svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
       searchInput.value = '';
+      communityFilter.value = 'all';
+      const maxDeg = Math.max(1, ...data.nodes.map(n => n.degree));
+      degreeMin.value = 0;
+      degreeMax.value = maxDeg;
       nodes.attr('stroke', '#fff').attr('stroke-width', 1.5).attr('opacity', 1);
       labels.attr('font-weight', 'normal').attr('opacity', 1);
       edgePaths.attr('opacity', 0.5);

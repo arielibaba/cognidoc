@@ -48,6 +48,7 @@ CACHE_DIR = DATA_DIR / "cache"
 TOOL_CACHE_DB = CACHE_DIR / "tool_cache.db"
 RETRIEVAL_CACHE_DB = CACHE_DIR / "retrieval_cache.db"
 METRICS_DB = CACHE_DIR / "metrics.db"
+CHAT_HISTORY_DB = CACHE_DIR / "chat_history.db"
 
 # =============================================================================
 # YOLO Model Configuration (relative to PROJECT_DIR, not DATA_DIR)
@@ -610,6 +611,7 @@ CACHE_DIR = str(CACHE_DIR.resolve())
 TOOL_CACHE_DB = str(TOOL_CACHE_DB.resolve())
 RETRIEVAL_CACHE_DB = str(RETRIEVAL_CACHE_DB.resolve())
 METRICS_DB = str(METRICS_DB.resolve())
+CHAT_HISTORY_DB = str(CHAT_HISTORY_DB.resolve())
 CHECKPOINT_FILE = str(CHECKPOINT_FILE.resolve())
 ENTITY_RESOLUTION_PROMPT = str(ENTITY_RESOLUTION_PROMPT.resolve())
 DESCRIPTION_MERGE_PROMPT = str(DESCRIPTION_MERGE_PROMPT.resolve())

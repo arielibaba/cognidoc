@@ -10,8 +10,10 @@ Provides smart routing between Vector RAG and GraphRAG based on:
 
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
@@ -267,9 +269,12 @@ def _load_custom_weights() -> None:
         logger.debug(f"Could not load custom query weights: {e}, using defaults")
 
 
+@lru_cache(maxsize=256)
 def classify_query_rules(query: str) -> Tuple[QueryType, float, str]:
     """
     Classify query using rule-based pattern matching.
+
+    Results are cached via LRU (deterministic, no TTL needed).
 
     Returns:
         Tuple of (query_type, confidence, reasoning)
@@ -335,9 +340,13 @@ ENTITIES: <comma-separated list or "none">
 REASONING: <brief explanation>"""
 
 
+_llm_classify_cache: Dict[str, Tuple[Tuple[QueryType, float, str, List[str]], float]] = {}
+_LLM_CLASSIFY_TTL = 300  # 5 minutes
+
+
 def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
     """
-    Classify query using LLM.
+    Classify query using LLM with TTL cache.
 
     Uses the unified LLM client (Gemini by default).
 
@@ -347,6 +356,14 @@ def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
     Returns:
         Tuple of (query_type, confidence, reasoning, entities)
     """
+    cache_key = query.lower().strip()
+    now = time.time()
+    if cache_key in _llm_classify_cache:
+        cached_result, cached_at = _llm_classify_cache[cache_key]
+        if now - cached_at < _LLM_CLASSIFY_TTL:
+            logger.debug(f"LLM classification cache hit for: {cache_key[:50]}")
+            return cached_result
+
     try:
         result = llm_chat(
             messages=[{"role": "user", "content": CLASSIFIER_PROMPT.format(query=query)}],
@@ -379,7 +396,9 @@ def classify_query_llm(query: str) -> Tuple[QueryType, float, str, List[str]]:
             elif line.startswith("REASONING:"):
                 reasoning = line.split(":", 1)[1].strip()
 
-        return (query_type, confidence, reasoning, entities)
+        result = (query_type, confidence, reasoning, entities)
+        _llm_classify_cache[cache_key] = (result, time.time())
+        return result
 
     except (TimeoutError, ConnectionError, ValueError, KeyError, OSError) as e:
         logger.warning(f"LLM classification failed: {e}, falling back to rules")

@@ -33,6 +33,12 @@ class QueryMetrics:
     rerank_time_ms: float = 0.0
     llm_time_ms: float = 0.0
 
+    # Detailed timing breakdown (milliseconds)
+    routing_time_ms: Optional[float] = None
+    vector_time_ms: Optional[float] = None
+    graph_time_ms: Optional[float] = None
+    fusion_time_ms: Optional[float] = None
+
     # Cache stats
     cache_hits: int = 0
     cache_misses: int = 0
@@ -86,7 +92,7 @@ class PerformanceMetrics:
         logger.info(f"Initialized performance metrics at {self.db_path}")
 
     def _init_db(self):
-        """Initialize the SQLite database."""
+        """Initialize the SQLite database with additive migration."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
@@ -106,6 +112,12 @@ class PerformanceMetrics:
                     retrieval_time_ms REAL,
                     rerank_time_ms REAL,
                     llm_time_ms REAL,
+
+                    -- Detailed timing breakdown (ms)
+                    routing_time_ms REAL,
+                    vector_time_ms REAL,
+                    graph_time_ms REAL,
+                    fusion_time_ms REAL,
 
                     -- Cache
                     cache_hits INTEGER DEFAULT 0,
@@ -127,6 +139,19 @@ class PerformanceMetrics:
                 CREATE INDEX IF NOT EXISTS idx_path ON query_metrics(path)
             """
             )
+            # Additive migration: add new columns if they don't exist yet
+            existing_cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(query_metrics)").fetchall()
+            }
+            new_columns = {
+                "routing_time_ms": "REAL",
+                "vector_time_ms": "REAL",
+                "graph_time_ms": "REAL",
+                "fusion_time_ms": "REAL",
+            }
+            for col_name, col_type in new_columns.items():
+                if col_name not in existing_cols:
+                    conn.execute(f"ALTER TABLE query_metrics ADD COLUMN {col_name} {col_type}")
             conn.commit()
 
     def log_query(self, query: str, metrics: QueryMetrics) -> None:
@@ -146,9 +171,10 @@ class PerformanceMetrics:
                     timestamp, query_hash, path, query_type, complexity_score,
                     total_time_ms, rewrite_time_ms, retrieval_time_ms,
                     rerank_time_ms, llm_time_ms,
+                    routing_time_ms, vector_time_ms, graph_time_ms, fusion_time_ms,
                     cache_hits, cache_misses,
                     agent_steps, tools_used
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     time.time(),
@@ -161,6 +187,10 @@ class PerformanceMetrics:
                     metrics.retrieval_time_ms,
                     metrics.rerank_time_ms,
                     metrics.llm_time_ms,
+                    metrics.routing_time_ms,
+                    metrics.vector_time_ms,
+                    metrics.graph_time_ms,
+                    metrics.fusion_time_ms,
                     metrics.cache_hits,
                     metrics.cache_misses,
                     metrics.agent_steps,
@@ -371,6 +401,69 @@ class PerformanceMetrics:
             )
             return dict(cursor.fetchall())
 
+    def get_timing_breakdown(self) -> Dict[str, Dict[str, float]]:
+        """
+        Get average timing breakdown by pipeline stage, grouped by path.
+
+        Returns:
+            Dict mapping path -> {stage_name: avg_ms}
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT path,
+                    AVG(routing_time_ms) as avg_routing,
+                    AVG(vector_time_ms) as avg_vector,
+                    AVG(graph_time_ms) as avg_graph,
+                    AVG(rerank_time_ms) as avg_rerank,
+                    AVG(llm_time_ms) as avg_llm,
+                    AVG(fusion_time_ms) as avg_fusion,
+                    COUNT(*) as count
+                FROM query_metrics
+                GROUP BY path
+                """
+            )
+            result = {}
+            for row in cursor.fetchall():
+                result[row["path"]] = {
+                    "routing": round(row["avg_routing"] or 0, 1),
+                    "vector": round(row["avg_vector"] or 0, 1),
+                    "graph": round(row["avg_graph"] or 0, 1),
+                    "rerank": round(row["avg_rerank"] or 0, 1),
+                    "llm": round(row["avg_llm"] or 0, 1),
+                    "fusion": round(row["avg_fusion"] or 0, 1),
+                    "count": row["count"],
+                }
+        return result
+
+    def get_percentiles(self) -> Dict[str, float]:
+        """
+        Get P50/P95/P99 latency percentiles for total_time_ms.
+
+        Returns:
+            Dict with p50, p95, p99 values in ms
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT total_time_ms FROM query_metrics ORDER BY total_time_ms")
+            values = [row[0] for row in cursor.fetchall()]
+
+        if not values:
+            return {"p50": 0, "p95": 0, "p99": 0}
+
+        def _percentile(data: List[float], p: float) -> float:
+            idx = (len(data) - 1) * p / 100
+            low = int(idx)
+            high = min(low + 1, len(data) - 1)
+            weight = idx - low
+            return data[low] * (1 - weight) + data[high] * weight
+
+        return {
+            "p50": round(_percentile(values, 50), 1),
+            "p95": round(_percentile(values, 95), 1),
+            "p99": round(_percentile(values, 99), 1),
+        }
+
     def clear(self) -> None:
         """Clear all metrics data."""
         with sqlite3.connect(self.db_path) as conn:
@@ -402,6 +495,7 @@ class PerformanceMetrics:
                     query_hash, path, query_type, complexity_score,
                     total_time_ms, rewrite_time_ms, retrieval_time_ms,
                     rerank_time_ms, llm_time_ms,
+                    routing_time_ms, vector_time_ms, graph_time_ms, fusion_time_ms,
                     cache_hits, cache_misses,
                     agent_steps, tools_used
                 FROM query_metrics
@@ -452,6 +546,7 @@ class PerformanceMetrics:
                     timestamp, query_hash, path, query_type, complexity_score,
                     total_time_ms, rewrite_time_ms, retrieval_time_ms,
                     rerank_time_ms, llm_time_ms,
+                    routing_time_ms, vector_time_ms, graph_time_ms, fusion_time_ms,
                     cache_hits, cache_misses,
                     agent_steps, tools_used
                 FROM query_metrics

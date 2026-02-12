@@ -936,9 +936,12 @@ class HybridRetriever:
         vector_confidence = 0.0
         graph_confidence = 0.0
 
+        vector_elapsed_ms = 0.0
+        graph_elapsed_ms = 0.0
+
         def _do_vector_retrieval():
             """Vector retrieval task (Dense + BM25 + Parent + Rerank)."""
-            nonlocal vector_results, vector_confidence
+            nonlocal vector_results, vector_confidence, vector_elapsed_ms
             if not (analysis.use_vector and self._vector_index and not skip_vector):
                 return
 
@@ -1055,6 +1058,7 @@ class HybridRetriever:
                     vector_confidence = min(1.0, avg_score)
 
                 t_elapsed = time.perf_counter() - t_start
+                vector_elapsed_ms = t_elapsed * 1000
                 logger.debug(f"Vector retrieval: {len(vector_results)} results in {t_elapsed:.2f}s")
 
             except Exception as e:
@@ -1062,7 +1066,7 @@ class HybridRetriever:
 
         def _do_graph_retrieval():
             """Graph retrieval task (Entity matching + Community summaries)."""
-            nonlocal graph_result, graph_confidence
+            nonlocal graph_result, graph_confidence, graph_elapsed_ms
             if skip_graph:
                 logger.info("Graph retrieval skipped by smart routing")
                 return
@@ -1079,6 +1083,7 @@ class HybridRetriever:
                 graph_result = self._graph_retriever.retrieve(query)
                 graph_confidence = graph_result.confidence
                 t_elapsed = time.perf_counter() - t_start
+                graph_elapsed_ms = t_elapsed * 1000
                 logger.debug(
                     f"Graph retrieval: {len(graph_result.entities)} entities, "
                     f"confidence={graph_result.confidence:.2f}, time={t_elapsed:.2f}s"
@@ -1121,6 +1126,7 @@ class HybridRetriever:
                 analysis.graph_weight = adjusted_routing.graph_weight
 
         # Fuse results (lost-in-the-middle reordering applied here, not before)
+        t_fusion_start = time.perf_counter()
         fused_context, source_chunks = fuse_results(
             query,
             vector_results,
@@ -1129,6 +1135,8 @@ class HybridRetriever:
             model,
             use_lost_in_middle=use_lost_in_middle,
         )
+        t_fusion_end = time.perf_counter()
+        fusion_elapsed_ms = (t_fusion_end - t_fusion_start) * 1000
 
         # #13: Contextual compression
         if use_compression and vector_results:
@@ -1179,6 +1187,14 @@ class HybridRetriever:
                 "vector_weight": analysis.vector_weight,
                 "graph_weight": analysis.graph_weight,
                 "from_cache": False,
+                # Detailed timing breakdown
+                "timing": {
+                    "routing_ms": (t_routing_end - t_total_start) * 1000,
+                    "vector_ms": vector_elapsed_ms,
+                    "graph_ms": graph_elapsed_ms,
+                    "fusion_ms": fusion_elapsed_ms,
+                    "total_ms": (t_total_end - t_total_start) * 1000,
+                },
             },
         )
 

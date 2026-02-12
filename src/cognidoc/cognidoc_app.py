@@ -63,6 +63,7 @@ from .utils.logger import logger, retrieval_metrics
 from .complexity import evaluate_complexity, should_use_agent, AGENT_THRESHOLD
 from .agent import CogniDocAgent, AgentState, create_agent
 from .utils.metrics import QueryMetrics, get_performance_metrics
+from .utils.chat_history import get_chat_history
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -380,12 +381,13 @@ NO_INFO_PREFIXES = (
 )
 
 
-def format_sources_html(sources: list[dict]) -> str:
+def format_sources_html(sources: list[dict], chunk_texts: list[str] = None) -> str:
     """
-    Format sources as a clean numbered list (Perplexity/ChatGPT style).
+    Format sources as expandable previews (details/summary).
 
     Args:
         sources: List of dicts with keys: url, title, folder, page_display
+        chunk_texts: Optional list of chunk texts for inline preview
 
     Returns:
         HTML string for the sources section
@@ -414,7 +416,19 @@ def format_sources_html(sources: list[dict]) -> str:
         # Add page info
         page_suffix = f" · {page_display}" if page_display else ""
 
-        item = f'<div class="source-item-wrapper"><a href="{url}" target="_blank" rel="noopener" class="source-item">[{i}] {display_path}{page_suffix}</a></div>'
+        # If chunk text is available, wrap in details/summary for preview
+        if chunk_texts and i - 1 < len(chunk_texts) and chunk_texts[i - 1]:
+            preview = chunk_texts[i - 1][:300]
+            if len(chunk_texts[i - 1]) > 300:
+                preview += "..."
+            item = (
+                f'<details class="source-preview">'
+                f'<summary><a href="{url}" target="_blank" rel="noopener" class="source-item">'
+                f"[{i}] {display_path}{page_suffix}</a></summary>"
+                f'<div class="source-content">{preview}</div></details>'
+            )
+        else:
+            item = f'<div class="source-item-wrapper"><a href="{url}" target="_blank" rel="noopener" class="source-item">[{i}] {display_path}{page_suffix}</a></div>'
         items_html.append(item)
 
     # Join with newlines to ensure one source per line
@@ -1330,6 +1344,128 @@ html.dark-mode .source-item {
 html.dark-mode .source-item:hover {
     color: #a5b4fc;
 }
+
+/* Source preview with details/summary */
+.chatbot details.source-preview {
+    margin: 0.25rem 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.chatbot details.source-preview summary {
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    background: #f8fafc;
+    list-style: none;
+}
+
+.chatbot details.source-preview summary::-webkit-details-marker {
+    display: none;
+}
+
+.chatbot details.source-preview summary::before {
+    content: "\\25B6 ";
+    font-size: 0.7em;
+    margin-right: 4px;
+}
+
+.chatbot details.source-preview[open] summary::before {
+    content: "\\25BC ";
+}
+
+.chatbot details.source-preview .source-content {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+    color: #475569;
+    line-height: 1.5;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+html.dark-mode .chatbot details.source-preview {
+    border-color: var(--border-color);
+}
+
+html.dark-mode .chatbot details.source-preview summary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+html.dark-mode .chatbot details.source-preview .source-content {
+    color: var(--text-secondary);
+}
+
+/* Sidebar conversations */
+.sidebar-conversations {
+    max-height: calc(100vh - 400px);
+    overflow-y: auto;
+}
+
+.conv-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+    gap: 6px;
+}
+
+.conv-item:hover {
+    background: #f1f5f9;
+}
+
+html.dark-mode .conv-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.conv-item.active {
+    background: #eef2ff;
+    font-weight: 600;
+}
+
+html.dark-mode .conv-item.active {
+    background: rgba(99, 102, 241, 0.15);
+}
+
+.conv-item .conv-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conv-item .conv-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.conv-item:hover .conv-actions {
+    opacity: 1;
+}
+
+.conv-action-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: #64748b;
+}
+
+.conv-action-btn:hover {
+    background: #e2e8f0;
+}
+
+html.dark-mode .conv-action-btn:hover {
+    background: #475569;
+}
 """
 
 
@@ -1630,6 +1766,7 @@ def chat_conversation(
                             complexity_score=complexity.score if complexity else None,
                             total_time_ms=total_time * 1000,
                             rewrite_time_ms=(t2 - t1) * 1000,
+                            routing_time_ms=(t2 - t1) * 1000,
                             cache_hits=cache_stats["hits"],
                             cache_misses=cache_stats["misses"],
                             agent_steps=len(result.steps),
@@ -1893,6 +2030,9 @@ def chat_conversation(
     history[-1]["content"] = _format_markdown(history[-1]["content"])
     yield convert_history_to_tuples(history)
 
+    # Collect chunk texts for source preview
+    chunk_texts = [nws.node.text for nws in reranked] if reranked else []
+
     # Add references (only if the response is not a "no info" message)
     final = history[-1]["content"].strip()
     is_no_info = any(final.lower().startswith(prefix) for prefix in NO_INFO_PREFIXES)
@@ -1913,7 +2053,7 @@ def chat_conversation(
                 f'<div style="font-size:0.85em;color:{conf_color};margin-top:4px;">'
                 f"Confidence: {confidence_pct}%</div>"
             )
-        final += "\n\n" + format_sources_html(sources) + confidence_html
+        final += "\n\n" + format_sources_html(sources, chunk_texts) + confidence_html
 
     # #15: Citation verification (optional)
     if ENABLE_CITATION_VERIFICATION and reranked:
@@ -1948,6 +2088,9 @@ def chat_conversation(
     """
     )
 
+    # Extract detailed timing from hybrid_result if available
+    timing = hybrid_result.metadata.get("timing", {}) if hybrid_result else {}
+
     # Log metrics for fast/enhanced path
     path_type = "enhanced" if complexity and complexity.score >= 0.35 else "fast"
     fast_metrics = QueryMetrics(
@@ -1963,6 +2106,10 @@ def chat_conversation(
         retrieval_time_ms=retrieval_time * 1000,
         rerank_time_ms=rerank_time * 1000,
         llm_time_ms=(t6 - t5) * 1000,
+        routing_time_ms=timing.get("routing_ms") or (t2 - t1) * 1000,
+        vector_time_ms=timing.get("vector_ms"),
+        graph_time_ms=timing.get("graph_ms"),
+        fusion_time_ms=timing.get("fusion_ms"),
     )
     get_performance_metrics().log_query(user_message, fast_metrics)
 
@@ -2149,6 +2296,95 @@ def create_path_distribution_chart():
     fig.update_layout(
         **_dashboard_layout(
             margin=dict(t=20, b=20, l=20, r=20),
+        )
+    )
+    return fig
+
+
+def create_timing_breakdown_chart():
+    """Create stacked horizontal bar chart of average timing by pipeline stage."""
+    breakdown = get_performance_metrics().get_timing_breakdown()
+
+    if not breakdown:
+        return _empty_chart_figure("No timing data yet")
+
+    paths = list(breakdown.keys())
+    stages = ["routing", "vector", "graph", "rerank", "llm", "fusion"]
+    colors = {
+        "routing": "#3b82f6",
+        "vector": "#22c55e",
+        "graph": "#8b5cf6",
+        "rerank": "#f59e0b",
+        "llm": "#ef4444",
+        "fusion": "#6b7280",
+    }
+
+    fig = go.Figure()
+    for stage in stages:
+        values = [breakdown[p].get(stage, 0) / 1000 for p in paths]  # Convert to seconds
+        fig.add_trace(
+            go.Bar(
+                y=paths,
+                x=values,
+                name=stage.capitalize(),
+                orientation="h",
+                marker_color=colors.get(stage, "#667eea"),
+                hovertemplate=f"<b>{stage.capitalize()}</b>: %{{x:.2f}}s<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        **_dashboard_layout(
+            barmode="stack",
+            xaxis=dict(
+                title="Time (s)",
+                gridcolor="rgba(148,163,184,0.2)",
+                linecolor="rgba(148,163,184,0.3)",
+                tickfont=dict(color="#94a3b8"),
+            ),
+            yaxis=dict(
+                gridcolor="rgba(148,163,184,0.2)",
+                linecolor="rgba(148,163,184,0.3)",
+                tickfont=dict(color="#94a3b8"),
+            ),
+        )
+    )
+    return fig
+
+
+def create_percentiles_chart():
+    """Create bar chart of P50/P95/P99 latency percentiles."""
+    percentiles = get_performance_metrics().get_percentiles()
+
+    if not percentiles or percentiles["p50"] == 0:
+        return _empty_chart_figure("No percentile data yet")
+
+    labels = ["P50", "P95", "P99"]
+    values = [percentiles["p50"] / 1000, percentiles["p95"] / 1000, percentiles["p99"] / 1000]
+    colors = ["#22c55e", "#f59e0b", "#ef4444"]
+
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=labels,
+                y=values,
+                text=[f"{v:.2f}s" for v in values],
+                textposition="outside",
+                textfont=dict(color="#94a3b8", size=12),
+                marker_color=colors,
+                hovertemplate="<b>%{x}</b><br>%{y:.2f}s<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        **_dashboard_layout(
+            yaxis=dict(
+                title="Latency (s)",
+                gridcolor="rgba(148,163,184,0.2)",
+                linecolor="rgba(148,163,184,0.3)",
+                tickfont=dict(color="#94a3b8"),
+            ),
+            showlegend=False,
         )
     )
     return fig
@@ -2456,7 +2692,39 @@ def create_gradio_app(default_reranking: bool = True):
             # Chat Tab
             # =====================================================================
             with gr.Tab("💬 Chat"):
+                # State for current conversation
+                current_conv_id = gr.State(value=None)
+
                 with gr.Row():
+                    # Sidebar: conversation history
+                    with gr.Column(scale=1, min_width=220):
+                        new_chat_btn = gr.Button(
+                            "➕ New Chat",
+                            variant="primary",
+                            size="sm",
+                            elem_classes=["primary-btn"],
+                        )
+                        conversations_list = gr.HTML(
+                            value="<div class='sidebar-conversations'><p style='color:#94a3b8;font-size:0.85rem;padding:8px;'>No conversations yet</p></div>",
+                        )
+
+                        gr.HTML('<div class="settings-divider"></div>')
+
+                        # Document upload
+                        gr.HTML(
+                            """
+                            <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 8px;">
+                                Upload Documents
+                            </div>
+                            """
+                        )
+                        upload_files = gr.File(
+                            label="Drop files here",
+                            file_types=[".pdf", ".docx", ".pptx", ".xlsx", ".html", ".md", ".txt"],
+                            file_count="multiple",
+                        )
+                        upload_status = gr.HTML(value="")
+
                     # Main chat area
                     with gr.Column(scale=4):
                         chatbot = gr.Chatbot(
@@ -2590,6 +2858,13 @@ def create_gradio_app(default_reranking: bool = True):
                     timeline_chart = gr.Plot(value=create_latency_over_time_chart())
 
                 gr.HTML(
+                    "<div class='dashboard-section-title' style='margin-top: 1.5rem;'>Timing Breakdown</div>"
+                )
+                with gr.Row(equal_height=True):
+                    timing_chart = gr.Plot(value=create_timing_breakdown_chart())
+                    percentiles_chart = gr.Plot(value=create_percentiles_chart())
+
+                gr.HTML(
                     "<div class='dashboard-section-title' style='margin-top: 1.5rem;'>Recent Queries</div>"
                 )
                 queries_table = gr.Dataframe(
@@ -2619,6 +2894,8 @@ def create_gradio_app(default_reranking: bool = True):
                         create_latency_by_path_chart(),
                         create_path_distribution_chart(),
                         create_latency_over_time_chart(),
+                        create_timing_breakdown_chart(),
+                        create_percentiles_chart(),
                         get_recent_queries_dataframe(),
                     )
 
@@ -2666,6 +2943,8 @@ def create_gradio_app(default_reranking: bool = True):
                         latency_chart,
                         distribution_chart,
                         timeline_chart,
+                        timing_chart,
+                        percentiles_chart,
                         queries_table,
                     ],
                 )
@@ -2711,32 +2990,198 @@ def create_gradio_app(default_reranking: bool = True):
         """
         )
 
+        # =====================================================================
+        # Conversation sidebar helpers
+        # =====================================================================
+
+        def _render_conversations_html():
+            """Build HTML for the conversation sidebar list."""
+            ch = get_chat_history()
+            convs = ch.list_conversations(limit=50)
+            if not convs:
+                return "<div class='sidebar-conversations'><p style='color:#94a3b8;font-size:0.85rem;padding:8px;'>No conversations yet</p></div>"
+            from datetime import datetime
+
+            items = []
+            for c in convs:
+                dt = datetime.fromtimestamp(c["updated_at"]).strftime("%m/%d %H:%M")
+                title = c["title"] or "Untitled"
+                if len(title) > 35:
+                    title = title[:32] + "..."
+                items.append(
+                    f'<div class="conv-item" data-id="{c["id"]}" '
+                    f'onclick="document.getElementById(\'conv-loader\').value=\'{c["id"]}\';'
+                    f"document.getElementById('conv-loader').dispatchEvent(new Event('input'))\">"
+                    f'<span class="conv-title">{title}</span>'
+                    f'<span style="font-size:0.7rem;color:#94a3b8;">{dt}</span>'
+                    f'<span class="conv-actions">'
+                    f'<button class="conv-action-btn" title="Delete" '
+                    f'onclick="event.stopPropagation();'
+                    f'document.getElementById(\'conv-deleter\').value=\'{c["id"]}\';'
+                    f"document.getElementById('conv-deleter').dispatchEvent(new Event('input'))\">"
+                    f"🗑</button></span></div>"
+                )
+            return "<div class='sidebar-conversations'>" + "".join(items) + "</div>"
+
+        def create_new_chat(conv_id):
+            """Create a new conversation and return empty chatbot + new conv_id."""
+            ch = get_chat_history()
+            new_id = ch.create_conversation()
+            return [], new_id, _render_conversations_html()
+
+        def load_conversation(conv_id_str, current_id):
+            """Load a conversation from the sidebar."""
+            if not conv_id_str or not conv_id_str.strip():
+                return gr.update(), current_id
+            ch = get_chat_history()
+            messages = ch.get_messages(conv_id_str.strip())
+            history = []
+            for msg in messages:
+                if msg["role"] == "user":
+                    history.append((msg["content"], None))
+                elif msg["role"] == "assistant" and history:
+                    history[-1] = (history[-1][0], msg["content"])
+                elif msg["role"] == "assistant":
+                    history.append((None, msg["content"]))
+            return history, conv_id_str.strip()
+
+        def delete_conversation(conv_id_str, current_id):
+            """Delete a conversation."""
+            if not conv_id_str or not conv_id_str.strip():
+                return gr.update(), current_id, gr.update()
+            ch = get_chat_history()
+            ch.delete_conversation(conv_id_str.strip())
+            # If deleted the current conversation, reset
+            if conv_id_str.strip() == current_id:
+                return [], None, _render_conversations_html()
+            return gr.update(), current_id, _render_conversations_html()
+
+        def upload_documents(files):
+            """Copy uploaded files to data/sources/ and trigger background ingestion."""
+            if not files:
+                return "<span style='color:#94a3b8;font-size:0.8rem;'>No files selected</span>"
+
+            import shutil
+
+            from .constants import SOURCES_DIR
+
+            copied = []
+            max_size = 50 * 1024 * 1024  # 50MB
+
+            for file in files:
+                file_path = file.name if hasattr(file, "name") else str(file)
+                file_size = Path(file_path).stat().st_size
+                if file_size > max_size:
+                    logger.warning(f"Skipping oversized file: {file_path} ({file_size} bytes)")
+                    continue
+                dest = Path(SOURCES_DIR) / Path(file_path).name
+                shutil.copy2(file_path, dest)
+                copied.append(Path(file_path).name)
+                logger.info(f"Uploaded: {dest}")
+
+            if not copied:
+                return (
+                    "<span style='color:#f59e0b;font-size:0.8rem;'>No valid files (max 50MB)</span>"
+                )
+
+            # Trigger background ingestion
+            import threading
+
+            def _run_incremental():
+                try:
+                    from .run_ingestion_pipeline import run_pipeline
+
+                    run_pipeline(skip_conversion=False)
+                    logger.info(f"Background ingestion completed for {len(copied)} files")
+                except Exception as e:
+                    logger.error(f"Background ingestion failed: {e}")
+
+            threading.Thread(target=_run_incremental, daemon=True).start()
+
+            names = ", ".join(copied[:3])
+            if len(copied) > 3:
+                names += f" +{len(copied) - 3} more"
+            return f"<span style='color:#22c55e;font-size:0.8rem;'>Uploaded {len(copied)} file(s): {names}. Ingesting in background...</span>"
+
+        # Hidden inputs for JS-driven conversation actions
+        conv_loader = gr.Textbox(visible=False, elem_id="conv-loader")
+        conv_deleter = gr.Textbox(visible=False, elem_id="conv-deleter")
+
         # Event handlers
-        def submit_handler(user_msg, history, rerank, use_graph):
+        def submit_handler(user_msg, history, rerank, use_graph, conv_id):
+            """Submit handler with persistent chat history."""
             if not user_msg.strip():
-                yield history, ""
+                yield history, "", conv_id, gr.update()
                 return
+
+            ch = get_chat_history()
+            # Auto-create conversation if none active
+            if not conv_id:
+                conv_id = ch.create_conversation()
+
+            # Save user message
+            ch.add_message(conv_id, "user", user_msg)
+
             for result in chat_conversation(user_msg, history, rerank, use_graph):
-                yield result, ""
+                yield result, "", conv_id, gr.update()
+
+            # Save assistant response
+            if result:
+                last_response = result[-1][1] if result[-1][1] else ""
+                ch.add_message(conv_id, "assistant", last_response)
+
+            yield result, "", conv_id, _render_conversations_html()
 
         submit_btn.click(
             submit_handler,
-            inputs=[user_input, chatbot, rerank_toggle, graph_toggle],
-            outputs=[chatbot, user_input],
+            inputs=[user_input, chatbot, rerank_toggle, graph_toggle, current_conv_id],
+            outputs=[chatbot, user_input, current_conv_id, conversations_list],
             queue=True,
         )
 
         user_input.submit(
             submit_handler,
-            inputs=[user_input, chatbot, rerank_toggle, graph_toggle],
-            outputs=[chatbot, user_input],
+            inputs=[user_input, chatbot, rerank_toggle, graph_toggle, current_conv_id],
+            outputs=[chatbot, user_input, current_conv_id, conversations_list],
             queue=True,
         )
 
+        new_chat_btn.click(
+            create_new_chat,
+            inputs=[current_conv_id],
+            outputs=[chatbot, current_conv_id, conversations_list],
+            queue=False,
+        )
+
+        conv_loader.input(
+            load_conversation,
+            inputs=[conv_loader, current_conv_id],
+            outputs=[chatbot, current_conv_id],
+            queue=False,
+        )
+
+        conv_deleter.input(
+            delete_conversation,
+            inputs=[conv_deleter, current_conv_id],
+            outputs=[chatbot, current_conv_id, conversations_list],
+            queue=False,
+        )
+
+        upload_files.change(
+            upload_documents,
+            inputs=[upload_files],
+            outputs=[upload_status],
+            queue=True,
+        )
+
+        def reset_and_clear_conv():
+            """Reset conversation and clear current_conv_id."""
+            return [], "", None
+
         reset_btn.click(
-            reset_conversation,
+            reset_and_clear_conv,
             inputs=[],
-            outputs=[chatbot, user_input],
+            outputs=[chatbot, user_input, current_conv_id],
             queue=False,
         )
 
@@ -2767,8 +3212,12 @@ def main():
     else:
         logger.info("Agentic RAG enabled for complex queries")
 
-    # Warm-up models and indexes for faster first query
-    warmup_models_and_indexes()
+    # Warm-up models and indexes asynchronously for faster UI startup
+    import threading
+
+    warmup_thread = threading.Thread(target=warmup_models_and_indexes, daemon=True)
+    warmup_thread.start()
+    logger.info("Warm-up started in background thread")
 
     # Create Gradio app
     demo = create_gradio_app(default_reranking=default_reranking)

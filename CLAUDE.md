@@ -147,6 +147,7 @@ Source code is in `src/cognidoc/` but installs as `cognidoc` package:
 | `utils/metrics.py` | Performance metrics tracking (ingestion stats, query latency) |
 | `utils/logger.py` | Structured logging utilities |
 | `utils/tool_cache.py` | SQLite-backed persistent tool result caching with per-tool TTL |
+| `utils/chat_history.py` | SQLite-backed persistent chat history (conversations, messages, export) |
 | `utils/error_classifier.py` | Error classification for retry logic |
 | `utils/advanced_rag.py` | BM25 sparse retrieval, cross-encoder reranking, lost-in-the-middle reordering, contextual compression |
 | `utils/embedding_cache.py` | SQLite-backed embedding cache (SHA-256 content hashing to skip unchanged chunks) |
@@ -528,6 +529,8 @@ YOLO detection requires `models/YOLOv11/yolov11x_best.pt` (~109 MB, gitignored).
 | `test_providers.py` | 32 | LLM/Embedding providers |
 | `test_query_orchestrator.py` | 31 | Query classification, routing, weight config |
 | `test_schema_generation.py` | 85 | Corpus-based schema generation (sampling, distributed pages, LLM pipeline, fallbacks) |
+| `test_chat_history.py` | 25 | Chat history CRUD, auto-title, export, concurrent access |
+| `test_integration.py` | 26 | Integration tests: query pipeline, metrics, API endpoints, chat history, upload |
 
 **Test Infrastructure:**
 - `conftest.py` provides session-scoped `cognidoc_session` fixture to avoid Qdrant lock conflicts
