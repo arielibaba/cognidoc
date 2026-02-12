@@ -3127,8 +3127,14 @@ def create_gradio_app(default_reranking: bool = True):
 
             # Save assistant response
             if result:
-                last_response = result[-1][1] if result[-1][1] else ""
-                ch.add_message(conv_id, "assistant", last_response)
+                last_msg = result[-1]
+                last_response = (
+                    last_msg.get("content", "")
+                    if isinstance(last_msg, dict)
+                    else (last_msg[1] if isinstance(last_msg, (list, tuple)) else "")
+                )
+                if last_response:
+                    ch.add_message(conv_id, "assistant", last_response)
 
             yield result, "", conv_id, _render_conversations_html()
 
