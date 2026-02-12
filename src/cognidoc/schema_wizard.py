@@ -19,7 +19,7 @@ import yaml
 
 from .utils.logger import logger
 from .utils.llm_client import llm_chat
-from .constants import SOURCES_DIR, PDF_DIR
+from .constants import SOURCES_DIR, PDF_DIR, PROJECT_DIR
 
 # ---------------------------------------------------------------------------
 # Adaptive sampling constants
@@ -1186,8 +1186,8 @@ def save_schema(schema: Dict[str, Any], output_path: str = None) -> str:
         Path where schema was saved
     """
     if output_path is None:
-        # Save to config directory
-        config_dir = Path(__file__).parent.parent.parent / "config"
+        # Save to config directory in the project root (not the installed package)
+        config_dir = PROJECT_DIR / "config"
         config_dir.mkdir(parents=True, exist_ok=True)
         output_path = config_dir / "graph_schema.yaml"
 
@@ -1401,7 +1401,7 @@ def check_existing_schema(config_dir: str = None) -> Optional[str]:
         Path to existing schema, or None
     """
     if config_dir is None:
-        config_dir = Path(__file__).parent.parent.parent / "config"
+        config_dir = PROJECT_DIR / "config"
 
     schema_path = Path(config_dir) / "graph_schema.yaml"
     if schema_path.exists():

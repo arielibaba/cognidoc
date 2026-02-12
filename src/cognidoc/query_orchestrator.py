@@ -19,6 +19,7 @@ from difflib import SequenceMatcher
 
 from pathlib import Path
 
+from .constants import PROJECT_DIR
 from .utils.llm_client import llm_chat
 from .utils.logger import logger
 
@@ -244,7 +245,7 @@ def _load_custom_weights() -> None:
             return
         _weights_loaded = True
     try:
-        config_path = Path("config/graph_schema.yaml")
+        config_path = PROJECT_DIR / "config" / "graph_schema.yaml"
         if not config_path.exists():
             return
         import yaml
