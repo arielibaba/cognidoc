@@ -22,7 +22,7 @@ CogniDoc is a Hybrid RAG (Vector + GraphRAG) document assistant that converts mu
 make install          # Create venv and install dependencies
 make sync             # Sync environment with lock file
 make lock             # Lock dependencies
-make refactor         # Format + lint (root-level *.py and code/*.py)
+make refactor         # Format + lint (src/cognidoc/)
 make help             # Display all available Makefile targets
 uv sync --group dev   # Install dev dependencies (pytest, black, pylint, mypy)
 
@@ -35,11 +35,8 @@ UV_LINK_MODE=copy uv pip install ".[all,dev]"   # Non-editable (NOT -e), editabl
 
 # Code quality (black: line-length=100, target py310-py312)
 # pylint disables: C0114, C0115, C0116 (missing docstrings), R0903 (too-few-public-methods)
-# NOTE: Makefile targets are outdated — make format targets root-level *.py;
-# make lint targets *.py and code/*.py (code/ doesn't exist). Neither covers src/cognidoc/.
-# Use direct commands below for the main source code:
-uv run black src/cognidoc/       # Format source code
-uv run pylint src/cognidoc/      # Lint source code
+make format                      # Format with black (src/cognidoc/)
+make lint                        # Lint with pylint (src/cognidoc/)
 uv run mypy src/cognidoc/        # Type check (ignore_missing_imports=true)
 make container-lint              # Lint Dockerfile with hadolint
 
