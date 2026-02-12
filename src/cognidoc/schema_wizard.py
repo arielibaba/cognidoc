@@ -943,8 +943,10 @@ def generate_schema_from_corpus_sync(
 
 
 def is_wizard_available() -> bool:
-    """Check if interactive wizard is available (questionary installed)."""
-    return _QUESTIONARY_AVAILABLE
+    """Check if interactive wizard is available (questionary installed + terminal)."""
+    import sys
+
+    return _QUESTIONARY_AVAILABLE and sys.stdin.isatty()
 
 
 def get_document_sample(
