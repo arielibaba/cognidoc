@@ -99,6 +99,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     # Shared httpx client for connection reuse (class-level singleton)
     _shared_async_client = None
+    _shared_async_client_loop = None  # Track which event loop owns the client
 
     def __init__(self, config: EmbeddingConfig):
         super().__init__(config)
@@ -120,9 +121,36 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     @classmethod
     def _get_async_client(cls, timeout: float):
-        """Get shared async client with connection pooling."""
+        """Get shared async client with connection pooling.
+
+        Recreates the client if the event loop it was created on has changed
+        (e.g. when run_coroutine spawns a thread with asyncio.run).
+        """
+        import asyncio
         import atexit
         import httpx
+
+        # Detect stale client: if the event loop changed, the old client is unusable
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if cls._shared_async_client is not None and current_loop != cls._shared_async_client_loop:
+            # Client was created on a different (possibly closed) loop — discard it
+            try:
+                if not cls._shared_async_client.is_closed:
+                    # Best-effort close; ignore errors on dead loops
+                    import contextlib
+
+                    with contextlib.suppress(Exception):
+                        asyncio.get_event_loop().run_until_complete(
+                            cls._shared_async_client.aclose()
+                        )
+            except Exception:
+                pass
+            cls._shared_async_client = None
+            cls._shared_async_client_loop = None
 
         if cls._shared_async_client is None:
             # Create client with connection pooling (keeps connections alive)
@@ -130,11 +158,10 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
                 timeout=timeout,
                 limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
             )
+            cls._shared_async_client_loop = current_loop
 
             # Register cleanup so the client is closed on interpreter shutdown
             def _close_client():
-                import asyncio
-
                 client = cls._shared_async_client
                 if client is not None:
                     try:
