@@ -1089,9 +1089,11 @@ async def extract_from_chunks_dir_async(
                 break
 
             try:
-                result = await coro
+                result = await asyncio.wait_for(coro, timeout=600)
                 if result is not None and (result.entities or result.relationships):
                     results.append(result)
+            except asyncio.TimeoutError:
+                logger.error("Entity extraction task timed out after 600s, skipping")
             except asyncio.CancelledError:
                 pass
             except Exception as e:

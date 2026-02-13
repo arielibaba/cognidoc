@@ -210,7 +210,10 @@ class GeminiProvider(BaseLLMProvider):
         if not api_key:
             raise ValueError("GOOGLE_API_KEY or GEMINI_API_KEY not found in environment or config")
 
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=int(config.timeout * 1000)),
+        )
         self.types = types
 
         # Store generation config for later use
