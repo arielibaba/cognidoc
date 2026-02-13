@@ -24,9 +24,9 @@ DECISION CRITERIA:
 - DIFFERENT if: Types are fundamentally incompatible OR descriptions clearly contradict OR context suggests different entities
 
 OUTPUT (JSON only, no markdown):
-{
+{{
   "same_entity": true or false,
   "confidence": 0.0 to 1.0,
   "canonical_name": "Best name to use (most complete, standard, or widely recognized form)",
   "reasoning": "Brief explanation in 1-2 sentences"
-}
+}}
