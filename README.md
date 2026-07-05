@@ -738,7 +738,7 @@ COGNIDOC_DATA_DIR="/path/to/external/data" \
 - [ ] **Feedback Loop** — User feedback collection for retrieval quality improvement
 - [ ] **Graph Viewer Search** — Attribute-level search and filtering in the graph visualization
 
-> See [`docs/ROADMAP.md`](docs/ROADMAP.md) for detailed implementation notes.
+> See [`docs/BACKLOG.md`](docs/BACKLOG.md) for detailed implementation notes.
 
 ---
 

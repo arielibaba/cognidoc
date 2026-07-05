@@ -322,12 +322,12 @@ Pour continuer l'implémentation dans une future session Claude Code :
 
 **Phase 1 :**
 ```
-Implémente la Phase 1 du roadmap dans docs/ROADMAP.md.
+Implémente la Phase 1 du roadmap dans docs/BACKLOG.md.
 Commence par l'étape 1.1 (enrichir le prompt d'extraction dans extract_entities.py).
 ```
 
 **Phase 3 :**
 ```
-Implémente la Phase 3 du roadmap dans docs/ROADMAP.md.
+Implémente la Phase 3 du roadmap dans docs/BACKLOG.md.
 Ajoute une implémentation Neo4jBackend(GraphBackend) dans graph_backend_neo4j.py.
 ```
