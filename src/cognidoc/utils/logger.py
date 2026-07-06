@@ -11,6 +11,7 @@ This module provides:
 
 import sys
 import time
+import logging
 import functools
 from pathlib import Path
 from contextlib import contextmanager
@@ -19,40 +20,73 @@ from datetime import datetime
 
 from loguru import logger
 
-# Remove default handler
+# Remove default handler (loguru configuration is applied by setup_logging()).
 logger.remove()
 
 # Configuration
 LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# Console handler (colorful, human-readable)
-logger.add(
-    sys.stderr,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level="INFO",
-    colorize=True,
-)
+# Bibliothèques tierces bruyantes (elles utilisent le logging stdlib).
+_LIBS_BRUYANTES = ("httpx", "httpcore", "urllib3", "asyncio", "h11")
 
-# File handler (JSON format for production, with rotation)
-logger.add(
-    LOG_DIR / "app_{time:YYYY-MM-DD}.log",
-    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
-    level="DEBUG",
-    rotation="10 MB",
-    retention="7 days",
-    compression="zip",
-)
+# Garde d'idempotence : setup_logging() ne câble les handlers qu'une seule fois.
+_configured = False
 
-# Metrics file (structured performance data)
-logger.add(
-    LOG_DIR / "metrics_{time:YYYY-MM-DD}.log",
-    format="{message}",
-    level="INFO",
-    filter=lambda record: record["extra"].get("metrics", False),
-    rotation="10 MB",
-    retention="30 days",
-)
+
+def setup_logging(level: str = "INFO") -> None:
+    """Initialise le logging global : console + fichiers rotatifs (loguru). Idempotent.
+
+    - Console (stderr) : coloré, niveau `level` (défaut INFO).
+    - `logs/app_<date>.log` : DEBUG, rotation 10 Mo, rétention 7 j, compression zip.
+    - `logs/metrics_<date>.log` : messages taggés `metrics=True`, rétention 30 j.
+
+    Appelé au démarrage de l'app (voir `cognidoc_app.main`) ; également invoqué à
+    l'import de ce module pour préserver le logging des points d'entrée CLI/lib.
+    """
+    global _configured
+    if _configured:
+        return
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Console handler (colorful, human-readable)
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        level=level.upper(),
+        colorize=True,
+    )
+
+    # File handler (with rotation)
+    logger.add(
+        LOG_DIR / "app_{time:YYYY-MM-DD}.log",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+        level="DEBUG",
+        rotation="10 MB",
+        retention="7 days",
+        compression="zip",
+    )
+
+    # Metrics file (structured performance data)
+    logger.add(
+        LOG_DIR / "metrics_{time:YYYY-MM-DD}.log",
+        format="{message}",
+        level="INFO",
+        filter=lambda record: record["extra"].get("metrics", False),
+        rotation="10 MB",
+        retention="30 days",
+    )
+
+    # Réduit le bruit des bibliothèques tierces (logging stdlib).
+    for lib in _LIBS_BRUYANTES:
+        logging.getLogger(lib).setLevel(logging.WARNING)
+
+    _configured = True
+
+
+# Configuration à l'import : préserve le logging pour les points d'entrée qui
+# importent `logger` sans passer par setup_logging() (CLI, usage librairie, tests).
+setup_logging()
 
 
 class PipelineTimer:
@@ -237,6 +271,7 @@ def log_error_with_context(error: Exception, context: dict):
 # Export logger for direct use
 __all__ = [
     "logger",
+    "setup_logging",
     "PipelineTimer",
     "timer",
     "timed",

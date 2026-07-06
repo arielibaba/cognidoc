@@ -119,7 +119,8 @@ Concrete paths that are runtime state, secrets, or generated artifacts — never
 - **CI-green locally**: `make refactor` (black + pylint) then `uv run mypy src/cognidoc/`. black `--check` must be clean; pylint must stay `--fail-under=7.0`.
 - **Version sync**: `__version__` in `src/cognidoc/__init__.py` and `version` in `pyproject.toml` must match.
 - **Tests are fully mocked** (Gemini/Ollama/Qdrant) — no API keys or running services. New tests follow suit and mirror module names (`tests/test_<module>.py`).
-- Commit convention (conventional commits, English) and logging follow the global defaults.
+- Commit convention (conventional commits, English) follows the global defaults.
+- **Logging** (concrete binding of the global *Logging & observability* practice): `utils/logger.py` centralizes setup via `setup_logging(level="INFO")` — loguru-based, idempotent, wiring a colored console handler (stderr) plus rotating files `logs/app_<date>.log` (DEBUG, 10 MB rotation, 7-day retention, zip) and `logs/metrics_<date>.log` (records tagged `metrics=True`). It is called at Gradio app startup (`cognidoc_app.main`) and once at module import so CLI/library entry points keep logging. No FastAPI request-tracing middleware (Gradio profile). `logs/` is git-ignored. Modules use the shared `logger` — never `print`.
 
 ### Multi-agent orchestration
 

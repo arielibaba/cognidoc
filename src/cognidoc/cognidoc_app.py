@@ -59,7 +59,7 @@ from .utils.rag_utils import (
 )
 from .utils.advanced_rag import verify_citations
 from .hybrid_retriever import HybridRetriever, HybridRetrievalResult
-from .utils.logger import logger, retrieval_metrics
+from .utils.logger import logger, retrieval_metrics, setup_logging
 from .complexity import evaluate_complexity, should_use_agent, AGENT_THRESHOLD
 from .agent import CogniDocAgent, AgentState, create_agent
 from .utils.metrics import QueryMetrics, get_performance_metrics
@@ -3201,6 +3201,9 @@ def main():
     import uvicorn
 
     args = parse_args()
+
+    # Câblage central du logging au démarrage de l'app Gradio (idempotent).
+    setup_logging()
 
     # Set reranking based on CLI argument
     default_reranking = not args.no_rerank
