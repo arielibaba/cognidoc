@@ -310,7 +310,7 @@ GOOGLE_API_KEY=
 
 # LLM Configuration
 DEFAULT_LLM_PROVIDER=gemini
-DEFAULT_LLM_MODEL=gemini-3-flash-preview
+DEFAULT_LLM_MODEL=gemini-3.6-flash
 
 # Embedding Configuration
 COGNIDOC_EMBEDDING_PROVIDER=ollama

@@ -63,13 +63,13 @@ def set_llm_provider(provider: str, model: Optional[str] = None) -> BaseLLMProvi
     global _llm_client
 
     default_models = {
-        "gemini": "gemini-3-flash-preview",
+        "gemini": "gemini-3.6-flash",
         "ollama": "granite3.3:8b",
         "openai": "gpt-4o-mini",
         "anthropic": "claude-3-haiku-20240307",
     }
 
-    model = model or default_models.get(provider, "gemini-3-flash-preview")
+    model = model or default_models.get(provider, "gemini-3.6-flash")
 
     # Use from_model to auto-load specs
     _llm_client = create_llm_provider(

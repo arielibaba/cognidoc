@@ -77,7 +77,7 @@ class LLMConfig:
         Create LLMConfig from model name, auto-loading specs from MODEL_SPECS.
 
         Args:
-            model: Model name (e.g., "gemini-3-flash-preview", "gpt-4o")
+            model: Model name (e.g., "gemini-3.6-flash", "gpt-4o")
             provider: Override provider (auto-detected from specs if not provided)
             temperature: Override default temperature
             top_p: Override default top_p
@@ -678,14 +678,14 @@ def create_llm_provider(config: LLMConfig) -> BaseLLMProvider:
 
 # Default models per provider (fallback if env vars not set)
 _DEFAULT_MODELS = {
-    "gemini": "gemini-3-flash-preview",
+    "gemini": "gemini-3.6-flash",
     "ollama": "granite3.3:8b",
     "openai": "gpt-4o",
     "anthropic": "claude-sonnet-4-20250514",
 }
 
 _DEFAULT_VISION_MODELS = {
-    "gemini": "gemini-3-flash-preview",
+    "gemini": "gemini-3.6-flash",
     "ollama": "qwen3-vl:8b-instruct",
     "openai": "gpt-4o",
     "anthropic": "claude-sonnet-4-20250514",

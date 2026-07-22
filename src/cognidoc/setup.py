@@ -58,8 +58,8 @@ PROVIDERS = {
         "requires_key": True,
         "key_env": "GOOGLE_API_KEY",
         "key_url": "https://aistudio.google.com/app/apikey",
-        "llm_models": ["gemini-3-flash-preview", "gemini-1.5-flash", "gemini-1.5-pro"],
-        "vision_models": ["gemini-3-flash-preview", "gemini-1.5-flash", "gemini-1.5-pro"],
+        "llm_models": ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+        "vision_models": ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
         "cost_per_1k_tokens": 0.000075,  # Approximate for flash
     },
     "openai": {
@@ -241,7 +241,7 @@ class SetupWizard:
             client = genai.Client(api_key=api_key)
             config = types.GenerateContentConfig(max_output_tokens=5)
             client.models.generate_content(
-                model="gemini-3-flash-preview",
+                model="gemini-3.6-flash",
                 contents="test",
                 config=config,
             )

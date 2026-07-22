@@ -34,7 +34,7 @@ class TestLLMConfig:
         """Test default configuration values."""
         config = LLMConfig(
             provider=LLMProvider.GEMINI,
-            model="gemini-3-flash-preview",
+            model="gemini-3.6-flash",
         )
         assert config.temperature == 0.7
         assert config.top_p == 0.85
@@ -80,11 +80,11 @@ class TestLLMResponse:
         """Test creating a response."""
         response = LLMResponse(
             content="Hello, I'm Claude",
-            model="gemini-3-flash-preview",
+            model="gemini-3.6-flash",
             provider=LLMProvider.GEMINI,
         )
         assert response.content == "Hello, I'm Claude"
-        assert response.model == "gemini-3-flash-preview"
+        assert response.model == "gemini-3.6-flash"
         assert response.provider == LLMProvider.GEMINI
 
 
@@ -191,7 +191,7 @@ class TestGeminiProvider:
 
                     config = LLMConfig(
                         provider=LLMProvider.GEMINI,
-                        model="gemini-3-flash-preview",
+                        model="gemini-3.6-flash",
                     )
                     # This test just verifies the test setup works
 

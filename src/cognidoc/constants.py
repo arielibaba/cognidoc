@@ -86,10 +86,10 @@ OLLAMA_REQUEST_TIMEOUT = float(os.getenv("OLLAMA_REQUEST_TIMEOUT", "180.0"))
 
 # Model names by provider
 # All Gemini tasks use flash model by default (speed + API quota considerations)
-GEMINI_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini-3-flash-preview")
-GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-3-flash-preview")
+GEMINI_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gemini-3.6-flash")
+GEMINI_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "gemini-3.6-flash")
 # Ingestion LLM model (entity extraction, community summaries, table descriptions)
-INGESTION_LLM_MODEL = os.getenv("INGESTION_LLM_MODEL", "gemini-3-flash-preview")
+INGESTION_LLM_MODEL = os.getenv("INGESTION_LLM_MODEL", "gemini-3.6-flash")
 
 OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "granite3.3:8b")
 OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen3-vl:8b-instruct")
@@ -125,7 +125,7 @@ MODEL_SPECS = {
     # -------------------------------------------------------------------------
     # Gemini Models (Google)
     # -------------------------------------------------------------------------
-    "gemini-3-flash-preview": {
+    "gemini-3.6-flash": {
         "provider": "gemini",
         "context_window": 1_048_576,  # 1M tokens
         "max_output_tokens": 65_536,  # 65K with thinking, 8K standard
@@ -169,7 +169,7 @@ MODEL_SPECS = {
         "supports_json_mode": True,
         "supports_streaming": True,
     },
-    "gemini-3-flash-preview": {
+    "gemini-3.6-flash": {
         "provider": "gemini",
         "context_window": 1_048_576,  # 1M tokens
         "max_output_tokens": 65_536,
@@ -357,7 +357,7 @@ def get_model_specs(model_name: str) -> dict:
     Get specifications for a model.
 
     Args:
-        model_name: Name of the model (e.g., "gemini-3-flash-preview", "gpt-4o")
+        model_name: Name of the model (e.g., "gemini-3.6-flash", "gpt-4o")
 
     Returns:
         Dict with model specifications. Falls back to DEFAULT_MODEL_SPECS if unknown.
@@ -366,7 +366,7 @@ def get_model_specs(model_name: str) -> dict:
     if model_name in MODEL_SPECS:
         return {**DEFAULT_MODEL_SPECS, **MODEL_SPECS[model_name]}
 
-    # Try prefix match (e.g., "gemini-3-flash-preview-latest" -> "gemini-3-flash-preview")
+    # Try prefix match (e.g., "gemini-3.6-flash-latest" -> "gemini-3.6-flash")
     for known_model in MODEL_SPECS:
         if model_name.startswith(known_model) or known_model.startswith(model_name.split(":")[0]):
             return {**DEFAULT_MODEL_SPECS, **MODEL_SPECS[known_model]}
