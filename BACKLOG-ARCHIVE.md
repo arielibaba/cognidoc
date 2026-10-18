@@ -1,6 +1,14 @@
-# CogniDoc — Roadmap
+# CogniDoc — Archive du suivi
 
-Fichier centralisé de suivi des plans d'implémentation.
+Travail fait, sorti de `BACKLOG.md` section par section, à l'identique ; chaque section y a laissé son titre et une ligne de renvoi. À parcourir avec `grep`, ne pas lire en entier. Créée le 2026-10-19.
+
+---
+
+## Suivi à la racine et archive (2026-10-19 — fait)
+
+Identifiant : `TODO#suivi-racine-archive`.
+
+Le suivi `docs/BACKLOG.md` est passé à la racine (`BACKLOG.md`), selon la règle « Project tracking file » de `~/.claude/CLAUDE.md`, et les sections closes (fonctionnalités implémentées, Phases 1 et 2) ainsi qu'une photo datée de l'« Ordre d'implémentation » ont été déplacées ici telles quelles. Les motifs qui doivent encore guider les décisions (Kùzu plutôt que Neo4j, attributs Kùzu en JSON, injection CSS par middleware) sont devenus des faits établis dans `CLAUDE.md`.
 
 ---
 
@@ -272,18 +280,9 @@ Wraps `nx.DiGraph()` — méthodes 1:1 avec NetworkX, extraites de `knowledge_gr
 
 ---
 
-## Phase 3 (futur) : Neo4j pour la production cloud
-
-Hors scope pour l'instant. Quand nécessaire :
-
-- Ajouter une implémentation `Neo4jStorage(GraphStorage)`
-- Utiliser le driver Python `neo4j`
-- Configuration : `GRAPH_BACKEND=neo4j`, `NEO4J_URI`, `NEO4J_AUTH`
-- L'abstraction `GraphStorage` de la Phase 2 en fait un remplacement drop-in
-
----
-
 ## Ordre d'implémentation
+
+> Photo datée : état tel qu'il figurait dans `BACKLOG.md` au 2026-10-19 ; ne fait pas foi.
 
 ```
 Phase 1 (enrichissement NetworkX) :          ✅ FAIT
@@ -315,19 +314,3 @@ Fonctionnalités post-Phase 2 :               ✅ FAIT
 ```
 
 ---
-
-## Comment reprendre ce travail
-
-Pour continuer l'implémentation dans une future session Claude Code :
-
-**Phase 1 :**
-```
-Implémente la Phase 1 du roadmap dans docs/BACKLOG.md.
-Commence par l'étape 1.1 (enrichir le prompt d'extraction dans extract_entities.py).
-```
-
-**Phase 3 :**
-```
-Implémente la Phase 3 du roadmap dans docs/BACKLOG.md.
-Ajoute une implémentation Neo4jBackend(GraphBackend) dans graph_backend_neo4j.py.
-```

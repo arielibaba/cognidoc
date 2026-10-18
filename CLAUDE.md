@@ -126,7 +126,7 @@ Concrete paths that are runtime state, secrets, or generated artifacts — never
 
 The generic sub-agent methodology and report template live in the global. CogniDoc bindings:
 
-- **Tracking source of truth**: `docs/BACKLOG.md` (written in French — match it). Append non-trivial plans there before coding; do not create a parallel tracking file. `SESSION_RESUME.md` is a long scratch/session log, not the plan of record.
+- **Tracking source of truth**: `BACKLOG.md` at the repo root (written in French — match it). Append non-trivial plans there before coding; do not create a parallel tracking file. A section with nothing open moves whole to `BACKLOG-ARCHIVE.md` (grep it, never read it in full). `SESSION_RESUME.md` is a long scratch/session log, not the plan of record.
 - **Layer → files map** for scoping parallel work:
 
 | Layer | Files |
@@ -148,6 +148,9 @@ Verified, deliberate choices — treat as settled unless the task is explicitly 
 - **Qdrant embedded = one client per storage folder** — app and tests cannot run simultaneously against the same data dir; `conftest.py` fixtures serialize access (see Tests).
 - **Manifest saved only on successful completion** — a crash re-runs the same files by design (see Incremental Ingestion).
 - **Two Gemini-model code paths**: `constants.py` reads `DEFAULT_LLM_MODEL`; `utils/llm_providers.py` runtime selection reads `GEMINI_LLM_MODEL`. Both work but through different paths (see Provider Selection).
+- **NetworkX is the default graph backend (`GRAPH_BACKEND`, `constants.py`), Kùzu the optional embedded one; Neo4j is reserved for cloud production (Phase 3)** — don't propose Neo4j for dev or embedded use: « **Décision :** Kùzu pour dev/embarqué. Neo4j réservé pour la production cloud (Phase 3). » (`BACKLOG-ARCHIVE.md`, Phase 2, « Pourquoi Kùzu (pas Neo4j) »). Neo4j stays the open Phase 3 in `BACKLOG.md`.
+- **Kùzu entity attributes are one JSON string column** (`attrs STRING` in `graph_backend_kuzu.py`) on purpose: « Attributs stockés en JSON string (pas de migration de schéma) » (`BACKLOG-ARCHIVE.md`, Phase 2, 2.8). Don't propose typed per-attribute columns.
+- **Don't pass `css=`/`theme=`/`js=` to `gr.Blocks()`** — they are lost through `gr.mount_gradio_app` (Gradio 6.2). The theme CSS and script go through `ThemeInjectionMiddleware` today; `mount_gradio_app(css=, head=, theme=)` is the supported alternative. « […] (Gradio 6.x ignore `css=` dans `gr.Blocks()`). CSS+JS injectés via `ThemeInjectionMiddleware`. » (`BACKLOG-ARCHIVE.md`, « Dark/Light mode toggle + UI responsive », commit `7b240ad`). Don't "simplify" it back to `css=`.
 
 ## Documentation
 
@@ -156,7 +159,8 @@ Verified, deliberate choices — treat as settled unless the task is explicitly 
 | `CLAUDE.md` | This file — instructions for Claude Code |
 | `README.md` | User-facing setup and usage guide |
 | `docs/QUICKSTART.md` | Step-by-step guide to deploy CogniDoc on a new project |
-| `docs/BACKLOG.md` | Implementation plans (Phases 1-3: graph enrichment → Kùzu → Neo4j) |
+| `BACKLOG.md` | Open implementation plans (Phase 3: Neo4j) |
+| `BACKLOG-ARCHIVE.md` | Finished work moved out of `BACKLOG.md` (Phases 1-2: graph enrichment → Kùzu); grep it |
 | `docs/architecture/query_pipeline.md` | Deep dive into query internals |
 
 ## Architecture
