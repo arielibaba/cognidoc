@@ -25,12 +25,35 @@ Section close, déplacée telle quelle dans `BACKLOG-ARCHIVE.md` le 2026-10-19 (
 
 ## Phase 3 (futur) : Neo4j pour la production cloud
 
-Hors scope pour l'instant. Quand nécessaire :
+- [ ] `TODO#neo4j-backend` — hors scope pour l'instant. Quand nécessaire :
 
-- Ajouter une implémentation `Neo4jStorage(GraphStorage)`
+- Ajouter une implémentation `Neo4jBackend(GraphBackend)`
 - Utiliser le driver Python `neo4j`
 - Configuration : `GRAPH_BACKEND=neo4j`, `NEO4J_URI`, `NEO4J_AUTH`
-- L'abstraction `GraphStorage` de la Phase 2 en fait un remplacement drop-in
+- L'abstraction `GraphBackend` (`graph_backend.py`) de la Phase 2 en fait un remplacement drop-in
+
+---
+
+## Feedback Loop (futur)
+
+- [ ] `TODO#feedback-loop` — collecte du retour utilisateur pour améliorer la qualité du retrieval
+  (reporté du Roadmap de `README.md` le 2026-10-19).
+
+---
+
+## Graph Viewer Search (futur)
+
+- [ ] `TODO#graph-viewer-search` — recherche et filtrage par attribut dans la visualisation du
+  graphe (reporté du Roadmap de `README.md` le 2026-10-19).
+
+---
+
+## Défaut : le thème Soft de l'interface n'est jamais appliqué
+
+- [ ] `TODO#theme-soft-perdu` — `cognidoc_app.py` passe `theme=gr.themes.Soft(...)` à
+  `gr.Blocks()`, mais l'app est montée par `gr.mount_gradio_app`, qui l'ignore (Gradio 6.2) :
+  après montage, `demo.theme` est le thème par défaut. Passer `theme=` à `mount_gradio_app`.
+  Relevé par revue le 2026-10-19.
 
 ---
 
@@ -43,12 +66,6 @@ Photo datée de l'état, déplacée dans `BACKLOG-ARCHIVE.md` le 2026-10-19 : l'
 ## Comment reprendre ce travail
 
 Pour continuer l'implémentation dans une future session Claude Code :
-
-**Phase 1 :**
-```
-Implémente la Phase 1 du roadmap dans BACKLOG.md.
-Commence par l'étape 1.1 (enrichir le prompt d'extraction dans extract_entities.py).
-```
 
 **Phase 3 :**
 ```

@@ -734,9 +734,9 @@ COGNIDOC_DATA_DIR="/path/to/external/data" \
 - [x] **Metrics Dashboard** — SaaS-style cards, Plotly charts (bar, timeline, donut), CSV/JSON export
 - [x] **Dark/Light Mode** — Full theme toggle with CSS/JS middleware injection
 - [x] **Knowledge Graph Viewer** — D3.js force-directed visualization with community hulls and entity details
-- [ ] **Neo4j Backend** — Cloud-ready graph backend for production multi-tenant deployments
-- [ ] **Feedback Loop** — User feedback collection for retrieval quality improvement
-- [ ] **Graph Viewer Search** — Attribute-level search and filtering in the graph visualization
+- **Neo4j Backend** — Cloud-ready graph backend for production multi-tenant deployments — planned, tracked in [`BACKLOG.md`](BACKLOG.md) (`TODO#neo4j-backend`)
+- **Feedback Loop** — User feedback collection for retrieval quality improvement — planned, tracked in [`BACKLOG.md`](BACKLOG.md) (`TODO#feedback-loop`)
+- **Graph Viewer Search** — Attribute-level search and filtering in the graph visualization — planned, tracked in [`BACKLOG.md`](BACKLOG.md) (`TODO#graph-viewer-search`)
 
 > See [`BACKLOG.md`](BACKLOG.md) for detailed implementation notes.
 
