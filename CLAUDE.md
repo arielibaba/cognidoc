@@ -126,7 +126,7 @@ Concrete paths that are runtime state, secrets, or generated artifacts — never
 
 The generic sub-agent methodology and report template live in the global. CogniDoc bindings:
 
-- **Tracking source of truth**: `BACKLOG.md` at the repo root (written in French — match it). Append non-trivial plans there before coding; do not create a parallel tracking file. `SESSION_RESUME.md` is a long scratch/session log, not the plan of record.
+- **Tracking source of truth**: `BACKLOG.md` at the repo root (written in French — match it). Append non-trivial plans there before coding; do not create a parallel tracking file. A section with nothing open moves whole to `BACKLOG-ARCHIVE.md` (grep it, never read it in full). `SESSION_RESUME.md` is a long scratch/session log, not the plan of record.
 - **Layer → files map** for scoping parallel work:
 
 | Layer | Files |
@@ -156,7 +156,8 @@ Verified, deliberate choices — treat as settled unless the task is explicitly 
 | `CLAUDE.md` | This file — instructions for Claude Code |
 | `README.md` | User-facing setup and usage guide |
 | `docs/QUICKSTART.md` | Step-by-step guide to deploy CogniDoc on a new project |
-| `BACKLOG.md` | Implementation plans (Phases 1-3: graph enrichment → Kùzu → Neo4j) |
+| `BACKLOG.md` | Open implementation plans (Phase 3: Neo4j) |
+| `BACKLOG-ARCHIVE.md` | Finished work moved out of `BACKLOG.md` (Phases 1-2: graph enrichment → Kùzu); grep it |
 | `docs/architecture/query_pipeline.md` | Deep dive into query internals |
 
 ## Architecture
